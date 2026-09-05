@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
   push:
     paths:
-      - 'rc210_ci_payload.zip'
+      - 'ci/rc210_payload.base64'
       - '.github/workflows/windows-installer-ci.yml'
 
 jobs:
@@ -14,20 +14,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Verify source archive
+      - name: Reconstruct UG-DCMS source archive
         shell: powershell
         run: |
-          if (-not (Test-Path 'rc210_ci_payload.zip')) {
-            throw 'Missing rc210_ci_payload.zip in repository root.'
-          }
+          $b64 = (Get-Content 'ci\rc210_payload.base64' -Raw).Trim()
+          [IO.File]::WriteAllBytes('rc210_ci_payload.zip', [Convert]::FromBase64String($b64))
           Get-FileHash 'rc210_ci_payload.zip' -Algorithm SHA256
+          if ((Get-Item 'rc210_ci_payload.zip').Length -lt 100000) { throw 'Reconstructed archive is unexpectedly small.' }
 
       - name: Extract UG-DCMS source
         shell: powershell
         run: |
           New-Item -ItemType Directory -Force -Path src | Out-Null
           Expand-Archive -Path 'rc210_ci_payload.zip' -DestinationPath src -Force
-          Get-ChildItem src
+          if (-not (Test-Path 'src\installer\Build-Setup.ps1')) { throw 'Installer source missing.' }
+          if (-not (Test-Path 'src\backend\app\main.py')) { throw 'Backend source missing.' }
 
       - name: Set up Python 3.12
         uses: actions/setup-python@v5
@@ -39,7 +40,8 @@ jobs:
         shell: powershell
         run: |
           choco install innosetup -y --no-progress
-          choco install postgresql16 -y --no-progress --params '/Password:CiOnlyPg2026!'
+          $pgPassword = [guid]::NewGuid().ToString('N')
+          choco install postgresql16 -y --no-progress --params "/Password:$pgPassword"
           $pg = Get-ChildItem 'C:\Program Files\PostgreSQL' -Directory -ErrorAction SilentlyContinue | Sort-Object Name -Descending | Select-Object -First 1
           if (-not $pg) { throw 'PostgreSQL installation not found' }
           "C:\Program Files (x86)\Inno Setup 6" | Out-File -FilePath $env:GITHUB_PATH -Append
