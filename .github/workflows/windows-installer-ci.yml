@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
   push:
     paths:
-      - 'ci/rc210trim8/**'
+      - 'ci/rc210_ci_payload.zip'
       - '.github/workflows/windows-installer-ci.yml'
   pull_request:
     branches: [ main ]
@@ -16,28 +16,25 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Reconstruct UG-DCMS source archive
+      - name: Verify UG-DCMS source archive
         shell: powershell
         run: |
-          $files = @(
-            (Get-ChildItem 'ci\rc210trim8\part*.b64' | Sort-Object Name)
-            (Get-ChildItem 'ci\rc210trim8\tail*.b64' | Sort-Object Name)
-          )
-          if ($files.Count -lt 10) { throw "Chunk set incomplete: $($files.Count) files" }
-          $sb = New-Object System.Text.StringBuilder
-          foreach ($f in $files) { [void]$sb.Append((Get-Content $f.FullName -Raw).Trim()) }
-          $b64 = $sb.ToString()
-          Write-Host "Base64 chars: $($b64.Length)"
-          [IO.File]::WriteAllBytes('rc210_ci_payload.zip', [Convert]::FromBase64String($b64))
-          $hash = Get-FileHash 'rc210_ci_payload.zip' -Algorithm SHA256
-          $hash | Format-List
-          if ((Get-Item 'rc210_ci_payload.zip').Length -lt 100000) { throw 'Reconstructed archive is unexpectedly small.' }
+          $zip = 'ci\rc210_ci_payload.zip'
+          if (-not (Test-Path $zip)) { throw 'ci\rc210_ci_payload.zip is missing.' }
+          $expectedSize = 226595
+          $expectedHash = '23FCA65F85DF2F83D9020F9168D232111F9E7523F1209A15C73E5F372EE0E1F8'
+          $actualSize = (Get-Item $zip).Length
+          $actualHash = (Get-FileHash $zip -Algorithm SHA256).Hash.ToUpperInvariant()
+          Write-Host "ZIP size: $actualSize"
+          Write-Host "ZIP SHA256: $actualHash"
+          if ($actualSize -ne $expectedSize) { throw "ZIP size mismatch: expected $expectedSize, got $actualSize" }
+          if ($actualHash -ne $expectedHash) { throw "ZIP SHA256 mismatch: expected $expectedHash, got $actualHash" }
 
       - name: Extract UG-DCMS source
         shell: powershell
         run: |
           New-Item -ItemType Directory -Force -Path src | Out-Null
-          Expand-Archive -Path 'rc210_ci_payload.zip' -DestinationPath src -Force
+          Expand-Archive -Path 'ci\rc210_ci_payload.zip' -DestinationPath src -Force
           if (-not (Test-Path 'src\installer\Build-Setup.ps1')) { throw 'Installer source missing.' }
           if (-not (Test-Path 'src\backend\app\main.py')) { throw 'Backend source missing.' }
           if (-not (Test-Path 'src\db\migrations\0012_applicability_configuration.sql')) { throw 'Migration 0012 missing.' }
