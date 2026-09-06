@@ -38,8 +38,7 @@ if(-not $p.Contains('$exitCode = [int]$proc.ExitCode')){
 }
 Set-Content $provision $p -Encoding UTF8
 
-# Do not keep patching the tiny migration script with fragile text replacements.
-# Replace it deterministically with a bounded, non-interactive implementation.
+# Replace the original migration script deterministically with a bounded, non-interactive implementation.
 $migrate = Join-Path $SourceRoot 'windows\migrate-native.ps1'
 $hardenedMigrator = @'
 param(
@@ -96,23 +95,36 @@ function Invoke-PsqlFile {
   $argList += @('-f',$SqlFile)
 
   Write-MigrationLog ('PSQL START step=' + $Step + ' timeout=' + $TimeoutSeconds + 's file=' + $SqlFile)
-  $proc = Start-Process -FilePath $psql -ArgumentList $argList -PassThru -NoNewWindow -RedirectStandardOutput $outFile -RedirectStandardError $errFile
-  if(-not $proc.WaitForExit($TimeoutSeconds * 1000)){
-    Write-MigrationLog ('PSQL TIMEOUT step=' + $Step + ' pid=' + $proc.Id)
-    try { taskkill /PID $proc.Id /T /F | Out-Null } catch {}
-    throw ('psql timeout for step: ' + $Step)
+  try {
+    $proc = Start-Process -FilePath $psql -ArgumentList $argList -PassThru -NoNewWindow -RedirectStandardOutput $outFile -RedirectStandardError $errFile
+    if(-not $proc.WaitForExit($TimeoutSeconds * 1000)){
+      Write-MigrationLog ('PSQL TIMEOUT step=' + $Step + ' pid=' + $proc.Id)
+      try { taskkill /PID $proc.Id /T /F | Out-Null } catch {}
+      throw ('psql timeout for step: ' + $Step)
+    }
+    $proc.WaitForExit()
+    $proc.Refresh()
+    if(-not $proc.HasExited){ throw ('psql did not exit cleanly for step: ' + $Step) }
+    $code=[int]$proc.ExitCode
+    # Get-Content -Raw returns $null for an empty file in Windows PowerShell 5.1.
+    # Cast to [string] before Trim() so successful quiet psql commands do not fail here.
+    $stdout=([string](Read-Text $outFile)).Trim()
+    $stderr=([string](Read-Text $errFile)).Trim()
+    Write-MigrationLog ('PSQL EXIT step=' + $Step + ' code=' + $code)
+    if($stdout){ Write-MigrationLog ('STDOUT step=' + $Step + ' ' + $stdout) }
+    if($stderr){ Write-MigrationLog ('STDERR step=' + $Step + ' ' + $stderr) }
+    if($code -ne 0){ throw ('psql failed for step ' + $Step + ' with exit code ' + $code) }
+    return $stdout
   }
-  $proc.WaitForExit()
-  $proc.Refresh()
-  if(-not $proc.HasExited){ throw ('psql did not exit cleanly for step: ' + $Step) }
-  $code=[int]$proc.ExitCode
-  $stdout=(Read-Text $outFile).Trim()
-  $stderr=(Read-Text $errFile).Trim()
-  Write-MigrationLog ('PSQL EXIT step=' + $Step + ' code=' + $code)
-  if($stdout){ Write-MigrationLog ('STDOUT step=' + $Step + ' ' + $stdout) }
-  if($stderr){ Write-MigrationLog ('STDERR step=' + $Step + ' ' + $stderr) }
-  if($code -ne 0){ throw ('psql failed for step ' + $Step + ' with exit code ' + $code) }
-  return $stdout
+  catch {
+    $msg=[string]$_.Exception.Message
+    Write-MigrationLog ('PSQL EXCEPTION step=' + $Step + ' message=' + $msg)
+    $capturedOut=([string](Read-Text $outFile)).Trim()
+    $capturedErr=([string](Read-Text $errFile)).Trim()
+    if($capturedOut){ Write-MigrationLog ('STDOUT step=' + $Step + ' ' + $capturedOut) }
+    if($capturedErr){ Write-MigrationLog ('STDERR step=' + $Step + ' ' + $capturedErr) }
+    throw
+  }
 }
 
 Write-MigrationLog ('MIGRATOR START pid=' + $PID + ' installDir=' + $InstallDir + ' pg=' + $PgHost + ':' + $PgPort + ' db=' + $PgDatabase)
@@ -129,7 +141,7 @@ foreach($file in $migrations){
   $escapedV=$v.Replace("'","''")
   $stateSql=Join-Path $WorkDir ('state_' + $v + '.sql')
   Write-Utf8NoBom $stateSql ("SELECT EXISTS(SELECT 1 FROM schema_migration WHERE version='" + $escapedV + "');")
-  $state=(Invoke-PsqlFile -SqlFile $stateSql -Step ('state_' + $v) -TimeoutSeconds 15 -TupleOnly).Trim()
+  $state=([string](Invoke-PsqlFile -SqlFile $stateSql -Step ('state_' + $v) -TimeoutSeconds 15 -TupleOnly)).Trim()
   if($state -eq 't'){
     Write-MigrationLog ('SKIP ' + $v)
     continue
@@ -152,7 +164,7 @@ foreach($file in $migrations){
 
 $countSql=Join-Path $WorkDir 'verify_count.sql'
 Write-Utf8NoBom $countSql 'SELECT count(*) FROM schema_migration;'
-$countText=(Invoke-PsqlFile -SqlFile $countSql -Step 'verify_count' -TimeoutSeconds 15 -TupleOnly).Trim()
+$countText=([string](Invoke-PsqlFile -SqlFile $countSql -Step 'verify_count' -TimeoutSeconds 15 -TupleOnly)).Trim()
 if([int]$countText -ne 12){ throw ('Migration count mismatch. Expected 12, actual ' + $countText) }
 Write-MigrationLog 'ALL MIGRATIONS PASS 12/12'
 Write-Host 'All database migrations completed successfully.' -ForegroundColor Green
@@ -185,5 +197,7 @@ if(-not $mgCheck.Contains("PGCONNECT_TIMEOUT='5'")){ throw 'psql connect timeout
 if(-not $mgCheck.Contains('statement_timeout=25000')){ throw 'psql statement timeout missing' }
 if(-not $mgCheck.Contains("'-w'")){ throw 'psql noninteractive mode missing' }
 if(-not $mgCheck.Contains('PSQL TIMEOUT')){ throw 'per-psql hard timeout missing' }
+if(-not $mgCheck.Contains('PSQL EXCEPTION')){ throw 'psql exception diagnostics missing' }
+if(-not $mgCheck.Contains('([string](Read-Text $outFile)).Trim()')){ throw 'empty psql output safety missing' }
 if(-not $mgCheck.Contains('ALL MIGRATIONS PASS 12/12')){ throw 'migration completion gate missing' }
 Write-Host 'Installer reliability patch PASS: deterministic bounded migrator installed and syntax validated.'
