@@ -1,0 +1,134 @@
+name: UG-DCMS Windows Installer Validation v3
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'ci/patch-installer.ps1'
+      - '.github/workflows/windows-installer-ci-v3.yml'
+      - 'ci/rc210_ci_payload.zip'
+
+jobs:
+  windows-install-smoke:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify archive
+        shell: powershell
+        run: |
+          $zip='ci\rc210_ci_payload.zip'
+          if(-not (Test-Path $zip)){ throw 'source ZIP missing' }
+          if((Get-Item $zip).Length -ne 226595){ throw 'source ZIP size mismatch' }
+          $h=(Get-FileHash $zip -Algorithm SHA256).Hash.ToUpperInvariant()
+          if($h -ne '23FCA65F85DF2F83D9020F9168D232111F9E7523F1209A15C73E5F372EE0E1F8'){ throw "source ZIP hash mismatch: $h" }
+
+      - name: Extract source
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Force src | Out-Null
+          Expand-Archive 'ci\rc210_ci_payload.zip' src -Force
+          if(-not(Test-Path 'src\windows\install-oneclick.ps1')){ throw 'installer source missing' }
+
+      - name: Apply reliability patches
+        shell: powershell
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File ci\patch-installer.ps1 -SourceRoot src
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          architecture: 'x64'
+
+      - name: Install prerequisites
+        shell: powershell
+        run: |
+          choco install innosetup -y --no-progress
+          $pw=[guid]::NewGuid().ToString('N')
+          choco install postgresql16 -y --no-progress --params "/Password:$pw"
+          $pg=Get-ChildItem 'C:\Program Files\PostgreSQL' -Directory -ErrorAction SilentlyContinue | Sort-Object Name -Descending | Select-Object -First 1
+          if(-not $pg){ throw 'PostgreSQL not found' }
+          "C:\Program Files (x86)\Inno Setup 6" | Out-File $env:GITHUB_PATH -Append
+          "$($pg.FullName)\bin" | Out-File $env:GITHUB_PATH -Append
+
+      - name: Static installer audit
+        working-directory: src
+        shell: powershell
+        run: python installer\verify_installer_source.py
+
+      - name: Build Setup.exe
+        working-directory: src
+        shell: powershell
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File installer\Build-Setup.ps1
+
+      - name: Verify Setup.exe
+        working-directory: src
+        shell: powershell
+        run: |
+          $setup='installer\output\UG-DCMS-Setup-1.0.0-rc2.10.exe'
+          if(-not(Test-Path $setup)){ throw 'Setup.exe missing' }
+          if((Get-Item $setup).Length -lt 1000000){ throw 'Setup.exe too small' }
+          Get-Item $setup | Format-List FullName,Length,LastWriteTime
+          Get-FileHash $setup -Algorithm SHA256 | Format-List
+
+      - name: Install UG-DCMS silently
+        working-directory: src
+        shell: powershell
+        run: |
+          $setup=(Resolve-Path 'installer\output\UG-DCMS-Setup-1.0.0-rc2.10.exe').Path
+          $p=Start-Process -FilePath $setup -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/SP-','/LOG=C:\ugdcms-inno.log') -PassThru -Wait
+          if($p.ExitCode -ne 0){ throw "Setup failed: $($p.ExitCode)" }
+
+      - name: Wait for provisioning
+        shell: powershell
+        run: |
+          $status='C:\ProgramData\UG-DCMS\INSTALLATION-STATUS.txt'
+          $err='C:\ProgramData\UG-DCMS\logs\LAST-ERROR.txt'
+          $deadline=(Get-Date).AddMinutes(15)
+          do {
+            if(Test-Path $err){ Get-Content $err -Tail 150; Get-Content 'C:\ProgramData\UG-DCMS\logs\install.log' -Tail 300 -ErrorAction SilentlyContinue; throw 'Provisioning failed' }
+            if(Test-Path $status){ Get-Content $status; break }
+            Start-Sleep -Seconds 5
+          } while((Get-Date) -lt $deadline)
+          if(-not(Test-Path $status)){ throw 'Provisioning timeout' }
+
+      - name: Verify services and pointers
+        shell: powershell
+        run: |
+          $db=Get-Service 'UGDCMS-PostgreSQL' -ErrorAction Stop
+          $app=Get-Service 'UGDCMS-App' -ErrorAction Stop
+          if($db.Status -ne 'Running'){ throw "DB service $($db.Status)" }
+          if($app.Status -ne 'Running'){ throw "App service $($app.Status)" }
+          $runtime=(Get-Content 'C:\ProgramData\UG-DCMS\runtime\CURRENT-RUNTIME.txt' -Raw).Trim()
+          $release=(Get-Content 'C:\ProgramData\UG-DCMS\releases\CURRENT-RELEASE.txt' -Raw).Trim()
+          if(-not(Test-Path $runtime)){ throw 'runtime pointer target missing' }
+          if(-not(Test-Path $release)){ throw 'release pointer target missing' }
+
+      - name: HTTP smoke
+        shell: powershell
+        run: |
+          $h=Invoke-WebRequest 'http://127.0.0.1:8080/api/v1/system/health' -UseBasicParsing -TimeoutSec 10
+          if($h.StatusCode -ne 200){ throw "health HTTP $($h.StatusCode)" }
+          $u=Invoke-WebRequest 'http://127.0.0.1:8080/' -UseBasicParsing -TimeoutSec 10
+          if($u.StatusCode -ne 200){ throw "UI HTTP $($u.StatusCode)" }
+          Write-Host 'UG-DCMS Windows installer smoke PASS'
+
+      - name: Collect diagnostics
+        if: always()
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Force 'ci-artifacts\diagnostics' | Out-Null
+          Copy-Item 'C:\ProgramData\UG-DCMS\logs\*' 'ci-artifacts\diagnostics' -Force -ErrorAction SilentlyContinue
+          Copy-Item 'C:\ProgramData\UG-DCMS\INSTALLATION-STATUS.txt' 'ci-artifacts\diagnostics' -Force -ErrorAction SilentlyContinue
+          Copy-Item 'C:\ugdcms-inno.log' 'ci-artifacts\diagnostics' -Force -ErrorAction SilentlyContinue
+          Get-Service 'UGDCMS-*' -ErrorAction SilentlyContinue | Format-List * | Out-File 'ci-artifacts\diagnostics\services.txt'
+
+      - name: Upload artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ug-dcms-windows-installer-validation-v3
+          if-no-files-found: ignore
+          path: |
+            src/installer/output/*.exe
+            ci-artifacts/diagnostics/**
