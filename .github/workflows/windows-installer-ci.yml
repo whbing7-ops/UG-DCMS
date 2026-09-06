@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
   push:
     paths:
-      - 'ci/rc210_payload.base64'
+      - 'ci/rc210trim8/**'
       - '.github/workflows/windows-installer-ci.yml'
 
 jobs:
@@ -17,9 +17,18 @@ jobs:
       - name: Reconstruct UG-DCMS source archive
         shell: powershell
         run: |
-          $b64 = (Get-Content 'ci\rc210_payload.base64' -Raw).Trim()
+          $files = @(
+            (Get-ChildItem 'ci\rc210trim8\part*.b64' | Sort-Object Name)
+            (Get-ChildItem 'ci\rc210trim8\tail*.b64' | Sort-Object Name)
+          )
+          if ($files.Count -lt 10) { throw "Chunk set incomplete: $($files.Count) files" }
+          $sb = New-Object System.Text.StringBuilder
+          foreach ($f in $files) { [void]$sb.Append((Get-Content $f.FullName -Raw).Trim()) }
+          $b64 = $sb.ToString()
+          Write-Host "Base64 chars: $($b64.Length)"
           [IO.File]::WriteAllBytes('rc210_ci_payload.zip', [Convert]::FromBase64String($b64))
-          Get-FileHash 'rc210_ci_payload.zip' -Algorithm SHA256
+          $hash = Get-FileHash 'rc210_ci_payload.zip' -Algorithm SHA256
+          $hash | Format-List
           if ((Get-Item 'rc210_ci_payload.zip').Length -lt 100000) { throw 'Reconstructed archive is unexpectedly small.' }
 
       - name: Extract UG-DCMS source
@@ -29,6 +38,7 @@ jobs:
           Expand-Archive -Path 'rc210_ci_payload.zip' -DestinationPath src -Force
           if (-not (Test-Path 'src\installer\Build-Setup.ps1')) { throw 'Installer source missing.' }
           if (-not (Test-Path 'src\backend\app\main.py')) { throw 'Backend source missing.' }
+          if (-not (Test-Path 'src\db\migrations\0012_applicability_configuration.sql')) { throw 'Migration 0012 missing.' }
 
       - name: Set up Python 3.12
         uses: actions/setup-python@v5
@@ -64,6 +74,7 @@ jobs:
         run: |
           $setup = 'installer\output\UG-DCMS-Setup-1.0.0-rc2.10.exe'
           if (-not (Test-Path $setup)) { throw "Missing $setup" }
+          if ((Get-Item $setup).Length -lt 1000000) { throw 'Setup.exe is unexpectedly small' }
           Get-Item $setup | Format-List FullName,Length,LastWriteTime
 
       - name: Install UG-DCMS silently
@@ -73,9 +84,9 @@ jobs:
           $setup = (Resolve-Path 'installer\output\UG-DCMS-Setup-1.0.0-rc2.10.exe').Path
           $p = Start-Process -FilePath $setup -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/SP-','/LOG=C:\ugdcms-inno.log') -PassThru -Wait
           if ($p.ExitCode -ne 0) {
-            if (Test-Path 'C:\ProgramData\UG-DCMS\logs\install.log') { Get-Content 'C:\ProgramData\UG-DCMS\logs\install.log' -Tail 250 }
-            if (Test-Path 'C:\ProgramData\UG-DCMS\logs\LAST-ERROR.txt') { Get-Content 'C:\ProgramData\UG-DCMS\logs\LAST-ERROR.txt' -Tail 100 }
-            if (Test-Path 'C:\ugdcms-inno.log') { Get-Content 'C:\ugdcms-inno.log' -Tail 250 }
+            Get-Content 'C:\ProgramData\UG-DCMS\logs\install.log' -Tail 250 -ErrorAction SilentlyContinue
+            Get-Content 'C:\ProgramData\UG-DCMS\logs\LAST-ERROR.txt' -Tail 100 -ErrorAction SilentlyContinue
+            Get-Content 'C:\ugdcms-inno.log' -Tail 250 -ErrorAction SilentlyContinue
             throw "Setup failed with exit code $($p.ExitCode)"
           }
 
@@ -99,10 +110,8 @@ jobs:
           $deadline = (Get-Date).AddSeconds(120)
           $health = $null
           do {
-            try {
-              $health = Invoke-RestMethod 'http://127.0.0.1:8080/api/v1/system/health' -TimeoutSec 5
-              break
-            } catch { Start-Sleep -Seconds 2 }
+            try { $health = Invoke-RestMethod 'http://127.0.0.1:8080/api/v1/system/health' -TimeoutSec 5; break }
+            catch { Start-Sleep -Seconds 2 }
           } while ((Get-Date) -lt $deadline)
           if (-not $health) {
             Get-Content 'C:\ProgramData\UG-DCMS\logs\install.log' -Tail 250 -ErrorAction SilentlyContinue
