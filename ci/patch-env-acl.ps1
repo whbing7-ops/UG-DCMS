@@ -4,13 +4,6 @@ $ErrorActionPreference='Stop'
 $provision = Join-Path $SourceRoot 'windows\install-oneclick.ps1'
 $p = Get-Content $provision -Raw -Encoding UTF8
 
-$old = @'
-$envPath="$InstallDir\.env"
-if(Test-Path $envPath){ $previousEnvContent = Get-Content $envPath -Raw -ErrorAction SilentlyContinue }
-Set-Content -Path $envPath -Value $envText -Encoding UTF8
-& icacls $envPath /inheritance:r /grant:r '*S-1-5-18:(R)' '*S-1-5-32-544:(R)' | Out-Null
-'@
-
 $new = @'
 $envPath="$InstallDir\.env"
 if(Test-Path $envPath){
@@ -28,12 +21,17 @@ Set-Content -Path $envPath -Value $envText -Encoding UTF8
 # Administrators retain full control so future elevated upgrades can replace them.
 & icacls.exe $envPath /inheritance:r /grant:r '*S-1-5-18:(R)' '*S-1-5-32-544:(F)' | Out-Null
 if($LASTEXITCODE -ne 0){ Fail '无法设置 .env 的安全访问控制列表' }
+
 '@
 
-if($p.Contains($old)){
-  $p = $p.Replace($old,$new)
-} elseif(-not $p.Contains("'*S-1-5-32-544:(F)'")) {
-  throw 'Expected .env ACL block not found and hardened ACL is absent'
+if(-not $p.Contains("'*S-1-5-32-544:(F)'")){
+  $startMarker = '$envPath="$InstallDir\.env"'
+  $endMarker = '# 启动脚本 + WinSW 服务配置'
+  $start = $p.IndexOf($startMarker,[System.StringComparison]::Ordinal)
+  if($start -lt 0){ throw 'Unable to locate .env configuration block start' }
+  $finish = $p.IndexOf($endMarker,$start,[System.StringComparison]::Ordinal)
+  if($finish -lt 0){ throw 'Unable to locate .env configuration block end' }
+  $p = $p.Substring(0,$start) + $new + $p.Substring($finish)
 }
 
 Set-Content -Path $provision -Value $p -Encoding UTF8
