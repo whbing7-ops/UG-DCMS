@@ -1,0 +1,1 @@
+trigger windows installer validation 2026-09-06
