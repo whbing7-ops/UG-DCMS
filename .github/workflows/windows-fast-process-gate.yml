@@ -1,0 +1,28 @@
+name: UG-DCMS Windows Fast Process Gate
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'ci/test-bounded-process.ps1'
+      - '.github/workflows/windows-fast-process-gate.yml'
+
+jobs:
+  windows-fast-process-gate:
+    runs-on: windows-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Parse test script
+        shell: powershell
+        run: |
+          $tokens=$null
+          $errors=$null
+          [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path 'ci\test-bounded-process.ps1').Path,[ref]$tokens,[ref]$errors) | Out-Null
+          if($errors.Count -gt 0){
+            foreach($e in $errors){ Write-Host ($e.Message + ' at line ' + $e.Extent.StartLineNumber + ', column ' + $e.Extent.StartColumnNumber) }
+            throw 'fast process test script has syntax errors'
+          }
+      - name: Run bounded process tests on Windows PowerShell 5.1
+        shell: powershell
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File ci\test-bounded-process.ps1
