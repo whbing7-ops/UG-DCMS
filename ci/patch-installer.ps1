@@ -82,6 +82,16 @@ $mg = $mg.Replace('& $psql -X -v ON_ERROR_STOP=1 -qtAX -c','& $psql -w -X -v ON_
 $mg = $mg.Replace('& $psql -X -v ON_ERROR_STOP=1 -1 -q -f','& $psql -w -X -v ON_ERROR_STOP=1 -1 -q -f')
 Set-Content $migrate $mg -Encoding UTF8
 
+# The audit must recognize both the original direct invocation and the bounded argument-array invocation.
+$verify = Join-Path $SourceRoot 'installer\verify_installer_source.py'
+$v = Get-Content $verify -Raw -Encoding UTF8
+$oldAudit = "    'migration runs from new release': '-InstallDir `$newRelease' in ps,"
+$newAudit = "    'migration runs from new release': ('-InstallDir `$newRelease' in ps or \"'-InstallDir',`$newRelease\" in ps),"
+if($v.Contains($oldAudit)){
+  $v = $v.Replace($oldAudit,$newAudit)
+  Set-Content $verify $v -Encoding UTF8
+}
+
 # Parse all modified PowerShell files before spending time on prerequisites/build/install.
 foreach($file in @($provision,$migrate)){
   $tokens = $null
@@ -100,6 +110,7 @@ foreach($file in @($provision,$migrate)){
 
 $check = Get-Content $provision -Raw -Encoding UTF8
 $mgCheck = Get-Content $migrate -Raw -Encoding UTF8
+$vCheck = Get-Content $verify -Raw -Encoding UTF8
 if($check.Contains('Start-Transcript -Path $LogFile')){ throw 'Transcript still locks install.log' }
 if(-not $check.Contains('$proc.WaitForExit()')){ throw 'Final WaitForExit patch missing' }
 if(-not $check.Contains('$exitCode = [int]$proc.ExitCode')){ throw 'Typed exit-code patch missing' }
@@ -107,4 +118,5 @@ if(-not $check.Contains("-Step 'Database migrations'")){ throw 'Migration timeou
 if(-not $mgCheck.Contains('$env:PGCONNECT_TIMEOUT=''5''')){ throw 'psql connect timeout missing' }
 if(-not $mgCheck.Contains('$env:PGOPTIONS=''-c statement_timeout=120000 -c lock_timeout=10000''')){ throw 'psql statement/lock timeout missing' }
 if(-not $mgCheck.Contains('& $psql -w')){ throw 'psql noninteractive mode missing' }
+if(-not $vCheck.Contains("\"'-InstallDir',`$newRelease\" in ps")){ throw 'Audit compatibility patch missing' }
 Write-Host 'Installer reliability patches applied and syntax validated.'
