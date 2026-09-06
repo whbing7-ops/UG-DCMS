@@ -175,7 +175,7 @@ if(-not $check.Contains('$exitCode = [int]$proc.ExitCode')){ throw 'Typed exit-c
 if(-not $check.Contains('-InstallDir $newRelease')){ throw 'Migration invocation must use new release' }
 if(-not $mgCheck.Contains("PGCONNECT_TIMEOUT='5'")){ throw 'psql connect timeout missing' }
 if(-not $mgCheck.Contains('statement_timeout=25000')){ throw 'psql statement timeout missing' }
-if(-not $mgCheck.Contains("@(& $psql @argList 2>&1)")){ throw 'direct psql invocation missing' }
+if(-not $mgCheck.Contains('& $psql @argList 2>&1')){ throw 'direct psql invocation missing' }
 if($mgCheck.Contains('Start-Process -FilePath $psql')){ throw 'fragile psql Start-Process wrapper still present' }
 if(-not $mgCheck.Contains('PSQL STACK')){ throw 'psql stack diagnostics missing' }
 if(-not $mgCheck.Contains('ALL MIGRATIONS PASS 12/12')){ throw 'migration completion gate missing' }
