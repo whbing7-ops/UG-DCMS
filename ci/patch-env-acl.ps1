@@ -22,15 +22,17 @@ Set-Content -Path $envPath -Value $envText -Encoding UTF8
 & icacls.exe $envPath /inheritance:r /grant:r '*S-1-5-18:(R)' '*S-1-5-32-544:(F)' | Out-Null
 if($LASTEXITCODE -ne 0){ Fail '无法设置 .env 的安全访问控制列表' }
 
+# 启动脚本 + WinSW 服务配置
+# 只有新 Runtime 已安装、依赖验证和数据库迁移全部成功后，才原子切换 CURRENT-RUNTIME。
 '@
 
 if(-not $p.Contains("'*S-1-5-32-544:(F)'")){
   $startMarker = '$envPath="$InstallDir\.env"'
-  $endMarker = '# 启动脚本 + WinSW 服务配置'
+  $endMarker = '$tmpRuntimeFile = "$currentRuntimeFile.new"'
   $start = $p.IndexOf($startMarker,[System.StringComparison]::Ordinal)
   if($start -lt 0){ throw 'Unable to locate .env configuration block start' }
   $finish = $p.IndexOf($endMarker,$start,[System.StringComparison]::Ordinal)
-  if($finish -lt 0){ throw 'Unable to locate .env configuration block end' }
+  if($finish -lt 0){ throw 'Unable to locate runtime-pointer block after .env configuration' }
   $p = $p.Substring(0,$start) + $new + $p.Substring($finish)
 }
 
@@ -47,4 +49,5 @@ $check = Get-Content $provision -Raw -Encoding UTF8
 if($check.Contains("'*S-1-5-32-544:(R)'")){ throw 'Administrators are still read-only on .env' }
 if(-not $check.Contains('& takeown.exe /F $envPath /A')){ throw 'legacy .env ownership repair missing' }
 if(-not $check.Contains("'*S-1-5-18:(R)' '*S-1-5-32-544:(F)'")){ throw 'hardened .env ACL missing' }
+if(-not $check.Contains('$tmpRuntimeFile = "$currentRuntimeFile.new"')){ throw 'runtime pointer logic lost during .env patch' }
 Write-Host 'ENV ACL PATCH PASS: SYSTEM=Read, Administrators=FullControl, legacy upgrade repair enabled.'
