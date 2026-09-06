@@ -29,9 +29,9 @@ if(-not $p.Contains('$proc.Refresh()')){
   $indent = $m.Groups['indent'].Value
   $replacement = @(
     $indent + '$proc.Refresh()',
-    $indent + 'if(-not $proc.HasExited){ throw "Process did not exit cleanly for step: $Step" }',
+    $indent + 'if(-not $proc.HasExited){ throw "Process did not exit cleanly for step: $Step" }'.Replace('\"','"'),
     $indent + '$exitCode = $proc.ExitCode',
-    $indent + 'if($exitCode -ne 0){ throw "Step failed: $Step; exit code: $exitCode" }'
+    $indent + 'if($exitCode -ne 0){ throw "Step failed: $Step; exit code: $exitCode" }'.Replace('\"','"')
   ) -join "`r`n"
   $p = [regex]::Replace($p,$pattern,[System.Text.RegularExpressions.MatchEvaluator]{ param($x) $replacement },1)
 }
@@ -42,4 +42,12 @@ $check = Get-Content $provision -Raw -Encoding UTF8
 if($check.Contains('Start-Transcript -Path $LogFile')){ throw 'Transcript still locks install.log' }
 if(-not $check.Contains('$proc.Refresh()')){ throw 'Exit-code refresh patch missing' }
 if(-not $check.Contains('powershell-transcript.log')){ throw 'Transcript redirect patch missing' }
-Write-Host 'Installer reliability patches applied.'
+
+$tokens = $null
+$parseErrors = $null
+[System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $provision).Path,[ref]$tokens,[ref]$parseErrors) | Out-Null
+if($parseErrors.Count -gt 0){
+  $parseErrors | ForEach-Object { Write-Host $_.Message }
+  throw "Patched install-oneclick.ps1 has $($parseErrors.Count) parse error(s)"
+}
+Write-Host 'Installer reliability patches applied and syntax validated.'
