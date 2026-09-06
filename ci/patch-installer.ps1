@@ -18,30 +18,37 @@ if($p.Contains($oldTranscript)){
   $p = $p.Replace($oldTranscript,$newTranscript)
 }
 
-if(-not $p.Contains('$proc.Refresh()')){
-  $pattern = '(?m)^(?<indent>[^\S\r\n]*)if\s*\(\s*\$proc\.ExitCode\s*-ne\s*0\s*\)\s*\{\s*throw\s*"[^"\r\n]*"\s*\}[^\S\r\n]*$'
-  $m = [regex]::Match($p,$pattern)
-  if(-not $m.Success){
-    Write-Host 'Nearby process exit-code lines:'
-    ($p -split "`r?`n" | Where-Object { $_ -match 'proc|ExitCode|WaitForExit|Start-Process' }) | ForEach-Object { Write-Host $_ }
-    throw 'Process exit-code expression not found'
-  }
+$pattern = '(?m)^(?<indent>[^\S\r\n]*)if\s*\(\s*\$proc\.ExitCode\s*-ne\s*0\s*\)\s*\{\s*throw\s*"[^"\r\n]*"\s*\}[^\S\r\n]*$'
+$m = [regex]::Match($p,$pattern)
+if($m.Success){
   $indent = $m.Groups['indent'].Value
   $replacement = @'
+$proc.WaitForExit()
 $proc.Refresh()
 if(-not $proc.HasExited){ throw ('Process did not exit cleanly for step: ' + $Step) }
-$exitCode = $proc.ExitCode
+$exitCode = [int]$proc.ExitCode
 if($exitCode -ne 0){ throw ('Step failed: ' + $Step + '; exit code: ' + [string]$exitCode) }
 '@
   $replacement = (($replacement -split "`r?`n") | ForEach-Object { $indent + $_ }) -join "`r`n"
   $p = $p.Substring(0,$m.Index) + $replacement + $p.Substring($m.Index + $m.Length)
+}
+elseif($p.Contains('$proc.Refresh()')){
+  $p = $p.Replace('$proc.Refresh()', '$proc.WaitForExit()' + "`r`n" + '  $proc.Refresh()')
+  $p = $p.Replace('$exitCode = $proc.ExitCode', '$exitCode = [int]$proc.ExitCode')
+}
+else {
+  Write-Host 'Nearby process exit-code lines:'
+  ($p -split "`r?`n" | Where-Object { $_ -match 'proc|ExitCode|WaitForExit|Start-Process' }) | ForEach-Object { Write-Host $_ }
+  throw 'Process exit-code expression not found'
 }
 
 Set-Content $provision $p -Encoding UTF8
 
 $check = Get-Content $provision -Raw -Encoding UTF8
 if($check.Contains('Start-Transcript -Path $LogFile')){ throw 'Transcript still locks install.log' }
+if(-not $check.Contains('$proc.WaitForExit()')){ throw 'Final WaitForExit patch missing' }
 if(-not $check.Contains('$proc.Refresh()')){ throw 'Exit-code refresh patch missing' }
+if(-not $check.Contains('$exitCode = [int]$proc.ExitCode')){ throw 'Typed exit-code patch missing' }
 if(-not $check.Contains('powershell-transcript.log')){ throw 'Transcript redirect patch missing' }
 
 $tokens = $null
