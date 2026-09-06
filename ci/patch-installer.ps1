@@ -12,14 +12,12 @@ if($t.Contains($oldBuild)){
 $provision = Join-Path $SourceRoot 'windows\install-oneclick.ps1'
 $p = Get-Content $provision -Raw -Encoding UTF8
 
-# Keep transcript output separate from the application install log.
 $oldTranscript = 'try { Start-Transcript -Path $LogFile -Append -Force | Out-Null } catch {}'
 if($p.Contains($oldTranscript)){
   $newTranscript = '$TranscriptFile = Join-Path $LogDir ''powershell-transcript.log''' + "`r`n" + 'try { Start-Transcript -Path $TranscriptFile -Append -Force | Out-Null } catch {}'
   $p = $p.Replace($oldTranscript,$newTranscript)
 }
 
-# Normalize external-process completion for Windows PowerShell 5.1.
 if(-not $p.Contains('$exitCode = [int]$proc.ExitCode')){
   $processPattern = '^(?<indent>[^\S\r\n]*)if\s*\(\s*\$proc\.ExitCode\s*-ne\s*0\s*\)\s*\{\s*throw\s*"[^"\r\n]*"\s*\}[^\S\r\n]*$'
   $m = [regex]::Match($p,$processPattern,[System.Text.RegularExpressions.RegexOptions]::Multiline)
@@ -37,7 +35,6 @@ if(-not $p.Contains('$exitCode = [int]$proc.ExitCode')){
 }
 Set-Content $provision $p -Encoding UTF8
 
-# Harden and instrument database migrations.
 $migrate = Join-Path $SourceRoot 'windows\migrate-native.ps1'
 $mg = Get-Content $migrate -Raw -Encoding UTF8
 
@@ -52,12 +49,7 @@ if(-not $mg.Contains('$env:PGCONNECT_TIMEOUT=''5''')){
   $mg = $mg.Replace($anchor,$extra)
 }
 
-# Force every psql call to be non-interactive.
-$mg = $mg.Replace('& $psql @Args','& $psql -w @Args')
-$mg = $mg.Replace('& $psql -X -v ON_ERROR_STOP=1 -qtAX -c','& $psql -w -X -v ON_ERROR_STOP=1 -qtAX -c')
-$mg = $mg.Replace('& $psql -X -v ON_ERROR_STOP=1 -1 -q -f','& $psql -w -X -v ON_ERROR_STOP=1 -1 -q -f')
-
-# Replace the fragile migration-state query with a logged, null-safe form.
+# Instrument the original call sites first, then harden any remaining psql calls.
 $oldState = @'
   $exists=& $psql -X -v ON_ERROR_STOP=1 -qtAX -c "SELECT EXISTS(SELECT 1 FROM schema_migration WHERE version='$v');"
   if($LASTEXITCODE -ne 0){ throw "query migration state failed for $v" }
@@ -80,7 +72,6 @@ elseif(-not $mg.Contains('STATE " + $v + " START')){
   throw 'Migration state block not found'
 }
 
-# Add per-file START/PASS markers and capture psql output/exit code.
 $oldApply = @'
   Write-Host "Apply $v ..."
   $hash=(Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower()
@@ -125,9 +116,12 @@ if($mg.Contains($oldDone) -and -not $mg.Contains('ALL MIGRATIONS PASS')){
   $mg = $mg.Replace($oldDone,$newDone)
 }
 
+# Harden all remaining psql calls after instrumentation.
+$mg = $mg.Replace('& $psql @Args','& $psql -w @Args')
+$mg = $mg.Replace('& $psql -X -v ON_ERROR_STOP=1 -qtAX -c','& $psql -w -X -v ON_ERROR_STOP=1 -qtAX -c')
+$mg = $mg.Replace('& $psql -X -v ON_ERROR_STOP=1 -1 -q -f','& $psql -w -X -v ON_ERROR_STOP=1 -1 -q -f')
 Set-Content $migrate $mg -Encoding UTF8
 
-# Parse modified PowerShell scripts before the expensive build/install path.
 foreach($file in @($provision,$migrate)){
   $tokens = $null
   $parseErrors = $null
