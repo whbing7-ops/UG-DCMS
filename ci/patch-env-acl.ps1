@@ -11,16 +11,16 @@ if(Test-Path $envPath){
   # Legacy rc2.10 made Administrators read-only. An elevated upgrade must first
   # take ownership and restore administrator FullControl before overwriting .env.
   & takeown.exe /F $envPath /A | Out-Null
-  if($LASTEXITCODE -ne 0){ Fail '无法取得现有 .env 的管理员所有权' }
+  if($LASTEXITCODE -ne 0){ Fail 'Failed to take ownership of existing .env' }
   & icacls.exe $envPath /inheritance:r /grant:r '*S-1-5-18:(R)' '*S-1-5-32-544:(F)' | Out-Null
-  if($LASTEXITCODE -ne 0){ Fail '无法修复现有 .env 的访问控制列表' }
+  if($LASTEXITCODE -ne 0){ Fail 'Failed to repair existing .env ACL' }
 }
 '@
 
 $oldAcl = "& icacls `$envPath /inheritance:r /grant:r '*S-1-5-18:(R)' '*S-1-5-32-544:(R)' | Out-Null"
 $newAcl = @'
 & icacls.exe $envPath /inheritance:r /grant:r '*S-1-5-18:(R)' '*S-1-5-32-544:(F)' | Out-Null
-if($LASTEXITCODE -ne 0){ Fail '无法设置 .env 的安全访问控制列表' }
+if($LASTEXITCODE -ne 0){ Fail 'Failed to secure .env ACL' }
 '@
 
 if($p.Contains($oldExisting)){
