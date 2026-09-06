@@ -68,4 +68,26 @@ $finalProvision = Get-Content $provision -Raw -Encoding UTF8
 if(-not $finalProvision.Contains('/api/v1/health')){ throw 'health contract lost after .env ACL patch' }
 if(-not $finalProvision.Contains("'*S-1-5-32-544:(F)'")){ throw '.env ACL hardening missing after patch chain' }
 
-Write-Host 'HEALTH CONTRACT PATCH PASS: /api/v1/health, single-BOM scripts, and upgrade-safe .env ACL verified.'
+# Fix the comprehensive E2E harness before any expensive Windows setup. In Windows
+# PowerShell, $Args is an automatic variable; using it as a named function parameter
+# caused Start-Process to receive a null ArgumentList and made every downstream test a
+# false failure. Rename the parameter and every explicit call-site to ArgumentList.
+$e2e = Join-Path (Split-Path -Parent $PSCommandPath) 'windows-e2e-validation.ps1'
+if(-not(Test-Path $e2e)){ throw 'windows-e2e-validation.ps1 missing' }
+$e2eText = Get-Content $e2e -Raw -Encoding UTF8
+$e2eText = $e2eText.Replace('function Invoke-ProcessCapture([string]$Exe,[string[]]$Args,[int]$Minutes=12){','function Invoke-ProcessCapture([string]$Exe,[string[]]$ArgumentList,[int]$Minutes=12){')
+$e2eText = $e2eText.Replace('-ArgumentList $Args -PassThru','-ArgumentList $ArgumentList -PassThru')
+$e2eText = $e2eText.Replace('-Args @(','-ArgumentList @(')
+if($e2eText.Contains('[string[]]$Args')){ throw 'E2E harness still uses reserved $Args parameter' }
+if($e2eText.Contains('-ArgumentList $Args')){ throw 'E2E harness still forwards reserved $Args variable' }
+if($e2eText.Contains('-Args @(')){ throw 'E2E harness still calls obsolete -Args parameter' }
+if(-not $e2eText.Contains('[string[]]$ArgumentList')){ throw 'E2E ArgumentList parameter patch missing' }
+[IO.File]::WriteAllText($e2e,$e2eText,(New-Object Text.UTF8Encoding($true)))
+$tokens=$null; $errors=$null
+[System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $e2e).Path,[ref]$tokens,[ref]$errors) | Out-Null
+if($errors.Count -gt 0){
+  foreach($e in $errors){ Write-Host ('E2E: ' + $e.Message + ' at line ' + $e.Extent.StartLineNumber + ', column ' + $e.Extent.StartColumnNumber) }
+  throw 'windows-e2e-validation.ps1 parse failure after ArgumentList patch'
+}
+
+Write-Host 'HEALTH CONTRACT PATCH PASS: /api/v1/health, single-BOM scripts, upgrade-safe .env ACL, and E2E ArgumentList binding verified.'
