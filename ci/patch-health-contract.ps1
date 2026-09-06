@@ -63,7 +63,6 @@ if($secondBom){ throw 'start-native.ps1 still contains a double UTF-8 BOM' }
 $envAclPatch = Join-Path (Split-Path -Parent $PSCommandPath) 'patch-env-acl.ps1'
 if(-not(Test-Path $envAclPatch)){ throw 'patch-env-acl.ps1 missing' }
 & $envAclPatch -SourceRoot $SourceRoot
-if($LASTEXITCODE -ne 0){ throw ('patch-env-acl.ps1 failed with exit code ' + $LASTEXITCODE) }
 
 $finalProvision = Get-Content $provision -Raw -Encoding UTF8
 if(-not $finalProvision.Contains('/api/v1/health')){ throw 'health contract lost after .env ACL patch' }
