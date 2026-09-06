@@ -1,28 +1,67 @@
-name: UG-DCMS Windows Fast Process Gate
+name: UG-DCMS Windows Fast Gate
 
 on:
   workflow_dispatch:
   push:
     paths:
+      - 'ci/patch-installer.ps1'
       - 'ci/test-bounded-process.ps1'
       - '.github/workflows/windows-fast-process-gate.yml'
 
 jobs:
-  windows-fast-process-gate:
+  windows-fast-gate:
     runs-on: windows-latest
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
-      - name: Parse test script
+
+      - name: Verify source archive
         shell: powershell
         run: |
-          $tokens=$null
-          $errors=$null
-          [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path 'ci\test-bounded-process.ps1').Path,[ref]$tokens,[ref]$errors) | Out-Null
-          if($errors.Count -gt 0){
-            foreach($e in $errors){ Write-Host ($e.Message + ' at line ' + $e.Extent.StartLineNumber + ', column ' + $e.Extent.StartColumnNumber) }
-            throw 'fast process test script has syntax errors'
+          $zip='ci\rc210_ci_payload.zip'
+          if(-not(Test-Path $zip)){ throw 'source ZIP missing' }
+          if((Get-Item $zip).Length -ne 226595){ throw 'source ZIP size mismatch' }
+          $h=(Get-FileHash $zip -Algorithm SHA256).Hash.ToUpperInvariant()
+          if($h -ne '23FCA65F85DF2F83D9020F9168D232111F9E7523F1209A15C73E5F372EE0E1F8'){ throw "source ZIP hash mismatch: $h" }
+
+      - name: Parse PowerShell test and patch scripts
+        shell: powershell
+        run: |
+          foreach($file in @('ci\patch-installer.ps1','ci\test-bounded-process.ps1')){
+            $tokens=$null
+            $errors=$null
+            [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $file).Path,[ref]$tokens,[ref]$errors) | Out-Null
+            if($errors.Count -gt 0){
+              foreach($e in $errors){ Write-Host ($file + ': ' + $e.Message + ' at line ' + $e.Extent.StartLineNumber + ', column ' + $e.Extent.StartColumnNumber) }
+              throw ('PowerShell parse failure: ' + $file)
+            }
           }
-      - name: Run bounded process tests on Windows PowerShell 5.1
+
+      - name: Exercise bounded process helper on Windows PowerShell 5.1
         shell: powershell
         run: powershell -NoProfile -ExecutionPolicy Bypass -File ci\test-bounded-process.ps1
+
+      - name: Extract source
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Force src | Out-Null
+          Expand-Archive 'ci\rc210_ci_payload.zip' src -Force
+          if(-not(Test-Path 'src\windows\install-oneclick.ps1')){ throw 'installer source missing' }
+
+      - name: Apply installer reliability patches
+        shell: powershell
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File ci\patch-installer.ps1 -SourceRoot src
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          architecture: 'x64'
+
+      - name: Static installer audit
+        working-directory: src
+        shell: powershell
+        run: python installer\verify_installer_source.py
+
+      - name: Fast gate passed
+        shell: powershell
+        run: Write-Host 'WINDOWS FAST INSTALLER GATE PASS - full installer CI may run now.'
