@@ -4,9 +4,11 @@ on:
   workflow_dispatch:
   push:
     paths:
-      - 'ci/patch-installer.ps1'
-      - '.github/workflows/windows-installer-ci-v3.yml'
-      - 'ci/rc210_ci_payload.zip'
+      - 'ci/full-ci-trigger.txt'
+
+concurrency:
+  group: ug-dcms-windows-installer-v3
+  cancel-in-progress: true
 
 jobs:
   windows-install-smoke:
@@ -153,7 +155,7 @@ jobs:
           Copy-Item 'C:\ProgramData\UG-DCMS\INSTALLATION-STATUS.txt' 'ci-artifacts\diagnostics' -Force -ErrorAction SilentlyContinue
           Copy-Item 'C:\ugdcms-inno.log' 'ci-artifacts\diagnostics' -Force -ErrorAction SilentlyContinue
           Get-Service 'UGDCMS-*' -ErrorAction SilentlyContinue | Format-List * | Out-File 'ci-artifacts\diagnostics\services.txt'
-          Get-Process powershell,psql,postgres,UG-DCMS-Setup-1.0.0-rc2.10 -ErrorAction SilentlyContinue | Format-List * | Out-File 'ci-artifacts\diagnostics\processes.txt'
+          Get-Process 'powershell','psql','postgres','UG-DCMS-Setup-1.0.0-rc2.10' -ErrorAction SilentlyContinue | Format-List * | Out-File 'ci-artifacts\diagnostics\processes.txt'
 
       - name: Upload artifact
         if: always()
