@@ -20,6 +20,7 @@ if($p.Contains($oldTranscript)){
 }
 
 # Normalize external-process completion for Windows PowerShell 5.1.
+# This helper is used for venv/pip/import checks, where it is already proven on the Windows runner.
 if(-not $p.Contains('$exitCode = [int]$proc.ExitCode')){
   $processPattern = '^(?<indent>[^\S\r\n]*)if\s*\(\s*\$proc\.ExitCode\s*-ne\s*0\s*\)\s*\{\s*throw\s*"[^"\r\n]*"\s*\}[^\S\r\n]*$'
   $m = [regex]::Match($p,$processPattern,[System.Text.RegularExpressions.RegexOptions]::Multiline)
@@ -35,26 +36,11 @@ if(-not $p.Contains('$exitCode = [int]$proc.ExitCode')){
   $replacement = ($lines | ForEach-Object { $indent + $_ }) -join "`r`n"
   $p = $p.Substring(0,$m.Index) + $replacement + $p.Substring($m.Index + $m.Length)
 }
-
-# Wrap migration in the bounded external-process helper.
-if(-not $p.Contains("-Step 'Database migrations'")){
-  $migrationPattern = '^(?<indent>[^\S\r\n]*)& powershell\.exe -NoProfile -ExecutionPolicy Bypass -File \$migrateScript -InstallDir \$newRelease -PgBin \$pgBin -PgHost ''127\.0\.0\.1'' -PgPort \$PgPort -PgUser ''dcms'' -PgDatabase ''dcms''\r?\n[^\S\r\n]*\$migrateExit = \$LASTEXITCODE\r?\n[^\S\r\n]*if\(\$migrateExit -ne 0\)\{ Fail .*? \}$'
-  $mm = [regex]::Match($p,$migrationPattern,[System.Text.RegularExpressions.RegexOptions]::Multiline)
-  if(-not $mm.Success){
-    ($p -split "`r?`n" | Where-Object { $_ -match 'migrateScript|migrateExit|migrate-native' }) | ForEach-Object { Write-Host $_ }
-    throw 'Migration invocation block not found'
-  }
-  $indent = $mm.Groups['indent'].Value
-  $migrationLines = @(
-    '$migrateArgs = @(''-NoProfile'',''-ExecutionPolicy'',''Bypass'',''-File'',$migrateScript,''-InstallDir'',$newRelease,''-PgBin'',$pgBin,''-PgHost'',''127.0.0.1'',''-PgPort'',[string]$PgPort,''-PgUser'',''dcms'',''-PgDatabase'',''dcms'')',
-    'Invoke-ProcessWithTimeout -FilePath ''powershell.exe'' -ArgumentList $migrateArgs -TimeoutSeconds 240 -Step ''Database migrations'''
-  )
-  $migrationReplacement = ($migrationLines | ForEach-Object { $indent + $_ }) -join "`r`n"
-  $p = $p.Substring(0,$mm.Index) + $migrationReplacement + $p.Substring($mm.Index + $mm.Length)
-}
 Set-Content $provision $p -Encoding UTF8
 
-# Harden psql: noninteractive authentication plus bounded waits.
+# Harden psql itself. Keep the original direct migration invocation because it preserves
+# PowerShell argument semantics and has already been proven to reach the migration script.
+# -w prevents password prompts; the PostgreSQL timeouts make connection/SQL failures bounded.
 $migrate = Join-Path $SourceRoot 'windows\migrate-native.ps1'
 $mg = Get-Content $migrate -Raw -Encoding UTF8
 $anchor = '$env:PGCLIENTENCODING=''UTF8'''
@@ -67,25 +53,6 @@ $mg = $mg.Replace('& $psql @Args','& $psql -w @Args')
 $mg = $mg.Replace('& $psql -X -v ON_ERROR_STOP=1 -qtAX -c','& $psql -w -X -v ON_ERROR_STOP=1 -qtAX -c')
 $mg = $mg.Replace('& $psql -X -v ON_ERROR_STOP=1 -1 -q -f','& $psql -w -X -v ON_ERROR_STOP=1 -1 -q -f')
 Set-Content $migrate $mg -Encoding UTF8
-
-# Keep the source audit aligned with the bounded argument-array invocation.
-$verify = Join-Path $SourceRoot 'installer\verify_installer_source.py'
-$v = Get-Content $verify -Raw -Encoding UTF8
-$oldAudit = @'
-    'migration runs from new release': '-InstallDir $newRelease' in ps,
-'@
-$oldAudit = $oldAudit.TrimEnd("`r","`n")
-$newAudit = @'
-    'migration runs from new release': ('-InstallDir $newRelease' in ps or "'-InstallDir',$newRelease" in ps),
-'@
-$newAudit = $newAudit.TrimEnd("`r","`n")
-if($v.Contains($oldAudit)){
-  $v = $v.Replace($oldAudit,$newAudit)
-  Set-Content $verify $v -Encoding UTF8
-}
-elseif(-not $v.Contains("'-InstallDir',$newRelease")){
-  throw 'Audit migration rule was not recognized'
-}
 
 # Parse modified PowerShell scripts before the expensive build/install path.
 foreach($file in @($provision,$migrate)){
@@ -105,13 +72,11 @@ foreach($file in @($provision,$migrate)){
 
 $check = Get-Content $provision -Raw -Encoding UTF8
 $mgCheck = Get-Content $migrate -Raw -Encoding UTF8
-$vCheck = Get-Content $verify -Raw -Encoding UTF8
 if($check.Contains('Start-Transcript -Path $LogFile')){ throw 'Transcript still locks install.log' }
 if(-not $check.Contains('$proc.WaitForExit()')){ throw 'Final WaitForExit patch missing' }
 if(-not $check.Contains('$exitCode = [int]$proc.ExitCode')){ throw 'Typed exit-code patch missing' }
-if(-not $check.Contains("-Step 'Database migrations'")){ throw 'Migration timeout wrapper missing' }
+if(-not $check.Contains('-InstallDir $newRelease')){ throw 'Direct migration invocation must use the new release' }
 if(-not $mgCheck.Contains('$env:PGCONNECT_TIMEOUT=''5''')){ throw 'psql connect timeout missing' }
 if(-not $mgCheck.Contains('$env:PGOPTIONS=''-c statement_timeout=120000 -c lock_timeout=10000''')){ throw 'psql statement/lock timeout missing' }
 if(-not $mgCheck.Contains('& $psql -w')){ throw 'psql noninteractive mode missing' }
-if(-not $vCheck.Contains("'-InstallDir',$newRelease")){ throw 'Audit compatibility patch missing' }
 Write-Host 'Installer reliability patches applied and syntax validated.'
