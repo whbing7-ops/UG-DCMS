@@ -1,0 +1,200 @@
+name: UG-DCMS Windows Installer Comprehensive Validation v4
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'ci/full-ci-trigger-v4.txt'
+
+concurrency:
+  group: ug-dcms-windows-installer-v4
+  cancel-in-progress: true
+
+jobs:
+  comprehensive-validation:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cheap preflight - archive
+        id: archive
+        continue-on-error: true
+        shell: powershell
+        run: |
+          $zip='ci\rc210_ci_payload.zip'
+          if(-not(Test-Path $zip)){ throw 'source ZIP missing' }
+          if((Get-Item $zip).Length -ne 226595){ throw 'source ZIP size mismatch' }
+          $h=(Get-FileHash $zip -Algorithm SHA256).Hash.ToUpperInvariant()
+          if($h -ne '23FCA65F85DF2F83D9020F9168D232111F9E7523F1209A15C73E5F372EE0E1F8'){ throw ('source ZIP hash mismatch: '+$h) }
+
+      - name: Cheap preflight - PowerShell syntax
+        id: syntax
+        continue-on-error: true
+        shell: powershell
+        run: |
+          foreach($file in @('ci\patch-installer.ps1','ci\patch-health-contract.ps1','ci\windows-e2e-validation.ps1')){
+            $tokens=$null; $errors=$null
+            [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $file).Path,[ref]$tokens,[ref]$errors) | Out-Null
+            if($errors.Count -gt 0){ foreach($e in $errors){ Write-Host ($file+': '+$e.Message+' line '+$e.Extent.StartLineNumber) }; throw ('parse failure: '+$file) }
+          }
+
+      - name: Extract source
+        id: extract
+        if: steps.archive.outcome == 'success'
+        continue-on-error: true
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Force src | Out-Null
+          Expand-Archive 'ci\rc210_ci_payload.zip' src -Force
+          if(-not(Test-Path 'src\windows\install-oneclick.ps1')){ throw 'installer source missing' }
+
+      - name: Apply reliability patches
+        id: reliability
+        if: steps.extract.outcome == 'success' && steps.syntax.outcome == 'success'
+        continue-on-error: true
+        shell: powershell
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File ci\patch-installer.ps1 -SourceRoot src
+
+      - name: Apply health and encoding patches
+        id: healthpatch
+        if: steps.reliability.outcome == 'success'
+        continue-on-error: true
+        shell: powershell
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File ci\patch-health-contract.ps1 -SourceRoot src
+
+      - uses: actions/setup-python@v5
+        if: steps.healthpatch.outcome == 'success'
+        with:
+          python-version: '3.12'
+          architecture: 'x64'
+
+      - name: Static installer audit
+        id: static
+        if: steps.healthpatch.outcome == 'success'
+        continue-on-error: true
+        working-directory: src
+        shell: powershell
+        run: python installer\verify_installer_source.py
+
+      - name: Preflight verdict before expensive setup
+        id: preflight
+        shell: powershell
+        run: |
+          $states=@{
+            archive='${{ steps.archive.outcome }}'
+            syntax='${{ steps.syntax.outcome }}'
+            extract='${{ steps.extract.outcome }}'
+            reliability='${{ steps.reliability.outcome }}'
+            healthpatch='${{ steps.healthpatch.outcome }}'
+            static='${{ steps.static.outcome }}'
+          }
+          $states.GetEnumerator() | Sort-Object Name | Format-Table -AutoSize
+          $bad=@($states.GetEnumerator() | Where-Object { $_.Value -ne 'success' })
+          if($bad.Count -gt 0){ throw 'cheap preflight failed; expensive prerequisite installation intentionally skipped' }
+
+      - name: Install prerequisites once
+        id: prereqs
+        if: steps.preflight.outcome == 'success'
+        continue-on-error: true
+        shell: powershell
+        run: |
+          choco install innosetup -y --no-progress
+          $pw=[guid]::NewGuid().ToString('N')
+          choco install postgresql16 -y --no-progress --params "/Password:$pw"
+          $pg=Get-ChildItem 'C:\Program Files\PostgreSQL' -Directory -ErrorAction SilentlyContinue | Sort-Object Name -Descending | Select-Object -First 1
+          if(-not $pg){ throw 'PostgreSQL not found' }
+          "C:\Program Files (x86)\Inno Setup 6" | Out-File $env:GITHUB_PATH -Append
+          "$($pg.FullName)\bin" | Out-File $env:GITHUB_PATH -Append
+
+      - name: Build Setup.exe once
+        id: build
+        if: steps.prereqs.outcome == 'success'
+        continue-on-error: true
+        working-directory: src
+        shell: powershell
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File installer\Build-Setup.ps1
+
+      - name: Verify Setup.exe
+        id: verify
+        if: steps.build.outcome == 'success'
+        continue-on-error: true
+        working-directory: src
+        shell: powershell
+        run: |
+          $setup='installer\output\UG-DCMS-Setup-1.0.0-rc2.10.exe'
+          if(-not(Test-Path $setup)){ throw 'Setup.exe missing' }
+          if((Get-Item $setup).Length -lt 1000000){ throw 'Setup.exe too small' }
+          Get-Item $setup | Format-List FullName,Length,LastWriteTime
+          Get-FileHash $setup -Algorithm SHA256 | Format-List
+
+      - name: Run all executable fresh-install and live-upgrade tests
+        id: e2e
+        if: steps.verify.outcome == 'success'
+        continue-on-error: true
+        shell: powershell
+        run: |
+          $setup=(Resolve-Path 'src\installer\output\UG-DCMS-Setup-1.0.0-rc2.10.exe').Path
+          powershell -NoProfile -ExecutionPolicy Bypass -File ci\windows-e2e-validation.ps1 -SetupPath $setup -ArtifactDir 'ci-artifacts\validation'
+          exit $LASTEXITCODE
+
+      - name: Collect all diagnostics
+        if: always()
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Force 'ci-artifacts\diagnostics' | Out-Null
+          Copy-Item 'C:\ProgramData\UG-DCMS\logs\*' 'ci-artifacts\diagnostics' -Recurse -Force -ErrorAction SilentlyContinue
+          Copy-Item 'C:\ProgramData\UG-DCMS\INSTALLATION-STATUS.txt' 'ci-artifacts\diagnostics' -Force -ErrorAction SilentlyContinue
+          Copy-Item 'C:\ugdcms-inno.log' 'ci-artifacts\diagnostics' -Force -ErrorAction SilentlyContinue
+          Copy-Item 'C:\ugdcms-inno-upgrade.log' 'ci-artifacts\diagnostics' -Force -ErrorAction SilentlyContinue
+          Get-Service 'UGDCMS-*' -ErrorAction SilentlyContinue | Format-List * | Out-File 'ci-artifacts\diagnostics\services.txt'
+          Get-Process 'powershell','psql','postgres','UG-DCMS-Setup-1.0.0-rc2.10' -ErrorAction SilentlyContinue | Format-List * | Out-File 'ci-artifacts\diagnostics\processes.txt'
+
+      - name: Write aggregate CI summary
+        if: always()
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Force 'ci-artifacts\validation' | Out-Null
+          $rows=@(
+            [pscustomobject]@{Stage='archive'; Outcome='${{ steps.archive.outcome }}'},
+            [pscustomobject]@{Stage='syntax'; Outcome='${{ steps.syntax.outcome }}'},
+            [pscustomobject]@{Stage='extract'; Outcome='${{ steps.extract.outcome }}'},
+            [pscustomobject]@{Stage='reliability'; Outcome='${{ steps.reliability.outcome }}'},
+            [pscustomobject]@{Stage='healthpatch'; Outcome='${{ steps.healthpatch.outcome }}'},
+            [pscustomobject]@{Stage='static'; Outcome='${{ steps.static.outcome }}'},
+            [pscustomobject]@{Stage='prereqs'; Outcome='${{ steps.prereqs.outcome }}'},
+            [pscustomobject]@{Stage='build'; Outcome='${{ steps.build.outcome }}'},
+            [pscustomobject]@{Stage='verify'; Outcome='${{ steps.verify.outcome }}'},
+            [pscustomobject]@{Stage='e2e-all-runtime-tests'; Outcome='${{ steps.e2e.outcome }}'}
+          )
+          $rows | Format-Table -AutoSize | Out-String | Set-Content 'ci-artifacts\validation\CI-STAGE-SUMMARY.txt' -Encoding UTF8
+          $rows | ConvertTo-Json | Set-Content 'ci-artifacts\validation\CI-STAGE-RESULTS.json' -Encoding UTF8
+          Get-Content 'ci-artifacts\validation\TEST-SUMMARY.txt' -ErrorAction SilentlyContinue
+          $rows | Format-Table -AutoSize
+
+      - name: Upload comprehensive evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ug-dcms-windows-comprehensive-validation-v4
+          if-no-files-found: ignore
+          path: |
+            src/installer/output/*.exe
+            ci-artifacts/**
+
+      - name: Final verdict after all possible tests
+        if: always()
+        shell: powershell
+        run: |
+          $critical=@(
+            '${{ steps.archive.outcome }}','${{ steps.syntax.outcome }}','${{ steps.extract.outcome }}',
+            '${{ steps.reliability.outcome }}','${{ steps.healthpatch.outcome }}','${{ steps.static.outcome }}',
+            '${{ steps.prereqs.outcome }}','${{ steps.build.outcome }}','${{ steps.verify.outcome }}','${{ steps.e2e.outcome }}'
+          )
+          if($critical -contains 'failure' -or $critical -contains 'cancelled'){
+            throw 'Comprehensive validation found failures. See TEST-SUMMARY.txt and CI-STAGE-SUMMARY.txt; all possible tests have already been executed.'
+          }
+          if($critical -contains 'skipped'){
+            throw 'Comprehensive validation contains skipped dependent stages because an earlier prerequisite failed. See aggregate summaries.'
+          }
+          Write-Host 'COMPREHENSIVE WINDOWS VALIDATION PASS'
