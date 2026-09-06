@@ -1,0 +1,3 @@
+trigger=2026-09-06T14:34:30Z
+reason=fast-gate-passed-native-stderr-regression
+commit=3f256b4a9ad0282f96196146e81fabacb4274154
