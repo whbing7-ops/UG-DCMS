@@ -179,7 +179,7 @@ if(-not $check.Contains('-InstallDir $newRelease')){ throw 'Migration invocation
 if(-not $mgCheck.Contains("PGCONNECT_TIMEOUT='5'")){ throw 'psql connect timeout missing' }
 if(-not $mgCheck.Contains('statement_timeout=25000')){ throw 'psql statement timeout missing' }
 if(-not $mgCheck.Contains('& $psql @argList 2>&1')){ throw 'direct psql invocation missing' }
-if(-not $mgCheck.Contains("$ErrorActionPreference = 'Continue'")){ throw 'native stderr compatibility guard missing' }
+if(-not $mgCheck.Contains('$ErrorActionPreference = ''Continue''')){ throw 'native stderr compatibility guard missing' }
 if(-not $mgCheck.Contains('$savedErrorActionPreference')){ throw 'native stderr preference restore missing' }
 if($mgCheck.Contains('Start-Process -FilePath $psql')){ throw 'fragile psql Start-Process wrapper still present' }
 if(-not $mgCheck.Contains('PSQL STACK')){ throw 'psql stack diagnostics missing' }
