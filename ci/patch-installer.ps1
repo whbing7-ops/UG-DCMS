@@ -20,7 +20,6 @@ if($p.Contains($oldTranscript)){
 }
 
 # Normalize external-process completion for Windows PowerShell 5.1.
-# This helper is used for venv/pip/import checks, where it is already proven on the Windows runner.
 if(-not $p.Contains('$exitCode = [int]$proc.ExitCode')){
   $processPattern = '^(?<indent>[^\S\r\n]*)if\s*\(\s*\$proc\.ExitCode\s*-ne\s*0\s*\)\s*\{\s*throw\s*"[^"\r\n]*"\s*\}[^\S\r\n]*$'
   $m = [regex]::Match($p,$processPattern,[System.Text.RegularExpressions.RegexOptions]::Multiline)
@@ -38,20 +37,94 @@ if(-not $p.Contains('$exitCode = [int]$proc.ExitCode')){
 }
 Set-Content $provision $p -Encoding UTF8
 
-# Harden psql itself. Keep the original direct migration invocation because it preserves
-# PowerShell argument semantics and has already been proven to reach the migration script.
-# -w prevents password prompts; the PostgreSQL timeouts make connection/SQL failures bounded.
+# Harden and instrument database migrations.
 $migrate = Join-Path $SourceRoot 'windows\migrate-native.ps1'
 $mg = Get-Content $migrate -Raw -Encoding UTF8
+
 $anchor = '$env:PGCLIENTENCODING=''UTF8'''
 if(-not $mg.Contains('$env:PGCONNECT_TIMEOUT=''5''')){
   if(-not $mg.Contains($anchor)){ throw 'Migration environment anchor not found' }
-  $extra = $anchor + "`r`n" + '$env:PGCONNECT_TIMEOUT=''5''' + "`r`n" + '$env:PGOPTIONS=''-c statement_timeout=120000 -c lock_timeout=10000'''
+  $extra = $anchor + "`r`n" +
+    '$env:PGCONNECT_TIMEOUT=''5''' + "`r`n" +
+    '$env:PGOPTIONS=''-c statement_timeout=120000 -c lock_timeout=10000''' + "`r`n" +
+    '$MigrationLog = Join-Path $env:ProgramData ''UG-DCMS\logs\migration.log''' + "`r`n" +
+    'function Write-MigrationLog { param([string]$Message) $line = ''['' + (Get-Date -Format ''yyyy-MM-dd HH:mm:ss'') + ''] '' + $Message; Write-Host $line; Add-Content -Path $MigrationLog -Value $line -Encoding UTF8 }'
   $mg = $mg.Replace($anchor,$extra)
 }
+
+# Force every psql call to be non-interactive.
 $mg = $mg.Replace('& $psql @Args','& $psql -w @Args')
 $mg = $mg.Replace('& $psql -X -v ON_ERROR_STOP=1 -qtAX -c','& $psql -w -X -v ON_ERROR_STOP=1 -qtAX -c')
 $mg = $mg.Replace('& $psql -X -v ON_ERROR_STOP=1 -1 -q -f','& $psql -w -X -v ON_ERROR_STOP=1 -1 -q -f')
+
+# Replace the fragile migration-state query with a logged, null-safe form.
+$oldState = @'
+  $exists=& $psql -X -v ON_ERROR_STOP=1 -qtAX -c "SELECT EXISTS(SELECT 1 FROM schema_migration WHERE version='$v');"
+  if($LASTEXITCODE -ne 0){ throw "query migration state failed for $v" }
+  if ($exists.Trim() -eq "t") { Write-Host "Skip $v"; return }
+'@
+$newState = @'
+  Write-MigrationLog ("STATE " + $v + " START")
+  $stateOutput = @(& $psql -w -X -v ON_ERROR_STOP=1 -qtAX -c "SELECT EXISTS(SELECT 1 FROM schema_migration WHERE version='$v');" 2>&1)
+  $stateCode = $LASTEXITCODE
+  $stateText = (($stateOutput | ForEach-Object { [string]$_ }) -join "`n").Trim()
+  Write-MigrationLog ("STATE " + $v + " EXIT=" + $stateCode + " OUTPUT=" + $stateText)
+  if($stateCode -ne 0){ throw "query migration state failed for $v with exit code $stateCode" }
+  if($stateText -eq "t"){ Write-MigrationLog ("SKIP " + $v); return }
+  if($stateText -ne "f"){ throw "unexpected migration state output for $v: '$stateText'" }
+'@
+if($mg.Contains($oldState)){
+  $mg = $mg.Replace($oldState,$newState)
+}
+elseif(-not $mg.Contains('STATE " + $v + " START')){
+  throw 'Migration state block not found'
+}
+
+# Add per-file START/PASS markers and capture psql output/exit code.
+$oldApply = @'
+  Write-Host "Apply $v ..."
+  $hash=(Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower()
+  $sw=[Diagnostics.Stopwatch]::StartNew()
+  # -1 wraps each migration file in one transaction; ON_ERROR_STOP prevents partial apply.
+  & $psql -X -v ON_ERROR_STOP=1 -1 -q -f $_.FullName
+  $code=$LASTEXITCODE
+  $sw.Stop()
+  if($code -ne 0){ throw "Migration $v failed with exit code $code" }
+'@
+$newApply = @'
+  Write-MigrationLog ("START " + $v + " FILE=" + $_.Name)
+  $hash=(Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower()
+  $sw=[Diagnostics.Stopwatch]::StartNew()
+  # -1 wraps each migration file in one transaction; ON_ERROR_STOP prevents partial apply.
+  $applyOutput = @(& $psql -w -X -v ON_ERROR_STOP=1 -1 -q -f $_.FullName 2>&1)
+  $code=$LASTEXITCODE
+  $sw.Stop()
+  if($applyOutput.Count -gt 0){
+    $applyText = (($applyOutput | ForEach-Object { [string]$_ }) -join "`n")
+    Write-MigrationLog ("OUTPUT " + $v + " " + $applyText)
+  }
+  Write-MigrationLog ("EXIT " + $v + " CODE=" + $code + " MS=" + $sw.ElapsedMilliseconds)
+  if($code -ne 0){ throw "Migration $v failed with exit code $code" }
+'@
+if($mg.Contains($oldApply)){
+  $mg = $mg.Replace($oldApply,$newApply)
+}
+elseif(-not $mg.Contains('START " + $v + " FILE=')){
+  throw 'Migration apply block not found'
+}
+
+$oldRecord = '  Invoke-Psql @(''-X'',''-v'',''ON_ERROR_STOP=1'',''-q'',''-c'',$insert) "record migration $v"'
+$newRecord = $oldRecord + "`r`n" + '  Write-MigrationLog ("PASS " + $v + " MS=" + $sw.ElapsedMilliseconds)'
+if($mg.Contains($oldRecord) -and -not $mg.Contains('PASS " + $v + " MS=')){
+  $mg = $mg.Replace($oldRecord,$newRecord)
+}
+
+$oldDone = "Write-Host 'All database migrations completed successfully.' -ForegroundColor Green"
+$newDone = "Write-MigrationLog 'ALL MIGRATIONS PASS'`r`n" + $oldDone
+if($mg.Contains($oldDone) -and -not $mg.Contains('ALL MIGRATIONS PASS')){
+  $mg = $mg.Replace($oldDone,$newDone)
+}
+
 Set-Content $migrate $mg -Encoding UTF8
 
 # Parse modified PowerShell scripts before the expensive build/install path.
@@ -79,4 +152,6 @@ if(-not $check.Contains('-InstallDir $newRelease')){ throw 'Direct migration inv
 if(-not $mgCheck.Contains('$env:PGCONNECT_TIMEOUT=''5''')){ throw 'psql connect timeout missing' }
 if(-not $mgCheck.Contains('$env:PGOPTIONS=''-c statement_timeout=120000 -c lock_timeout=10000''')){ throw 'psql statement/lock timeout missing' }
 if(-not $mgCheck.Contains('& $psql -w')){ throw 'psql noninteractive mode missing' }
-Write-Host 'Installer reliability patches applied and syntax validated.'
+if(-not $mgCheck.Contains('ALL MIGRATIONS PASS')){ throw 'migration instrumentation missing' }
+if(-not $mgCheck.Contains('$stateText')){ throw 'null-safe migration state query missing' }
+Write-Host 'Installer reliability patches applied, migrations instrumented, and syntax validated.'
