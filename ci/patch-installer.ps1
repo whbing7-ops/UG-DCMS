@@ -12,12 +12,15 @@ if($t.Contains($oldBuild)){
 $provision = Join-Path $SourceRoot 'windows\install-oneclick.ps1'
 $p = Get-Content $provision -Raw -Encoding UTF8
 
+# Keep transcript output separate from install.log so Write-Status can always append.
 $oldTranscript = 'try { Start-Transcript -Path $LogFile -Append -Force | Out-Null } catch {}'
 if($p.Contains($oldTranscript)){
   $newTranscript = '$TranscriptFile = Join-Path $LogDir ''powershell-transcript.log''' + "`r`n" + 'try { Start-Transcript -Path $TranscriptFile -Append -Force | Out-Null } catch {}'
   $p = $p.Replace($oldTranscript,$newTranscript)
 }
 
+# Windows PowerShell 5.1 can expose ExitCode late after a timed WaitForExit.
+# Always perform a final WaitForExit/Refresh before reading it.
 if(-not $p.Contains('$exitCode = [int]$proc.ExitCode')){
   $processPattern = '^(?<indent>[^\S\r\n]*)if\s*\(\s*\$proc\.ExitCode\s*-ne\s*0\s*\)\s*\{\s*throw\s*"[^"\r\n]*"\s*\}[^\S\r\n]*$'
   $m = [regex]::Match($p,$processPattern,[System.Text.RegularExpressions.RegexOptions]::Multiline)
@@ -35,117 +38,152 @@ if(-not $p.Contains('$exitCode = [int]$proc.ExitCode')){
 }
 Set-Content $provision $p -Encoding UTF8
 
+# Do not keep patching the tiny migration script with fragile text replacements.
+# Replace it deterministically with a bounded, non-interactive implementation.
 $migrate = Join-Path $SourceRoot 'windows\migrate-native.ps1'
-$mg = Get-Content $migrate -Raw -Encoding UTF8
+$hardenedMigrator = @'
+param(
+  [string]$InstallDir = "$env:ProgramData\UG-DCMS",
+  [string]$PgBin = "C:\Program Files\PostgreSQL\16\bin",
+  [string]$PgHost = "127.0.0.1", [int]$PgPort = 5432,
+  [string]$PgUser = "dcms", [string]$PgDatabase = "dcms"
+)
+$ErrorActionPreference='Stop'
+$psql = Join-Path $PgBin 'psql.exe'
+if(-not (Test-Path $psql)){ throw "psql.exe not found: $psql" }
 
-$anchor = '$env:PGCLIENTENCODING=''UTF8'''
-if(-not $mg.Contains('$env:PGCONNECT_TIMEOUT=''5''')){
-  if(-not $mg.Contains($anchor)){ throw 'Migration environment anchor not found' }
-  $extra = $anchor + "`r`n" +
-    '$env:PGCONNECT_TIMEOUT=''5''' + "`r`n" +
-    '$env:PGOPTIONS=''-c statement_timeout=120000 -c lock_timeout=10000''' + "`r`n" +
-    '$MigrationLog = Join-Path $env:ProgramData ''UG-DCMS\logs\migration.log''' + "`r`n" +
-    'function Write-MigrationLog { param([string]$Message) $line = ''['' + (Get-Date -Format ''yyyy-MM-dd HH:mm:ss'') + ''] '' + $Message; Write-Host $line; Add-Content -Path $MigrationLog -Value $line -Encoding UTF8 }'
-  $mg = $mg.Replace($anchor,$extra)
-}
+$env:PGHOST=$PgHost
+$env:PGPORT=[string]$PgPort
+$env:PGUSER=$PgUser
+$env:PGDATABASE=$PgDatabase
+$env:PGCLIENTENCODING='UTF8'
+$env:PGCONNECT_TIMEOUT='5'
+$env:PGOPTIONS='-c statement_timeout=25000 -c lock_timeout=10000'
 
-# Instrument the original call sites first, then harden any remaining psql calls.
-$oldState = @'
-  $exists=& $psql -X -v ON_ERROR_STOP=1 -qtAX -c "SELECT EXISTS(SELECT 1 FROM schema_migration WHERE version='$v');"
-  if($LASTEXITCODE -ne 0){ throw "query migration state failed for $v" }
-  if ($exists.Trim() -eq "t") { Write-Host "Skip $v"; return }
-'@
-$newState = @'
-  Write-MigrationLog ("STATE " + $v + " START")
-  $stateOutput = @(& $psql -w -X -v ON_ERROR_STOP=1 -qtAX -c "SELECT EXISTS(SELECT 1 FROM schema_migration WHERE version='$v');" 2>&1)
-  $stateCode = $LASTEXITCODE
-  $stateText = (($stateOutput | ForEach-Object { [string]$_ }) -join "`n").Trim()
-  Write-MigrationLog ("STATE " + $v + " EXIT=" + $stateCode + " OUTPUT=" + $stateText)
-  if($stateCode -ne 0){ throw "query migration state failed for $v with exit code $stateCode" }
-  if($stateText -eq "t"){ Write-MigrationLog ("SKIP " + $v); return }
-  if($stateText -ne "f"){ throw ("unexpected migration state output for " + $v + ": '" + $stateText + "'") }
-'@
-if($mg.Contains($oldState)){
-  $mg = $mg.Replace($oldState,$newState)
-}
-elseif(-not $mg.Contains('STATE " + $v + " START')){
-  throw 'Migration state block not found'
-}
+$LogDir = Join-Path $env:ProgramData 'UG-DCMS\logs'
+New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
+$MigrationLog = Join-Path $LogDir 'migration.log'
+$WorkDir = Join-Path $LogDir 'migration-work'
+New-Item -ItemType Directory -Force -Path $WorkDir | Out-Null
 
-$oldApply = @'
-  Write-Host "Apply $v ..."
-  $hash=(Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower()
-  $sw=[Diagnostics.Stopwatch]::StartNew()
-  # -1 wraps each migration file in one transaction; ON_ERROR_STOP prevents partial apply.
-  & $psql -X -v ON_ERROR_STOP=1 -1 -q -f $_.FullName
-  $code=$LASTEXITCODE
-  $sw.Stop()
-  if($code -ne 0){ throw "Migration $v failed with exit code $code" }
-'@
-$newApply = @'
-  Write-MigrationLog ("START " + $v + " FILE=" + $_.Name)
-  $hash=(Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower()
-  $sw=[Diagnostics.Stopwatch]::StartNew()
-  # -1 wraps each migration file in one transaction; ON_ERROR_STOP prevents partial apply.
-  $applyOutput = @(& $psql -w -X -v ON_ERROR_STOP=1 -1 -q -f $_.FullName 2>&1)
-  $code=$LASTEXITCODE
-  $sw.Stop()
-  if($applyOutput.Count -gt 0){
-    $applyText = (($applyOutput | ForEach-Object { [string]$_ }) -join "`n")
-    Write-MigrationLog ("OUTPUT " + $v + " " + $applyText)
+function Write-MigrationLog([string]$Message){
+  $line='[' + (Get-Date -Format 'yyyy-MM-dd HH:mm:ss') + '] ' + $Message
+  Write-Host $line
+  Add-Content -Path $MigrationLog -Value $line -Encoding UTF8
+}
+function Write-Utf8NoBom([string]$Path,[string]$Text){
+  [IO.File]::WriteAllText($Path,$Text,(New-Object Text.UTF8Encoding($false)))
+}
+function Read-Text([string]$Path){
+  if(Test-Path $Path){ return (Get-Content $Path -Raw -ErrorAction SilentlyContinue) }
+  return ''
+}
+function Invoke-PsqlFile {
+  param(
+    [string]$SqlFile,
+    [string]$Step,
+    [int]$TimeoutSeconds=30,
+    [switch]$SingleTransaction,
+    [switch]$TupleOnly
+  )
+  $safe = ($Step -replace '[^A-Za-z0-9_.-]','_')
+  $outFile = Join-Path $WorkDir ($safe + '.out.txt')
+  $errFile = Join-Path $WorkDir ($safe + '.err.txt')
+  Remove-Item $outFile,$errFile -Force -ErrorAction SilentlyContinue
+  $argList=@('-w','-X','-v','ON_ERROR_STOP=1','-q')
+  if($SingleTransaction){ $argList += '-1' }
+  if($TupleOnly){ $argList += @('-t','-A') }
+  $argList += @('-f',$SqlFile)
+
+  Write-MigrationLog ('PSQL START step=' + $Step + ' timeout=' + $TimeoutSeconds + 's file=' + $SqlFile)
+  $proc = Start-Process -FilePath $psql -ArgumentList $argList -PassThru -NoNewWindow -RedirectStandardOutput $outFile -RedirectStandardError $errFile
+  if(-not $proc.WaitForExit($TimeoutSeconds * 1000)){
+    Write-MigrationLog ('PSQL TIMEOUT step=' + $Step + ' pid=' + $proc.Id)
+    try { taskkill /PID $proc.Id /T /F | Out-Null } catch {}
+    throw ('psql timeout for step: ' + $Step)
   }
-  Write-MigrationLog ("EXIT " + $v + " CODE=" + $code + " MS=" + $sw.ElapsedMilliseconds)
-  if($code -ne 0){ throw "Migration $v failed with exit code $code" }
+  $proc.WaitForExit()
+  $proc.Refresh()
+  if(-not $proc.HasExited){ throw ('psql did not exit cleanly for step: ' + $Step) }
+  $code=[int]$proc.ExitCode
+  $stdout=(Read-Text $outFile).Trim()
+  $stderr=(Read-Text $errFile).Trim()
+  Write-MigrationLog ('PSQL EXIT step=' + $Step + ' code=' + $code)
+  if($stdout){ Write-MigrationLog ('STDOUT step=' + $Step + ' ' + $stdout) }
+  if($stderr){ Write-MigrationLog ('STDERR step=' + $Step + ' ' + $stderr) }
+  if($code -ne 0){ throw ('psql failed for step ' + $Step + ' with exit code ' + $code) }
+  return $stdout
+}
+
+Write-MigrationLog ('MIGRATOR START pid=' + $PID + ' installDir=' + $InstallDir + ' pg=' + $PgHost + ':' + $PgPort + ' db=' + $PgDatabase)
+
+$createSql = Join-Path $WorkDir 'create_schema_migration.sql'
+Write-Utf8NoBom $createSql "CREATE TABLE IF NOT EXISTS schema_migration (version text PRIMARY KEY, filename text NOT NULL, sha256 text NOT NULL, applied_at timestamptz NOT NULL DEFAULT now(), applied_by text NOT NULL DEFAULT current_user, duration_ms integer);"
+Invoke-PsqlFile -SqlFile $createSql -Step 'create_schema_migration' -TimeoutSeconds 15 | Out-Null
+
+$migrations = @(Get-ChildItem (Join-Path $InstallDir 'db\migrations\*.sql') | Sort-Object Name)
+if($migrations.Count -ne 12){ throw ('Expected 12 migration files, found ' + $migrations.Count) }
+
+foreach($file in $migrations){
+  $v=$file.BaseName
+  $escapedV=$v.Replace("'","''")
+  $stateSql=Join-Path $WorkDir ('state_' + $v + '.sql')
+  Write-Utf8NoBom $stateSql ("SELECT EXISTS(SELECT 1 FROM schema_migration WHERE version='" + $escapedV + "');")
+  $state=(Invoke-PsqlFile -SqlFile $stateSql -Step ('state_' + $v) -TimeoutSeconds 15 -TupleOnly).Trim()
+  if($state -eq 't'){
+    Write-MigrationLog ('SKIP ' + $v)
+    continue
+  }
+  if($state -ne 'f'){ throw ('Unexpected migration state for ' + $v + ': ' + $state) }
+
+  Write-MigrationLog ('MIGRATION START ' + $v + ' file=' + $file.Name)
+  $hash=(Get-FileHash $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+  $sw=[Diagnostics.Stopwatch]::StartNew()
+  Invoke-PsqlFile -SqlFile $file.FullName -Step ('apply_' + $v) -TimeoutSeconds 30 -SingleTransaction | Out-Null
+  $sw.Stop()
+
+  $escapedName=$file.Name.Replace("'","''")
+  $recordSql=Join-Path $WorkDir ('record_' + $v + '.sql')
+  $insert="INSERT INTO schema_migration(version,filename,sha256,duration_ms) VALUES ('$escapedV','$escapedName','$hash',$($sw.ElapsedMilliseconds));"
+  Write-Utf8NoBom $recordSql $insert
+  Invoke-PsqlFile -SqlFile $recordSql -Step ('record_' + $v) -TimeoutSeconds 15 | Out-Null
+  Write-MigrationLog ('PASS ' + $v + ' ms=' + $sw.ElapsedMilliseconds)
+}
+
+$countSql=Join-Path $WorkDir 'verify_count.sql'
+Write-Utf8NoBom $countSql 'SELECT count(*) FROM schema_migration;'
+$countText=(Invoke-PsqlFile -SqlFile $countSql -Step 'verify_count' -TimeoutSeconds 15 -TupleOnly).Trim()
+if([int]$countText -ne 12){ throw ('Migration count mismatch. Expected 12, actual ' + $countText) }
+Write-MigrationLog 'ALL MIGRATIONS PASS 12/12'
+Write-Host 'All database migrations completed successfully.' -ForegroundColor Green
 '@
-if($mg.Contains($oldApply)){
-  $mg = $mg.Replace($oldApply,$newApply)
-}
-elseif(-not $mg.Contains('START " + $v + " FILE=')){
-  throw 'Migration apply block not found'
-}
+Set-Content -Path $migrate -Value $hardenedMigrator -Encoding UTF8
 
-$oldRecord = '  Invoke-Psql @(''-X'',''-v'',''ON_ERROR_STOP=1'',''-q'',''-c'',$insert) "record migration $v"'
-$newRecord = $oldRecord + "`r`n" + '  Write-MigrationLog ("PASS " + $v + " MS=" + $sw.ElapsedMilliseconds)'
-if($mg.Contains($oldRecord) -and -not $mg.Contains('PASS " + $v + " MS=')){
-  $mg = $mg.Replace($oldRecord,$newRecord)
-}
-
-$oldDone = "Write-Host 'All database migrations completed successfully.' -ForegroundColor Green"
-$newDone = "Write-MigrationLog 'ALL MIGRATIONS PASS'`r`n" + $oldDone
-if($mg.Contains($oldDone) -and -not $mg.Contains('ALL MIGRATIONS PASS')){
-  $mg = $mg.Replace($oldDone,$newDone)
-}
-
-# Harden all remaining psql calls after instrumentation.
-$mg = $mg.Replace('& $psql @Args','& $psql -w @Args')
-$mg = $mg.Replace('& $psql -X -v ON_ERROR_STOP=1 -qtAX -c','& $psql -w -X -v ON_ERROR_STOP=1 -qtAX -c')
-$mg = $mg.Replace('& $psql -X -v ON_ERROR_STOP=1 -1 -q -f','& $psql -w -X -v ON_ERROR_STOP=1 -1 -q -f')
-Set-Content $migrate $mg -Encoding UTF8
-
+# Parse every modified PowerShell file before the expensive Windows build/install path.
 foreach($file in @($provision,$migrate)){
-  $tokens = $null
-  $parseErrors = $null
+  $tokens=$null
+  $parseErrors=$null
   [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $file).Path,[ref]$tokens,[ref]$parseErrors) | Out-Null
   if($parseErrors.Count -gt 0){
-    $sourceLines = Get-Content $file
+    $sourceLines=Get-Content $file
     foreach($e in $parseErrors){
       Write-Host ($e.Message + ' at line ' + $e.Extent.StartLineNumber + ', column ' + $e.Extent.StartColumnNumber)
-      $n = $e.Extent.StartLineNumber
+      $n=$e.Extent.StartLineNumber
       if($n -ge 1 -and $n -le $sourceLines.Count){ Write-Host ('SOURCE: ' + $sourceLines[$n-1]) }
     }
     throw ('PowerShell parse failure: ' + $file)
   }
 }
 
-$check = Get-Content $provision -Raw -Encoding UTF8
-$mgCheck = Get-Content $migrate -Raw -Encoding UTF8
+$check=Get-Content $provision -Raw -Encoding UTF8
+$mgCheck=Get-Content $migrate -Raw -Encoding UTF8
 if($check.Contains('Start-Transcript -Path $LogFile')){ throw 'Transcript still locks install.log' }
 if(-not $check.Contains('$proc.WaitForExit()')){ throw 'Final WaitForExit patch missing' }
 if(-not $check.Contains('$exitCode = [int]$proc.ExitCode')){ throw 'Typed exit-code patch missing' }
-if(-not $check.Contains('-InstallDir $newRelease')){ throw 'Direct migration invocation must use the new release' }
-if(-not $mgCheck.Contains('$env:PGCONNECT_TIMEOUT=''5''')){ throw 'psql connect timeout missing' }
-if(-not $mgCheck.Contains('$env:PGOPTIONS=''-c statement_timeout=120000 -c lock_timeout=10000''')){ throw 'psql statement/lock timeout missing' }
-if(-not $mgCheck.Contains('& $psql -w')){ throw 'psql noninteractive mode missing' }
-if(-not $mgCheck.Contains('ALL MIGRATIONS PASS')){ throw 'migration instrumentation missing' }
-if(-not $mgCheck.Contains('$stateText')){ throw 'null-safe migration state query missing' }
-Write-Host 'Installer reliability patches applied, migrations instrumented, and syntax validated.'
+if(-not $check.Contains('-InstallDir $newRelease')){ throw 'Migration invocation must use new release' }
+if(-not $mgCheck.Contains("PGCONNECT_TIMEOUT='5'")){ throw 'psql connect timeout missing' }
+if(-not $mgCheck.Contains('statement_timeout=25000')){ throw 'psql statement timeout missing' }
+if(-not $mgCheck.Contains("'-w'")){ throw 'psql noninteractive mode missing' }
+if(-not $mgCheck.Contains('PSQL TIMEOUT')){ throw 'per-psql hard timeout missing' }
+if(-not $mgCheck.Contains('ALL MIGRATIONS PASS 12/12')){ throw 'migration completion gate missing' }
+Write-Host 'Installer reliability patch PASS: deterministic bounded migrator installed and syntax validated.'
