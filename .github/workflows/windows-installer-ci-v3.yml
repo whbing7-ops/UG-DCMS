@@ -164,7 +164,136 @@ jobs:
           if($h.StatusCode -ne 200){ throw "health HTTP $($h.StatusCode)" }
           $u=Invoke-WebRequest 'http://127.0.0.1:8080/' -UseBasicParsing -TimeoutSec 10
           if($u.StatusCode -ne 200){ throw "UI HTTP $($u.StatusCode)" }
-          Write-Host 'UG-DCMS Windows installer smoke PASS'
+          Write-Host 'UG-DCMS fresh install smoke PASS'
+
+      - name: Prepare live-upgrade preservation sentinel
+        shell: powershell
+        run: |
+          $base='C:\ProgramData\UG-DCMS'
+          $oldRuntime=(Get-Content "$base\runtime\CURRENT-RUNTIME.txt" -Raw).Trim()
+          $oldRelease=(Get-Content "$base\releases\CURRENT-RELEASE.txt" -Raw).Trim()
+          $statusFile="$base\INSTALLATION-STATUS.txt"
+          if(-not(Test-Path $statusFile)){ throw 'fresh install status marker missing' }
+          $statusTicks=(Get-Item $statusFile).LastWriteTimeUtc.Ticks
+          "OLD_RUNTIME=$oldRuntime" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "OLD_RELEASE=$oldRelease" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "OLD_STATUS_TICKS=$statusTicks" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+
+          $cfg=@{}
+          Get-Content "$base\.env" | ForEach-Object {
+            $line=$_.Trim()
+            if($line -and -not $line.StartsWith('#') -and $line.Contains('=')){
+              $parts=$line.Split('=',2)
+              $cfg[$parts[0].Trim()]=$parts[1].Trim()
+            }
+          }
+          foreach($key in @('DCMS_PG_HOST','DCMS_PG_PORT','DCMS_PG_USER','DCMS_PG_PASSWORD','DCMS_PG_DATABASE')){
+            if(-not $cfg.ContainsKey($key)){ throw ('.env missing ' + $key) }
+          }
+          $pg=Get-ChildItem 'C:\Program Files\PostgreSQL' -Directory | Sort-Object Name -Descending | Select-Object -First 1
+          $psql=Join-Path $pg.FullName 'bin\psql.exe'
+          $env:PGPASSWORD=$cfg['DCMS_PG_PASSWORD']
+          $sql="CREATE TABLE IF NOT EXISTS ci_upgrade_sentinel (id integer PRIMARY KEY, note text NOT NULL); INSERT INTO ci_upgrade_sentinel(id,note) VALUES (1,'preserve-me') ON CONFLICT (id) DO UPDATE SET note=excluded.note;"
+          & $psql -w -X -h $cfg['DCMS_PG_HOST'] -p $cfg['DCMS_PG_PORT'] -U $cfg['DCMS_PG_USER'] -d $cfg['DCMS_PG_DATABASE'] -v ON_ERROR_STOP=1 -c $sql
+          if($LASTEXITCODE -ne 0){ throw 'failed to create upgrade preservation sentinel' }
+          Write-Host ('Fresh release=' + $oldRelease)
+          Write-Host ('Fresh runtime=' + $oldRuntime)
+          Write-Host 'Upgrade preservation sentinel created.'
+
+      - name: Live reinstall while UGDCMS-App is running
+        working-directory: src
+        shell: powershell
+        run: |
+          $app=Get-Service 'UGDCMS-App' -ErrorAction Stop
+          if($app.Status -ne 'Running'){ throw ('UGDCMS-App must be Running before live reinstall, actual=' + $app.Status) }
+          Start-Sleep -Seconds 2
+          $setup=(Resolve-Path 'installer\output\UG-DCMS-Setup-1.0.0-rc2.10.exe').Path
+          $p=Start-Process -FilePath $setup -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/SP-','/LOG=C:\ugdcms-inno-upgrade.log') -PassThru
+          $deadline=(Get-Date).AddMinutes(12)
+          while(-not $p.HasExited -and (Get-Date) -lt $deadline){
+            Start-Sleep -Seconds 5
+            $p.Refresh()
+          }
+          if(-not $p.HasExited){
+            Write-Host 'Upgrade Setup timeout. Dumping live diagnostics.'
+            Get-Content 'C:\ProgramData\UG-DCMS\logs\install.log' -Tail 400 -ErrorAction SilentlyContinue
+            Get-Content 'C:\ProgramData\UG-DCMS\logs\migration.log' -Tail 400 -ErrorAction SilentlyContinue
+            Get-Content 'C:\ProgramData\UG-DCMS\logs\UGDCMS-App.err.log' -Tail 200 -ErrorAction SilentlyContinue
+            Get-Content 'C:\ProgramData\UG-DCMS\logs\UGDCMS-App.out.log' -Tail 200 -ErrorAction SilentlyContinue
+            Get-Content 'C:\ProgramData\UG-DCMS\logs\LAST-ERROR.txt' -Tail 200 -ErrorAction SilentlyContinue
+            Get-Content 'C:\ugdcms-inno-upgrade.log' -Tail 250 -ErrorAction SilentlyContinue
+            taskkill /PID $p.Id /T /F | Out-Host
+            throw 'live reinstall exceeded 12 minute hard timeout'
+          }
+          $p.WaitForExit()
+          $p.Refresh()
+          if(-not $p.HasExited){ throw 'upgrade Setup process did not finalize cleanly' }
+          $upgradeExit=[int]$p.ExitCode
+          if($upgradeExit -ne 0){
+            Get-Content 'C:\ProgramData\UG-DCMS\logs\install.log' -Tail 400 -ErrorAction SilentlyContinue
+            Get-Content 'C:\ProgramData\UG-DCMS\logs\migration.log' -Tail 400 -ErrorAction SilentlyContinue
+            Get-Content 'C:\ProgramData\UG-DCMS\logs\UGDCMS-App.err.log' -Tail 200 -ErrorAction SilentlyContinue
+            Get-Content 'C:\ProgramData\UG-DCMS\logs\UGDCMS-App.out.log' -Tail 200 -ErrorAction SilentlyContinue
+            throw ('live reinstall failed: ' + $upgradeExit)
+          }
+          Write-Host 'Live reinstall Setup.exe exited 0.'
+
+      - name: Verify live-upgrade pointers services and data preservation
+        shell: powershell
+        run: |
+          $base='C:\ProgramData\UG-DCMS'
+          $err="$base\logs\LAST-ERROR.txt"
+          if(Test-Path $err){ Get-Content $err -Tail 200; throw 'upgrade left LAST-ERROR.txt' }
+          $statusFile="$base\INSTALLATION-STATUS.txt"
+          if(-not(Test-Path $statusFile)){ throw 'upgrade status marker missing' }
+          $newStatusTicks=(Get-Item $statusFile).LastWriteTimeUtc.Ticks
+          if([int64]$newStatusTicks -le [int64]$env:OLD_STATUS_TICKS){ throw 'upgrade did not refresh installation status marker' }
+
+          $newRuntime=(Get-Content "$base\runtime\CURRENT-RUNTIME.txt" -Raw).Trim()
+          $newRelease=(Get-Content "$base\releases\CURRENT-RELEASE.txt" -Raw).Trim()
+          if($newRuntime -eq $env:OLD_RUNTIME){ throw 'runtime pointer did not change on live reinstall' }
+          if($newRelease -eq $env:OLD_RELEASE){ throw 'release pointer did not change on live reinstall' }
+          if(-not(Test-Path $newRuntime)){ throw 'new runtime pointer target missing' }
+          if(-not(Test-Path $newRelease)){ throw 'new release pointer target missing' }
+
+          $db=Get-Service 'UGDCMS-PostgreSQL' -ErrorAction Stop
+          $app=Get-Service 'UGDCMS-App' -ErrorAction Stop
+          if($db.Status -ne 'Running'){ throw ('DB service after upgrade=' + $db.Status) }
+          if($app.Status -ne 'Running'){ throw ('App service after upgrade=' + $app.Status) }
+
+          $h=Invoke-WebRequest 'http://127.0.0.1:8080/api/v1/health' -UseBasicParsing -TimeoutSec 10
+          if($h.StatusCode -ne 200){ throw ('upgrade health HTTP=' + $h.StatusCode) }
+          $u=Invoke-WebRequest 'http://127.0.0.1:8080/' -UseBasicParsing -TimeoutSec 10
+          if($u.StatusCode -ne 200){ throw ('upgrade UI HTTP=' + $u.StatusCode) }
+
+          $cfg=@{}
+          Get-Content "$base\.env" | ForEach-Object {
+            $line=$_.Trim()
+            if($line -and -not $line.StartsWith('#') -and $line.Contains('=')){
+              $parts=$line.Split('=',2)
+              $cfg[$parts[0].Trim()]=$parts[1].Trim()
+            }
+          }
+          $pg=Get-ChildItem 'C:\Program Files\PostgreSQL' -Directory | Sort-Object Name -Descending | Select-Object -First 1
+          $psql=Join-Path $pg.FullName 'bin\psql.exe'
+          $env:PGPASSWORD=$cfg['DCMS_PG_PASSWORD']
+          $sentinel=(& $psql -w -X -h $cfg['DCMS_PG_HOST'] -p $cfg['DCMS_PG_PORT'] -U $cfg['DCMS_PG_USER'] -d $cfg['DCMS_PG_DATABASE'] -qtAX -v ON_ERROR_STOP=1 -c "SELECT note FROM ci_upgrade_sentinel WHERE id=1;").Trim()
+          if($LASTEXITCODE -ne 0){ throw 'failed to query upgrade preservation sentinel' }
+          if($sentinel -ne 'preserve-me'){ throw ('database preservation sentinel mismatch: ' + $sentinel) }
+          $migrationCount=(& $psql -w -X -h $cfg['DCMS_PG_HOST'] -p $cfg['DCMS_PG_PORT'] -U $cfg['DCMS_PG_USER'] -d $cfg['DCMS_PG_DATABASE'] -qtAX -v ON_ERROR_STOP=1 -c 'SELECT count(*) FROM schema_migration;').Trim()
+          if($LASTEXITCODE -ne 0 -or [int]$migrationCount -ne 12){ throw ('migration count after upgrade=' + $migrationCount) }
+
+          $bad=@()
+          foreach($log in @("$base\logs\install.log","$base\logs\UGDCMS-App.err.log",'C:\ugdcms-inno-upgrade.log')){
+            if(Test-Path $log){
+              $hits=Select-String -Path $log -Pattern 'UnauthorizedAccessException|Access Denied|_bcrypt\.pyd' -SimpleMatch:$false
+              if($hits){ $bad += $hits }
+            }
+          }
+          if($bad.Count -gt 0){ $bad | ForEach-Object { Write-Host $_.Line }; throw 'locked-file/access-denied regression detected during live reinstall' }
+          Write-Host ('Upgrade release=' + $newRelease)
+          Write-Host ('Upgrade runtime=' + $newRuntime)
+          Write-Host 'UG-DCMS LIVE REINSTALL + DATABASE PRESERVATION PASS'
 
       - name: Collect diagnostics
         if: always()
@@ -174,6 +303,7 @@ jobs:
           Copy-Item 'C:\ProgramData\UG-DCMS\logs\*' 'ci-artifacts\diagnostics' -Force -ErrorAction SilentlyContinue
           Copy-Item 'C:\ProgramData\UG-DCMS\INSTALLATION-STATUS.txt' 'ci-artifacts\diagnostics' -Force -ErrorAction SilentlyContinue
           Copy-Item 'C:\ugdcms-inno.log' 'ci-artifacts\diagnostics' -Force -ErrorAction SilentlyContinue
+          Copy-Item 'C:\ugdcms-inno-upgrade.log' 'ci-artifacts\diagnostics' -Force -ErrorAction SilentlyContinue
           Get-Service 'UGDCMS-*' -ErrorAction SilentlyContinue | Format-List * | Out-File 'ci-artifacts\diagnostics\services.txt'
           Get-Process 'powershell','psql','postgres','UG-DCMS-Setup-1.0.0-rc2.10' -ErrorAction SilentlyContinue | Format-List * | Out-File 'ci-artifacts\diagnostics\processes.txt'
 
