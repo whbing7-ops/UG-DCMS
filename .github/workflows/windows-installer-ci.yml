@@ -6,6 +6,8 @@ on:
     paths:
       - 'ci/rc210trim8/**'
       - '.github/workflows/windows-installer-ci.yml'
+  pull_request:
+    branches: [ main ]
 
 jobs:
   windows-install-smoke:
