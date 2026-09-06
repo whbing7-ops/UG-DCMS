@@ -75,4 +75,23 @@ catch {
 }
 if(-not $timeoutObserved){ throw 'timeout gate did not observe timeout' }
 Write-Host 'FAST-GATE timeout PASS'
+
+# Regression for psql NOTICE/WARNING behavior on Windows PowerShell 5.1:
+# stderr with exit code 0 must not become a terminating error merely because
+# the surrounding script uses ErrorActionPreference=Stop.
+$savedErrorActionPreference=$ErrorActionPreference
+$ErrorActionPreference='Continue'
+try {
+  $nativeNotice=@(& $env:ComSpec /d /c 'echo PG_NOTICE 1>&2 & exit /b 0' 2>&1)
+  $nativeNoticeCode=[int]$LASTEXITCODE
+}
+finally {
+  $ErrorActionPreference=$savedErrorActionPreference
+}
+$nativeNoticeText=(($nativeNotice | ForEach-Object { [string]$_ }) -join "`n").Trim()
+if($nativeNoticeCode -ne 0){ throw ('native stderr success code mismatch: ' + $nativeNoticeCode) }
+if($nativeNoticeText -notmatch 'PG_NOTICE'){ throw ('native stderr success output missing: ' + $nativeNoticeText) }
+if($ErrorActionPreference -ne 'Stop'){ throw 'ErrorActionPreference was not restored' }
+Write-Host 'FAST-GATE native-stderr-success PASS'
+
 Write-Host 'WINDOWS BOUNDED PROCESS FAST GATE PASS'
