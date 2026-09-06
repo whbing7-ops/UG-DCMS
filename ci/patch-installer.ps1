@@ -12,15 +12,12 @@ if($t.Contains($oldBuild)){
 $provision = Join-Path $SourceRoot 'windows\install-oneclick.ps1'
 $p = Get-Content $provision -Raw -Encoding UTF8
 
-# Keep transcript output separate from install.log so Write-Status can always append.
 $oldTranscript = 'try { Start-Transcript -Path $LogFile -Append -Force | Out-Null } catch {}'
 if($p.Contains($oldTranscript)){
   $newTranscript = '$TranscriptFile = Join-Path $LogDir ''powershell-transcript.log''' + "`r`n" + 'try { Start-Transcript -Path $TranscriptFile -Append -Force | Out-Null } catch {}'
   $p = $p.Replace($oldTranscript,$newTranscript)
 }
 
-# Windows PowerShell 5.1 can expose ExitCode late after a timed WaitForExit.
-# Always perform a final WaitForExit/Refresh before reading it.
 if(-not $p.Contains('$exitCode = [int]$proc.ExitCode')){
   $processPattern = '^(?<indent>[^\S\r\n]*)if\s*\(\s*\$proc\.ExitCode\s*-ne\s*0\s*\)\s*\{\s*throw\s*"[^"\r\n]*"\s*\}[^\S\r\n]*$'
   $m = [regex]::Match($p,$processPattern,[System.Text.RegularExpressions.RegexOptions]::Multiline)
@@ -38,11 +35,6 @@ if(-not $p.Contains('$exitCode = [int]$proc.ExitCode')){
 }
 Set-Content $provision $p -Encoding UTF8
 
-# Replace the original migration script deterministically.
-# Deliberately use direct native invocation instead of Start-Process. The previous
-# Start-Process wrapper was the source of the PowerShell null-method failures.
-# psql is still fully non-interactive and bounded by PGCONNECT_TIMEOUT,
-# statement_timeout and lock_timeout.
 $migrate = Join-Path $SourceRoot 'windows\migrate-native.ps1'
 $hardenedMigrator = @'
 param(
@@ -91,8 +83,20 @@ function Invoke-PsqlFile {
 
   Write-MigrationLog ('PSQL START step=' + $Step + ' file=' + $SqlFile)
   try {
-    $raw = @(& $psql @argList 2>&1)
-    $code = [int]$LASTEXITCODE
+    # Windows PowerShell 5.1 promotes native stderr records to terminating errors
+    # when ErrorActionPreference=Stop. PostgreSQL NOTICE/WARNING uses stderr even
+    # when psql succeeds with exit code 0, so temporarily allow native stderr and
+    # make the psql exit code the authoritative failure signal.
+    $savedErrorActionPreference = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+      $raw = @(& $psql @argList 2>&1)
+      $code = [int]$LASTEXITCODE
+    }
+    finally {
+      $ErrorActionPreference = $savedErrorActionPreference
+    }
+
     $text = (($raw | ForEach-Object { [string]$_ }) -join "`n").Trim()
     Write-MigrationLog ('PSQL EXIT step=' + $Step + ' code=' + $code)
     if($text){ Write-MigrationLog ('PSQL OUTPUT step=' + $Step + ' ' + $text) }
@@ -151,7 +155,6 @@ Write-Host 'All database migrations completed successfully.' -ForegroundColor Gr
 '@
 Set-Content -Path $migrate -Value $hardenedMigrator -Encoding UTF8
 
-# Parse every modified PowerShell file before the expensive Windows build/install path.
 foreach($file in @($provision,$migrate)){
   $tokens=$null
   $parseErrors=$null
@@ -176,7 +179,9 @@ if(-not $check.Contains('-InstallDir $newRelease')){ throw 'Migration invocation
 if(-not $mgCheck.Contains("PGCONNECT_TIMEOUT='5'")){ throw 'psql connect timeout missing' }
 if(-not $mgCheck.Contains('statement_timeout=25000')){ throw 'psql statement timeout missing' }
 if(-not $mgCheck.Contains('& $psql @argList 2>&1')){ throw 'direct psql invocation missing' }
+if(-not $mgCheck.Contains("$ErrorActionPreference = 'Continue'")){ throw 'native stderr compatibility guard missing' }
+if(-not $mgCheck.Contains('$savedErrorActionPreference')){ throw 'native stderr preference restore missing' }
 if($mgCheck.Contains('Start-Process -FilePath $psql')){ throw 'fragile psql Start-Process wrapper still present' }
 if(-not $mgCheck.Contains('PSQL STACK')){ throw 'psql stack diagnostics missing' }
 if(-not $mgCheck.Contains('ALL MIGRATIONS PASS 12/12')){ throw 'migration completion gate missing' }
-Write-Host 'Installer reliability patch PASS: direct bounded psql migrator installed and syntax validated.'
+Write-Host 'Installer reliability patch PASS: psql NOTICE stderr is nonfatal and exit code remains authoritative.'
