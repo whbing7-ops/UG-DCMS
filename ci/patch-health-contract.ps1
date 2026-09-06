@@ -24,17 +24,19 @@ if($p.Contains('/api/v1/system/health')){
 }
 if(-not $p.Contains('/api/v1/health')){ throw 'installer health check path patch missing' }
 if($p.Contains('/api/v1/system/health')){ throw 'stale installer health path remains' }
-[IO.File]::WriteAllText($provision,$p,(New-Object Text.UTF8Encoding($false)))
 
-# The original archive contains a double UTF-8 BOM in start-native.ps1. PowerShell
-# consumes one BOM and exposes the second as a leading character, producing '?param'.
-# Strip every leading U+FEFF and write deterministic UTF-8 without BOM.
+# Windows PowerShell 5.1 requires a UTF-8 BOM to reliably parse scripts containing
+# non-ASCII text. Keep exactly one BOM: zero BOM corrupts Chinese source under 5.1,
+# while the original start-native.ps1 contains two BOMs and exposes the second as ?param.
+$utf8Bom = New-Object Text.UTF8Encoding($true)
+[IO.File]::WriteAllText($provision,$p,$utf8Bom)
+
 $startText = [IO.File]::ReadAllText($startNative)
 while($startText.Length -gt 0 -and $startText[0] -eq [char]0xFEFF){
   $startText = $startText.Substring(1)
 }
 if(-not $startText.StartsWith('param(')){ throw 'start-native.ps1 does not start with param after BOM normalization' }
-[IO.File]::WriteAllText($startNative,$startText,(New-Object Text.UTF8Encoding($false)))
+[IO.File]::WriteAllText($startNative,$startText,$utf8Bom)
 
 # Parse both modified PowerShell files under Windows PowerShell 5.1.
 foreach($file in @($provision,$startNative)){
@@ -47,9 +49,12 @@ foreach($file in @($provision,$startNative)){
   }
 }
 
+# Require exactly one UTF-8 BOM on start-native.ps1.
 $bytes=[IO.File]::ReadAllBytes($startNative)
-if($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF){
-  throw 'start-native.ps1 still has UTF-8 BOM'
-}
+if($bytes.Length -lt 6){ throw 'start-native.ps1 unexpectedly short' }
+$firstBom = ($bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF)
+$secondBom = ($bytes[3] -eq 0xEF -and $bytes[4] -eq 0xBB -and $bytes[5] -eq 0xBF)
+if(-not $firstBom){ throw 'start-native.ps1 is missing required UTF-8 BOM for Windows PowerShell 5.1' }
+if($secondBom){ throw 'start-native.ps1 still contains a double UTF-8 BOM' }
 
-Write-Host 'HEALTH CONTRACT PATCH PASS: /api/v1/health and BOM-free start-native.ps1 verified.'
+Write-Host 'HEALTH CONTRACT PATCH PASS: /api/v1/health and single-BOM PowerShell scripts verified.'
