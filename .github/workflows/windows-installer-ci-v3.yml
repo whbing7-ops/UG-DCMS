@@ -88,21 +88,40 @@ jobs:
         shell: powershell
         run: |
           $setup=(Resolve-Path 'installer\output\UG-DCMS-Setup-1.0.0-rc2.10.exe').Path
-          $p=Start-Process -FilePath $setup -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/SP-','/LOG=C:\ugdcms-inno.log') -PassThru -Wait
-          if($p.ExitCode -ne 0){ throw "Setup failed: $($p.ExitCode)" }
+          $p=Start-Process -FilePath $setup -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/SP-','/LOG=C:\ugdcms-inno.log') -PassThru
+          $deadline=(Get-Date).AddMinutes(12)
+          while(-not $p.HasExited -and (Get-Date) -lt $deadline){
+            Start-Sleep -Seconds 5
+            $p.Refresh()
+          }
+          if(-not $p.HasExited){
+            Write-Host 'Setup timeout. Dumping live diagnostics before terminating process tree.'
+            Get-Content 'C:\ProgramData\UG-DCMS\logs\install.log' -Tail 300 -ErrorAction SilentlyContinue
+            Get-Content 'C:\ProgramData\UG-DCMS\logs\migration.log' -Tail 300 -ErrorAction SilentlyContinue
+            Get-Content 'C:\ProgramData\UG-DCMS\logs\LAST-ERROR.txt' -Tail 150 -ErrorAction SilentlyContinue
+            Get-Content 'C:\ugdcms-inno.log' -Tail 200 -ErrorAction SilentlyContinue
+            taskkill /PID $p.Id /T /F | Out-Host
+            throw 'Setup.exe exceeded 12 minute hard timeout'
+          }
+          $p.WaitForExit()
+          if($p.ExitCode -ne 0){
+            Get-Content 'C:\ProgramData\UG-DCMS\logs\install.log' -Tail 300 -ErrorAction SilentlyContinue
+            Get-Content 'C:\ProgramData\UG-DCMS\logs\migration.log' -Tail 300 -ErrorAction SilentlyContinue
+            throw "Setup failed: $($p.ExitCode)"
+          }
 
       - name: Wait for provisioning
         shell: powershell
         run: |
           $status='C:\ProgramData\UG-DCMS\INSTALLATION-STATUS.txt'
           $err='C:\ProgramData\UG-DCMS\logs\LAST-ERROR.txt'
-          $deadline=(Get-Date).AddMinutes(15)
+          $deadline=(Get-Date).AddMinutes(3)
           do {
-            if(Test-Path $err){ Get-Content $err -Tail 150; Get-Content 'C:\ProgramData\UG-DCMS\logs\install.log' -Tail 300 -ErrorAction SilentlyContinue; throw 'Provisioning failed' }
+            if(Test-Path $err){ Get-Content $err -Tail 150; Get-Content 'C:\ProgramData\UG-DCMS\logs\install.log' -Tail 300 -ErrorAction SilentlyContinue; Get-Content 'C:\ProgramData\UG-DCMS\logs\migration.log' -Tail 300 -ErrorAction SilentlyContinue; throw 'Provisioning failed' }
             if(Test-Path $status){ Get-Content $status; break }
             Start-Sleep -Seconds 5
           } while((Get-Date) -lt $deadline)
-          if(-not(Test-Path $status)){ throw 'Provisioning timeout' }
+          if(-not(Test-Path $status)){ throw 'Provisioning status file missing after Setup completion' }
 
       - name: Verify services and pointers
         shell: powershell
@@ -134,6 +153,7 @@ jobs:
           Copy-Item 'C:\ProgramData\UG-DCMS\INSTALLATION-STATUS.txt' 'ci-artifacts\diagnostics' -Force -ErrorAction SilentlyContinue
           Copy-Item 'C:\ugdcms-inno.log' 'ci-artifacts\diagnostics' -Force -ErrorAction SilentlyContinue
           Get-Service 'UGDCMS-*' -ErrorAction SilentlyContinue | Format-List * | Out-File 'ci-artifacts\diagnostics\services.txt'
+          Get-Process powershell,psql,postgres,UG-DCMS-Setup-1.0.0-rc2.10 -ErrorAction SilentlyContinue | Format-List * | Out-File 'ci-artifacts\diagnostics\processes.txt'
 
       - name: Upload artifact
         if: always()
