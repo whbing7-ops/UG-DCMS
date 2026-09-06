@@ -29,12 +29,14 @@ jobs:
       - name: Validate patch script syntax
         shell: powershell
         run: |
-          $tokens=$null
-          $errors=$null
-          [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path 'ci\patch-installer.ps1').Path,[ref]$tokens,[ref]$errors) | Out-Null
-          if($errors.Count -gt 0){
-            foreach($e in $errors){ Write-Host ($e.Message + ' at line ' + $e.Extent.StartLineNumber + ', column ' + $e.Extent.StartColumnNumber) }
-            throw 'ci/patch-installer.ps1 has syntax errors'
+          foreach($file in @('ci\patch-installer.ps1','ci\patch-health-contract.ps1')){
+            $tokens=$null
+            $errors=$null
+            [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $file).Path,[ref]$tokens,[ref]$errors) | Out-Null
+            if($errors.Count -gt 0){
+              foreach($e in $errors){ Write-Host ($file + ': ' + $e.Message + ' at line ' + $e.Extent.StartLineNumber + ', column ' + $e.Extent.StartColumnNumber) }
+              throw ('PowerShell parse failure: ' + $file)
+            }
           }
           Write-Host 'CI patch PowerShell syntax PASS'
 
@@ -48,6 +50,10 @@ jobs:
       - name: Apply reliability patches
         shell: powershell
         run: powershell -NoProfile -ExecutionPolicy Bypass -File ci\patch-installer.ps1 -SourceRoot src
+
+      - name: Apply health contract and encoding patches
+        shell: powershell
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File ci\patch-health-contract.ps1 -SourceRoot src
 
       - uses: actions/setup-python@v5
         with:
@@ -100,16 +106,23 @@ jobs:
             Write-Host 'Setup timeout. Dumping live diagnostics before terminating process tree.'
             Get-Content 'C:\ProgramData\UG-DCMS\logs\install.log' -Tail 300 -ErrorAction SilentlyContinue
             Get-Content 'C:\ProgramData\UG-DCMS\logs\migration.log' -Tail 300 -ErrorAction SilentlyContinue
+            Get-Content 'C:\ProgramData\UG-DCMS\logs\UGDCMS-App.err.log' -Tail 200 -ErrorAction SilentlyContinue
+            Get-Content 'C:\ProgramData\UG-DCMS\logs\UGDCMS-App.out.log' -Tail 200 -ErrorAction SilentlyContinue
             Get-Content 'C:\ProgramData\UG-DCMS\logs\LAST-ERROR.txt' -Tail 150 -ErrorAction SilentlyContinue
             Get-Content 'C:\ugdcms-inno.log' -Tail 200 -ErrorAction SilentlyContinue
             taskkill /PID $p.Id /T /F | Out-Host
             throw 'Setup.exe exceeded 12 minute hard timeout'
           }
           $p.WaitForExit()
-          if($p.ExitCode -ne 0){
+          $p.Refresh()
+          if(-not $p.HasExited){ throw 'Setup process did not finalize cleanly' }
+          $setupExit=[int]$p.ExitCode
+          if($setupExit -ne 0){
             Get-Content 'C:\ProgramData\UG-DCMS\logs\install.log' -Tail 300 -ErrorAction SilentlyContinue
             Get-Content 'C:\ProgramData\UG-DCMS\logs\migration.log' -Tail 300 -ErrorAction SilentlyContinue
-            throw "Setup failed: $($p.ExitCode)"
+            Get-Content 'C:\ProgramData\UG-DCMS\logs\UGDCMS-App.err.log' -Tail 200 -ErrorAction SilentlyContinue
+            Get-Content 'C:\ProgramData\UG-DCMS\logs\UGDCMS-App.out.log' -Tail 200 -ErrorAction SilentlyContinue
+            throw "Setup failed: $setupExit"
           }
 
       - name: Wait for provisioning
@@ -119,7 +132,14 @@ jobs:
           $err='C:\ProgramData\UG-DCMS\logs\LAST-ERROR.txt'
           $deadline=(Get-Date).AddMinutes(3)
           do {
-            if(Test-Path $err){ Get-Content $err -Tail 150; Get-Content 'C:\ProgramData\UG-DCMS\logs\install.log' -Tail 300 -ErrorAction SilentlyContinue; Get-Content 'C:\ProgramData\UG-DCMS\logs\migration.log' -Tail 300 -ErrorAction SilentlyContinue; throw 'Provisioning failed' }
+            if(Test-Path $err){
+              Get-Content $err -Tail 150
+              Get-Content 'C:\ProgramData\UG-DCMS\logs\install.log' -Tail 300 -ErrorAction SilentlyContinue
+              Get-Content 'C:\ProgramData\UG-DCMS\logs\migration.log' -Tail 300 -ErrorAction SilentlyContinue
+              Get-Content 'C:\ProgramData\UG-DCMS\logs\UGDCMS-App.err.log' -Tail 200 -ErrorAction SilentlyContinue
+              Get-Content 'C:\ProgramData\UG-DCMS\logs\UGDCMS-App.out.log' -Tail 200 -ErrorAction SilentlyContinue
+              throw 'Provisioning failed'
+            }
             if(Test-Path $status){ Get-Content $status; break }
             Start-Sleep -Seconds 5
           } while((Get-Date) -lt $deadline)
@@ -140,7 +160,7 @@ jobs:
       - name: HTTP smoke
         shell: powershell
         run: |
-          $h=Invoke-WebRequest 'http://127.0.0.1:8080/api/v1/system/health' -UseBasicParsing -TimeoutSec 10
+          $h=Invoke-WebRequest 'http://127.0.0.1:8080/api/v1/health' -UseBasicParsing -TimeoutSec 10
           if($h.StatusCode -ne 200){ throw "health HTTP $($h.StatusCode)" }
           $u=Invoke-WebRequest 'http://127.0.0.1:8080/' -UseBasicParsing -TimeoutSec 10
           if($u.StatusCode -ne 200){ throw "UI HTTP $($u.StatusCode)" }
