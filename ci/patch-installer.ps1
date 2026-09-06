@@ -19,7 +19,7 @@ if($p.Contains($oldTranscript)){
 }
 
 if(-not $p.Contains('$proc.Refresh()')){
-  $pattern = '(?m)^(?<indent>\s*)if\s*\(\s*\$proc\.ExitCode\s*-ne\s*0\s*\)\s*\{\s*throw\s*"(?<msg>[^"\r\n]*)"\s*\}\s*$'
+  $pattern = '(?m)^(?<indent>[^\S\r\n]*)if\s*\(\s*\$proc\.ExitCode\s*-ne\s*0\s*\)\s*\{\s*throw\s*"[^"\r\n]*"\s*\}[^\S\r\n]*$'
   $m = [regex]::Match($p,$pattern)
   if(-not $m.Success){
     Write-Host 'Nearby process exit-code lines:'
@@ -27,13 +27,14 @@ if(-not $p.Contains('$proc.Refresh()')){
     throw 'Process exit-code expression not found'
   }
   $indent = $m.Groups['indent'].Value
-  $replacement = @(
-    $indent + '$proc.Refresh()',
-    $indent + 'if(-not $proc.HasExited){ throw "Process did not exit cleanly for step: $Step" }'.Replace('\"','"'),
-    $indent + '$exitCode = $proc.ExitCode',
-    $indent + 'if($exitCode -ne 0){ throw "Step failed: $Step; exit code: $exitCode" }'.Replace('\"','"')
-  ) -join "`r`n"
-  $p = [regex]::Replace($p,$pattern,[System.Text.RegularExpressions.MatchEvaluator]{ param($x) $replacement },1)
+  $replacement = @'
+$proc.Refresh()
+if(-not $proc.HasExited){ throw ('Process did not exit cleanly for step: ' + $Step) }
+$exitCode = $proc.ExitCode
+if($exitCode -ne 0){ throw ('Step failed: ' + $Step + '; exit code: ' + [string]$exitCode) }
+'@
+  $replacement = (($replacement -split "`r?`n") | ForEach-Object { $indent + $_ }) -join "`r`n"
+  $p = $p.Substring(0,$m.Index) + $replacement + $p.Substring($m.Index + $m.Length)
 }
 
 Set-Content $provision $p -Encoding UTF8
@@ -47,7 +48,12 @@ $tokens = $null
 $parseErrors = $null
 [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $provision).Path,[ref]$tokens,[ref]$parseErrors) | Out-Null
 if($parseErrors.Count -gt 0){
-  $parseErrors | ForEach-Object { Write-Host $_.Message }
+  $lines = Get-Content $provision
+  foreach($e in $parseErrors){
+    Write-Host ($e.Message + ' at line ' + $e.Extent.StartLineNumber + ', column ' + $e.Extent.StartColumnNumber)
+    $n = $e.Extent.StartLineNumber
+    if($n -ge 1 -and $n -le $lines.Count){ Write-Host ('SOURCE: ' + $lines[$n-1]) }
+  }
   throw "Patched install-oneclick.ps1 has $($parseErrors.Count) parse error(s)"
 }
 Write-Host 'Installer reliability patches applied and syntax validated.'
