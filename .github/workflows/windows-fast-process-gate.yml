@@ -5,6 +5,7 @@ on:
   push:
     paths:
       - 'ci/patch-installer.ps1'
+      - 'ci/patch-health-contract.ps1'
       - 'ci/test-bounded-process.ps1'
       - '.github/workflows/windows-fast-process-gate.yml'
 
@@ -27,7 +28,7 @@ jobs:
       - name: Parse PowerShell test and patch scripts
         shell: powershell
         run: |
-          foreach($file in @('ci\patch-installer.ps1','ci\test-bounded-process.ps1')){
+          foreach($file in @('ci\patch-installer.ps1','ci\patch-health-contract.ps1','ci\test-bounded-process.ps1')){
             $tokens=$null
             $errors=$null
             [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $file).Path,[ref]$tokens,[ref]$errors) | Out-Null
@@ -51,6 +52,10 @@ jobs:
       - name: Apply installer reliability patches
         shell: powershell
         run: powershell -NoProfile -ExecutionPolicy Bypass -File ci\patch-installer.ps1 -SourceRoot src
+
+      - name: Apply health contract and encoding patches
+        shell: powershell
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File ci\patch-health-contract.ps1 -SourceRoot src
 
       - uses: actions/setup-python@v5
         with:
