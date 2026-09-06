@@ -24,6 +24,18 @@ jobs:
           $h=(Get-FileHash $zip -Algorithm SHA256).Hash.ToUpperInvariant()
           if($h -ne '23FCA65F85DF2F83D9020F9168D232111F9E7523F1209A15C73E5F372EE0E1F8'){ throw "source ZIP hash mismatch: $h" }
 
+      - name: Validate patch script syntax
+        shell: powershell
+        run: |
+          $tokens=$null
+          $errors=$null
+          [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path 'ci\patch-installer.ps1').Path,[ref]$tokens,[ref]$errors) | Out-Null
+          if($errors.Count -gt 0){
+            foreach($e in $errors){ Write-Host ($e.Message + ' at line ' + $e.Extent.StartLineNumber + ', column ' + $e.Extent.StartColumnNumber) }
+            throw 'ci/patch-installer.ps1 has syntax errors'
+          }
+          Write-Host 'CI patch PowerShell syntax PASS'
+
       - name: Extract source
         shell: powershell
         run: |
@@ -40,6 +52,11 @@ jobs:
           python-version: '3.12'
           architecture: 'x64'
 
+      - name: Static installer audit
+        working-directory: src
+        shell: powershell
+        run: python installer\verify_installer_source.py
+
       - name: Install prerequisites
         shell: powershell
         run: |
@@ -50,11 +67,6 @@ jobs:
           if(-not $pg){ throw 'PostgreSQL not found' }
           "C:\Program Files (x86)\Inno Setup 6" | Out-File $env:GITHUB_PATH -Append
           "$($pg.FullName)\bin" | Out-File $env:GITHUB_PATH -Append
-
-      - name: Static installer audit
-        working-directory: src
-        shell: powershell
-        run: python installer\verify_installer_source.py
 
       - name: Build Setup.exe
         working-directory: src
