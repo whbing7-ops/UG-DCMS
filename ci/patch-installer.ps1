@@ -63,7 +63,7 @@ $newState = @'
   Write-MigrationLog ("STATE " + $v + " EXIT=" + $stateCode + " OUTPUT=" + $stateText)
   if($stateCode -ne 0){ throw "query migration state failed for $v with exit code $stateCode" }
   if($stateText -eq "t"){ Write-MigrationLog ("SKIP " + $v); return }
-  if($stateText -ne "f"){ throw "unexpected migration state output for $v: '$stateText'" }
+  if($stateText -ne "f"){ throw ("unexpected migration state output for " + $v + ": '" + $stateText + "'") }
 '@
 if($mg.Contains($oldState)){
   $mg = $mg.Replace($oldState,$newState)
