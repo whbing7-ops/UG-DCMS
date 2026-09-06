@@ -57,4 +57,16 @@ $secondBom = ($bytes[3] -eq 0xEF -and $bytes[4] -eq 0xBB -and $bytes[5] -eq 0xBF
 if(-not $firstBom){ throw 'start-native.ps1 is missing required UTF-8 BOM for Windows PowerShell 5.1' }
 if($secondBom){ throw 'start-native.ps1 still contains a double UTF-8 BOM' }
 
-Write-Host 'HEALTH CONTRACT PATCH PASS: /api/v1/health and single-BOM PowerShell scripts verified.'
+# Apply the .env ACL upgrade fix in the same cheap preflight patch phase. This makes
+# legacy rc2.10 installations (Administrators=Read only) writable by an elevated
+# installer before it attempts Set-Content, while keeping normal users excluded.
+$envAclPatch = Join-Path (Split-Path -Parent $PSCommandPath) 'patch-env-acl.ps1'
+if(-not(Test-Path $envAclPatch)){ throw 'patch-env-acl.ps1 missing' }
+& $envAclPatch -SourceRoot $SourceRoot
+if($LASTEXITCODE -ne 0){ throw ('patch-env-acl.ps1 failed with exit code ' + $LASTEXITCODE) }
+
+$finalProvision = Get-Content $provision -Raw -Encoding UTF8
+if(-not $finalProvision.Contains('/api/v1/health')){ throw 'health contract lost after .env ACL patch' }
+if(-not $finalProvision.Contains("'*S-1-5-32-544:(F)'")){ throw '.env ACL hardening missing after patch chain' }
+
+Write-Host 'HEALTH CONTRACT PATCH PASS: /api/v1/health, single-BOM scripts, and upgrade-safe .env ACL verified.'
