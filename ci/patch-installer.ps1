@@ -29,9 +29,9 @@ if(-not $p.Contains('$proc.Refresh()')){
   $indent = $m.Groups['indent'].Value
   $replacement = @(
     $indent + '$proc.Refresh()',
-    $indent + 'if(-not $proc.HasExited){ throw "$Step 结束状态异常：进程未退出。" }',
+    $indent + 'if(-not $proc.HasExited){ throw "Process did not exit cleanly for step: $Step" }',
     $indent + '$exitCode = $proc.ExitCode',
-    $indent + 'if($exitCode -ne 0){ throw "$Step 失败，退出码 $exitCode" }'
+    $indent + 'if($exitCode -ne 0){ throw "Step failed: $Step; exit code: $exitCode" }'
   ) -join "`r`n"
   $p = [regex]::Replace($p,$pattern,[System.Text.RegularExpressions.MatchEvaluator]{ param($x) $replacement },1)
 }
