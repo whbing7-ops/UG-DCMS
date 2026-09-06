@@ -39,6 +39,22 @@ jobs:
           if (-not (Test-Path 'src\backend\app\main.py')) { throw 'Backend source missing.' }
           if (-not (Test-Path 'src\db\migrations\0012_applicability_configuration.sql')) { throw 'Migration 0012 missing.' }
 
+      - name: Patch Build-Setup PowerShell self-path
+        working-directory: src
+        shell: powershell
+        run: |
+          $path = 'installer\Build-Setup.ps1'
+          $text = Get-Content $path -Raw -Encoding UTF8
+          $old = '(Get-Content $MyInvocation.MyCommand.Path -Raw -Encoding UTF8)'
+          $new = '(Get-Content $PSCommandPath -Raw -Encoding UTF8)'
+          if (-not $text.Contains($old)) { throw 'Expected Build-Setup self-path expression not found.' }
+          $text = $text.Replace($old, $new)
+          Set-Content -Path $path -Value $text -Encoding UTF8
+          $check = Get-Content $path -Raw -Encoding UTF8
+          if ($check.Contains('$MyInvocation.MyCommand.Path')) { throw 'Unsafe function-scoped MyInvocation path still present.' }
+          if (-not $check.Contains('$PSCommandPath')) { throw 'PSCommandPath patch missing.' }
+          Write-Host 'Build-Setup self-path patch applied.'
+
       - name: Set up Python 3.12
         uses: actions/setup-python@v5
         with:
