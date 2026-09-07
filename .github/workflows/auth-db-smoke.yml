@@ -36,7 +36,7 @@ jobs:
           for f in src/db/migrations/*.sql; do
             psql -h /var/run/postgresql -U runner -d dcms -v ON_ERROR_STOP=1 -f "$f" >/dev/null
           done
-      - name: Exercise successful login transaction
+      - name: Exercise pgcrypto-seeded success and denied-login paths
         working-directory: src/backend
         env:
           DCMS_PG_HOST: /var/run/postgresql
@@ -47,19 +47,35 @@ jobs:
         run: |
           python - <<'PY'
           import secrets, traceback
-          from app.db import transaction, execute
-          from app.security import hash_password
+          from app.db import transaction, fetch_one
           from app.services.auth import login
+
           probe = 'T' + secrets.token_urlsafe(18)
           with transaction() as conn:
-              execute(conn, "UPDATE app_user SET password_hash=%s WHERE username='admin'", (hash_password(probe),))
+              row = fetch_one(conn, """
+                  UPDATE app_user
+                     SET password_hash = crypt(%s, gen_salt('bf', 12)),
+                         failed_login_count = 0,
+                         locked_until = NULL
+                   WHERE username = 'admin'
+               RETURNING left(password_hash, 4) AS prefix, length(password_hash) AS n
+              """, (probe,))
+              print('PGCRYPTO_HASH=', row)
+
           try:
               with transaction() as conn:
-                  result = login(conn, 'admin', probe, '127.0.0.1', 'ci-auth-smoke')
+                  denied = login(conn, 'admin', probe + 'X', '127.0.0.1', 'ci-auth-denied')
+                  print('DENIED_OK=', denied.ok, 'CODE=', denied.code, 'REASON=', denied.reason)
+                  if denied.ok or denied.code != 'INVALID_CREDENTIALS':
+                      raise RuntimeError('wrong credential path did not return INVALID_CREDENTIALS')
+
+              with transaction() as conn:
+                  result = login(conn, 'admin', probe, '127.0.0.1', 'ci-auth-success')
                   print('LOGIN_OK=', result.ok, 'CODE=', result.code)
                   if not result.ok:
                       raise RuntimeError(result.reason or 'login denied')
                   print('SESSION_ID=', result.session['id'])
+                  print('ROLES=', result.user['roles'])
           except Exception:
               traceback.print_exc()
               raise
