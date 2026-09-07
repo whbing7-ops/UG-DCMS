@@ -1,2 +1,2 @@
-trigger=2026-09-07T06:41:00Z
-reason=verify-trimmed-version-resource-strings
+trigger=2026-09-07T06:44:00Z
+reason=verify-final-normalized-version-resources
