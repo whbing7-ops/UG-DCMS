@@ -3,9 +3,10 @@ $ErrorActionPreference='Stop'
 
 $migDir = Join-Path $SourceRoot 'db\migrations'
 $provision = Join-Path $SourceRoot 'windows\install-oneclick.ps1'
+$migrate = Join-Path $SourceRoot 'windows\migrate-native.ps1'
 $verify = Join-Path $SourceRoot 'installer\verify_installer_source.py'
 $build = Join-Path $SourceRoot 'installer\Build-Setup.ps1'
-foreach($p in @($migDir,$provision,$verify,$build)){
+foreach($p in @($migDir,$provision,$migrate,$verify,$build)){
   if(-not(Test-Path $p)){ throw ('required path missing: '+$p) }
 }
 
@@ -20,7 +21,6 @@ $sql = @'
 
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
--- Core account columns used by app.services.auth.
 ALTER TABLE app_user ADD COLUMN IF NOT EXISTS is_active boolean NOT NULL DEFAULT true;
 ALTER TABLE app_user ADD COLUMN IF NOT EXISTS must_change_password boolean NOT NULL DEFAULT false;
 ALTER TABLE app_user ADD COLUMN IF NOT EXISTS failed_login_count integer NOT NULL DEFAULT 0;
@@ -29,7 +29,6 @@ ALTER TABLE app_user ADD COLUMN IF NOT EXISTS last_login_at timestamptz;
 ALTER TABLE app_user ADD COLUMN IF NOT EXISTS updated_at timestamptz NOT NULL DEFAULT now();
 ALTER TABLE app_user ADD COLUMN IF NOT EXISTS updated_by uuid;
 
--- Session table/columns required by licensing.acquire_slot and current_user.
 CREATE TABLE IF NOT EXISTS user_session (
     id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id       uuid NOT NULL REFERENCES app_user(id),
@@ -54,13 +53,11 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_user_session_token_compat ON user_session(t
 CREATE INDEX IF NOT EXISTS idx_user_session_active_compat ON user_session(user_id) WHERE revoked_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_user_session_expiry_compat ON user_session(expires_at) WHERE revoked_at IS NULL;
 
--- Audit columns used by successful and denied login events.
 ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS session_id uuid;
 ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS client_ip text;
 ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS request_id text;
 ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS result text NOT NULL DEFAULT 'SUCCESS';
 
--- Required authentication/licensing settings. Preserve any existing configured value.
 INSERT INTO system_setting(key,value,value_type,description,is_locked) VALUES
 ('max_concurrent_accounts','10','INTEGER','同时活动账户上限',true),
 ('session_idle_minutes','120','INTEGER','会话空闲超时(分钟)',false),
@@ -69,7 +66,6 @@ INSERT INTO system_setting(key,value,value_type,description,is_locked) VALUES
 ('login_lock_minutes','15','INTEGER','登录锁定时长(分钟)',false)
 ON CONFLICT (key) DO NOTHING;
 
--- Restore built-in administrator role assignments if a legacy database lost them.
 INSERT INTO user_role(user_id, role_code)
 SELECT u.id, r.code
   FROM app_user u
@@ -77,15 +73,12 @@ SELECT u.id, r.code
  WHERE lower(u.username)='admin'
 ON CONFLICT (user_id, role_code) DO NOTHING;
 
--- A bootstrap administrator that has never completed its mandatory first password
--- change must not remain locked because of earlier installer/login experiments.
 UPDATE app_user
    SET failed_login_count=0, locked_until=NULL
  WHERE lower(username)='admin' AND must_change_password=true;
 
--- Transactional login-write schema probe. The inner exception block intentionally
--- rolls back its own changes, so the migration proves the login DML path without
--- leaving a session or audit record behind.
+-- Prove all writes performed by a successful login can execute. The intentional
+-- exception rolls the probe records back so this migration leaves no fake session.
 DO $$
 DECLARE
   aid uuid;
@@ -127,43 +120,61 @@ BEGIN
   END IF;
 END $$;
 '@
-
 [IO.File]::WriteAllText($mig,$sql,(New-Object Text.UTF8Encoding($false)))
 
-# Move the installer completeness gate from 12 migrations to 13.
+# install-oneclick.ps1: locale-independent migration-count changes. The old file has
+# one 12/12 completion marker; replacing the numeric marker avoids Windows console
+# code-page corruption of a Chinese literal inside this patch script.
 $p = Get-Content $provision -Raw -Encoding UTF8
 $p = $p.Replace('if([int]$migrationCount -ne 12){','if([int]$migrationCount -ne 13){')
-$p = $p.Replace('期望 12，实际 $migrationCount','期望 13，实际 $migrationCount')
-$p = $p.Replace('数据库迁移完整性检查通过：12/12','数据库迁移完整性检查通过：13/13')
+$p = $p.Replace('12/12','13/13')
 if(-not $p.Contains('if([int]$migrationCount -ne 13){')){ throw 'installer migration count was not patched to 13' }
-if(-not $p.Contains('数据库迁移完整性检查通过：13/13')){ throw 'installer migration completion text was not patched to 13/13' }
+if(-not $p.Contains('13/13')){ throw 'installer migration completion marker was not patched to 13/13' }
 [IO.File]::WriteAllText($provision,$p,(New-Object Text.UTF8Encoding($true)))
 
-# Keep these replacements deliberately simple. Windows PowerShell 5.1 does not use
-# backslash to escape a quote inside a double-quoted string, so whole Python source
-# line replacements are fragile. Replacing stable tokens is both clearer and safer.
+# migrate-native.ps1 is generated wholesale by patch-installer.ps1 and therefore
+# carries its own 12-file/count gates. Patch every stable ASCII token here.
+$m = Get-Content $migrate -Raw -Encoding UTF8
+$m = $m.Replace('$migrations.Count -ne 12','$migrations.Count -ne 13')
+$m = $m.Replace('Expected 12 migration files','Expected 13 migration files')
+$m = $m.Replace('$countText -ne 12','$countText -ne 13')
+$m = $m.Replace('Expected 12, actual','Expected 13, actual')
+$m = $m.Replace('ALL MIGRATIONS PASS 12/12','ALL MIGRATIONS PASS 13/13')
+foreach($old in @('$migrations.Count -ne 12','Expected 12 migration files','$countText -ne 12','Expected 12, actual','ALL MIGRATIONS PASS 12/12')){
+  if($m.Contains($old)){ throw ('migrate-native.ps1 still contains old gate: '+$old) }
+}
+if(-not $m.Contains('ALL MIGRATIONS PASS 13/13')){ throw 'migrate-native.ps1 13/13 completion marker missing' }
+[IO.File]::WriteAllText($migrate,$m,(New-Object Text.UTF8Encoding($true)))
+
+# Static source verifier.
 $v = Get-Content $verify -Raw -Encoding UTF8
 $v = $v.Replace('len(migs) == 12','len(migs) == 13')
 $v = $v.Replace('expected 12 migrations','expected 13 migrations')
-$v = $v.Replace('数据库迁移完整性检查通过：12/12','数据库迁移完整性检查通过：13/13')
+$v = $v.Replace('12/12','13/13')
 $v = $v.Replace('{len(migs)}/12','{len(migs)}/13')
-if($v.Contains('len(migs) == 12')){ throw 'verify_installer_source.py still checks for 12 migrations' }
-if($v.Contains('expected 12 migrations')){ throw 'verify_installer_source.py still contains old migration-count message' }
-if($v.Contains('数据库迁移完整性检查通过：12/12')){ throw 'verify_installer_source.py still contains old migration completion marker' }
-if($v.Contains('{len(migs)}/12')){ throw 'verify_installer_source.py still prints /12 migration total' }
+foreach($old in @('len(migs) == 12','expected 12 migrations','{len(migs)}/12')){
+  if($v.Contains($old)){ throw ('verify_installer_source.py still contains old gate: '+$old) }
+}
 [IO.File]::WriteAllText($verify,$v,(New-Object Text.UTF8Encoding($false)))
 
+# Build preflight has both migration-file-count and completion-text assertions.
 $b = Get-Content $build -Raw -Encoding UTF8
-$b = $b.Replace('数据库迁移完整性检查通过：12/12','数据库迁移完整性检查通过：13/13')
-if(-not $b.Contains('数据库迁移完整性检查通过：13/13')){ throw 'Build-Setup.ps1 migration gate was not patched' }
+$b = $b.Replace('$migrations.Count -ne 12','$migrations.Count -ne 13')
+$b = $b.Replace('Expected 12 DB migrations','Expected 13 DB migrations')
+$b = $b.Replace('12/12','13/13')
+foreach($old in @('$migrations.Count -ne 12','Expected 12 DB migrations','12/12')){
+  if($b.Contains($old)){ throw ('Build-Setup.ps1 still contains old gate: '+$old) }
+}
 [IO.File]::WriteAllText($build,$b,(New-Object Text.UTF8Encoding($true)))
 
-# Parse modified PowerShell files under Windows PowerShell 5.1 parser.
-foreach($file in @($provision,$build)){
+foreach($file in @($provision,$migrate,$build)){
   $tokens=$null; $errors=$null
   [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $file).Path,[ref]$tokens,[ref]$errors) | Out-Null
-  if($errors.Count -gt 0){ throw ('PowerShell parse failure after auth compat patch: '+$file) }
+  if($errors.Count -gt 0){
+    foreach($e in $errors){ Write-Host ($file+': '+$e.Message+' line '+$e.Extent.StartLineNumber) }
+    throw ('PowerShell parse failure after auth compat patch: '+$file)
+  }
 }
 
 if((Get-ChildItem $migDir -Filter '*.sql').Count -ne 13){ throw 'expected 13 migration files after auth compatibility patch' }
-Write-Host 'AUTH COMPAT PATCH PASS: migration 0013 added, auth runtime schema repaired, migration gates moved to 13/13.'
+Write-Host 'AUTH COMPAT PATCH PASS: 0013 repair added and installer/migrator/build/static gates moved to 13/13.'
