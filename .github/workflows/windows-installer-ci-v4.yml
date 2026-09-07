@@ -33,7 +33,7 @@ jobs:
         continue-on-error: true
         shell: powershell
         run: |
-          foreach($file in @('ci\patch-installer.ps1','ci\patch-health-contract.ps1','ci\windows-e2e-validation.ps1')){
+          foreach($file in @('ci\patch-installer.ps1','ci\patch-health-contract.ps1','ci\patch-installer-metadata.ps1','ci\windows-e2e-validation.ps1')){
             $tokens=$null; $errors=$null
             [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $file).Path,[ref]$tokens,[ref]$errors) | Out-Null
             if($errors.Count -gt 0){ foreach($e in $errors){ Write-Host ($file+': '+$e.Message+' line '+$e.Extent.StartLineNumber) }; throw ('parse failure: '+$file) }
@@ -63,15 +63,22 @@ jobs:
         shell: powershell
         run: powershell -NoProfile -ExecutionPolicy Bypass -File ci\patch-health-contract.ps1 -SourceRoot src
 
-      - uses: actions/setup-python@v5
+      - name: Normalize installer version and publisher metadata
+        id: metadata
         if: steps.healthpatch.outcome == 'success'
+        continue-on-error: true
+        shell: powershell
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File ci\patch-installer-metadata.ps1 -SourceRoot src
+
+      - uses: actions/setup-python@v5
+        if: steps.metadata.outcome == 'success'
         with:
           python-version: '3.12'
           architecture: 'x64'
 
       - name: Static installer audit
         id: static
-        if: steps.healthpatch.outcome == 'success'
+        if: steps.metadata.outcome == 'success'
         continue-on-error: true
         working-directory: src
         shell: powershell
@@ -87,6 +94,7 @@ jobs:
             extract='${{ steps.extract.outcome }}'
             reliability='${{ steps.reliability.outcome }}'
             healthpatch='${{ steps.healthpatch.outcome }}'
+            metadata='${{ steps.metadata.outcome }}'
             static='${{ steps.static.outcome }}'
           }
           $states.GetEnumerator() | Sort-Object Name | Format-Table -AutoSize
@@ -125,7 +133,19 @@ jobs:
           $setup='installer\output\UG-DCMS-Setup-1.0.0-rc2.10.exe'
           if(-not(Test-Path $setup)){ throw 'Setup.exe missing' }
           if((Get-Item $setup).Length -lt 1000000){ throw 'Setup.exe too small' }
-          Get-Item $setup | Format-List FullName,Length,LastWriteTime
+          $item=Get-Item $setup
+          $vi=$item.VersionInfo
+          $expected=@{
+            CompanyName='UG'
+            ProductName='UG-DCMS'
+            ProductVersion='1.0.0-rc2.10'
+            FileVersion='1.0.0-rc2.10'
+            FileDescription='UG-DCMS Configuration Management System Setup'
+            OriginalFilename='UG-DCMS-Setup-1.0.0-rc2.10.exe'
+          }
+          foreach($k in $expected.Keys){ if([string]$vi.$k -ne [string]$expected[$k]){ throw ("VersionInfo $k mismatch: actual='"+$vi.$k+"' expected='"+$expected[$k]+"'") } }
+          $item | Format-List FullName,Length,LastWriteTime
+          $vi | Format-List CompanyName,ProductName,ProductVersion,FileVersion,FileDescription,OriginalFilename,LegalCopyright
           Get-FileHash $setup -Algorithm SHA256 | Format-List
 
       - name: Run all executable fresh-install and live-upgrade tests
@@ -161,6 +181,7 @@ jobs:
             [pscustomobject]@{Stage='extract'; Outcome='${{ steps.extract.outcome }}'},
             [pscustomobject]@{Stage='reliability'; Outcome='${{ steps.reliability.outcome }}'},
             [pscustomobject]@{Stage='healthpatch'; Outcome='${{ steps.healthpatch.outcome }}'},
+            [pscustomobject]@{Stage='metadata'; Outcome='${{ steps.metadata.outcome }}'},
             [pscustomobject]@{Stage='static'; Outcome='${{ steps.static.outcome }}'},
             [pscustomobject]@{Stage='prereqs'; Outcome='${{ steps.prereqs.outcome }}'},
             [pscustomobject]@{Stage='build'; Outcome='${{ steps.build.outcome }}'},
@@ -188,7 +209,7 @@ jobs:
         run: |
           $critical=@(
             '${{ steps.archive.outcome }}','${{ steps.syntax.outcome }}','${{ steps.extract.outcome }}',
-            '${{ steps.reliability.outcome }}','${{ steps.healthpatch.outcome }}','${{ steps.static.outcome }}',
+            '${{ steps.reliability.outcome }}','${{ steps.healthpatch.outcome }}','${{ steps.metadata.outcome }}','${{ steps.static.outcome }}',
             '${{ steps.prereqs.outcome }}','${{ steps.build.outcome }}','${{ steps.verify.outcome }}','${{ steps.e2e.outcome }}'
           )
           if($critical -contains 'failure' -or $critical -contains 'cancelled'){
