@@ -7,6 +7,7 @@ on:
       - 'ci/patch-installer.ps1'
       - 'ci/patch-health-contract.ps1'
       - 'ci/patch-env-acl.ps1'
+      - 'ci/patch-installer-metadata.ps1'
       - 'ci/test-bounded-process.ps1'
       - '.github/workflows/windows-fast-process-gate.yml'
 
@@ -29,7 +30,7 @@ jobs:
       - name: Parse PowerShell test and patch scripts
         shell: powershell
         run: |
-          foreach($file in @('ci\patch-installer.ps1','ci\patch-health-contract.ps1','ci\patch-env-acl.ps1','ci\test-bounded-process.ps1')){
+          foreach($file in @('ci\patch-installer.ps1','ci\patch-health-contract.ps1','ci\patch-env-acl.ps1','ci\patch-installer-metadata.ps1','ci\test-bounded-process.ps1')){
             $tokens=$null
             $errors=$null
             [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $file).Path,[ref]$tokens,[ref]$errors) | Out-Null
@@ -58,6 +59,10 @@ jobs:
         shell: powershell
         run: powershell -NoProfile -ExecutionPolicy Bypass -File ci\patch-health-contract.ps1 -SourceRoot src
 
+      - name: Normalize installer version and publisher metadata
+        shell: powershell
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File ci\patch-installer-metadata.ps1 -SourceRoot src
+
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -70,4 +75,4 @@ jobs:
 
       - name: Fast gate passed
         shell: powershell
-        run: Write-Host 'WINDOWS FAST INSTALLER GATE PASS - full installer CI may run now.'
+        run: Write-Host 'WINDOWS FAST INSTALLER GATE PASS - metadata and installer patches verified.'
