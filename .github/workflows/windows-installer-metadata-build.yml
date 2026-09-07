@@ -1,0 +1,92 @@
+name: UG-DCMS Windows Installer Metadata Build
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'ci/metadata-build-trigger.txt'
+
+concurrency:
+  group: ug-dcms-installer-metadata-build
+  cancel-in-progress: true
+
+jobs:
+  build-and-verify-metadata:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify source archive
+        shell: powershell
+        run: |
+          $zip='ci\rc210_ci_payload.zip'
+          if(-not(Test-Path $zip)){ throw 'source ZIP missing' }
+          if((Get-Item $zip).Length -ne 226595){ throw 'source ZIP size mismatch' }
+          $h=(Get-FileHash $zip -Algorithm SHA256).Hash.ToUpperInvariant()
+          if($h -ne '23FCA65F85DF2F83D9020F9168D232111F9E7523F1209A15C73E5F372EE0E1F8'){ throw ('source ZIP hash mismatch: '+$h) }
+
+      - name: Parse patch scripts
+        shell: powershell
+        run: |
+          foreach($file in @('ci\patch-installer.ps1','ci\patch-health-contract.ps1','ci\patch-installer-metadata.ps1')){
+            $tokens=$null; $errors=$null
+            [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $file).Path,[ref]$tokens,[ref]$errors) | Out-Null
+            if($errors.Count -gt 0){ throw ('PowerShell parse failure: '+$file) }
+          }
+
+      - name: Extract and patch source
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Force src | Out-Null
+          Expand-Archive 'ci\rc210_ci_payload.zip' src -Force
+          powershell -NoProfile -ExecutionPolicy Bypass -File ci\patch-installer.ps1 -SourceRoot src
+          powershell -NoProfile -ExecutionPolicy Bypass -File ci\patch-health-contract.ps1 -SourceRoot src
+          powershell -NoProfile -ExecutionPolicy Bypass -File ci\patch-installer-metadata.ps1 -SourceRoot src
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          architecture: 'x64'
+
+      - name: Static installer audit
+        working-directory: src
+        shell: powershell
+        run: python installer\verify_installer_source.py
+
+      - name: Build normalized Setup.exe without PostgreSQL test environment
+        working-directory: src
+        shell: powershell
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File installer\Build-Setup.ps1
+
+      - name: Verify Windows version resources
+        working-directory: src
+        shell: powershell
+        run: |
+          $setup=(Resolve-Path 'installer\output\UG-DCMS-Setup-1.0.0-rc2.10.exe').Path
+          $item=Get-Item $setup
+          $vi=$item.VersionInfo
+          $expected=[ordered]@{
+            CompanyName='UG'
+            ProductName='UG-DCMS'
+            ProductVersion='1.0.0-rc2.10'
+            FileVersion='1.0.0-rc2.10'
+            FileDescription='UG-DCMS Configuration Management System Setup'
+            OriginalFilename='UG-DCMS-Setup-1.0.0-rc2.10.exe'
+            LegalCopyright='Copyright (C) 2026 UG. All rights reserved.'
+          }
+          foreach($kv in $expected.GetEnumerator()){
+            $actual=[string]$vi.($kv.Key)
+            if($actual -ne [string]$kv.Value){ throw ("VersionInfo $($kv.Key) mismatch: actual='$actual' expected='$($kv.Value)'") }
+          }
+          $sig=Get-AuthenticodeSignature $setup
+          Write-Host ('AuthenticodeStatus=' + $sig.Status)
+          $vi | Format-List CompanyName,ProductName,ProductVersion,FileVersion,FileDescription,OriginalFilename,LegalCopyright
+          Get-FileHash $setup -Algorithm SHA256 | Format-List
+
+      - name: Upload normalized installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: ug-dcms-normalized-metadata-installer
+          path: src/installer/output/UG-DCMS-Setup-1.0.0-rc2.10.exe
+          if-no-files-found: error
