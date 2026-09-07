@@ -183,6 +183,8 @@ Run-Test 'FUNCTIONAL-01 Simulated-role complete business workflow' {
   & python (Join-Path $PSScriptRoot 'full-functional-smoke.py') $credentialFile $script:authProbe
   if($LASTEXITCODE -ne 0){ throw ('functional smoke exit code '+$LASTEXITCODE) }
   if(-not(Test-Path $credentialFile)){ throw 'browser credentials evidence missing' }
+  $browserCreds=Get-Content $credentialFile -Raw -Encoding UTF8 | ConvertFrom-Json
+  $script:authProbe=[string]$browserCreds.admin_password
 }
 Run-Test 'FUNCTIONAL-02 Installed Edge UI routes and controls' {
   $credentialFile=Join-Path $ArtifactDir 'CI-BROWSER-CREDENTIALS.json'
