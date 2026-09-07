@@ -1,3 +1,3 @@
-trigger=2026-09-07T02:04:30Z
-reason=fast-gate-passed-postgresql-uninstall-preservation-fix
-commit=82ca49215be0d3303b14549cf3aa3865196af8ff
+trigger=2026-09-07T06:49:00Z
+reason=metadata-build-passed-run-comprehensive-fresh-and-live-upgrade-validation
+commit=d7ea05464571c6a035fa4ab1ec77e0fdac20716e
