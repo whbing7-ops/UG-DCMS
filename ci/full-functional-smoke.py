@@ -22,6 +22,8 @@ PASSWORDS = {
     "approver": ("UG.Approver!" + STAMP, "UG.Approver2!" + STAMP),
     "cm": ("UG.ConfigMgr!" + STAMP, "UG.ConfigMgr2!" + STAMP),
 }
+if len(sys.argv) > 2:
+    PASSWORDS["admin"] = (sys.argv[2], "UG.Admin!" + STAMP)
 
 
 class Client:
