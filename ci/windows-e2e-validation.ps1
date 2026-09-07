@@ -180,7 +180,7 @@ Run-Test 'FRESH-19 Create upgrade preservation sentinel' {
 }
 Run-Test 'FUNCTIONAL-01 Simulated-role complete business workflow' {
   $credentialFile=Join-Path $ArtifactDir 'CI-BROWSER-CREDENTIALS.json'
-  & python (Join-Path $PSScriptRoot 'full-functional-smoke.py') $credentialFile
+  & python (Join-Path $PSScriptRoot 'full-functional-smoke.py') $credentialFile $script:authProbe
   if($LASTEXITCODE -ne 0){ throw ('functional smoke exit code '+$LASTEXITCODE) }
   if(-not(Test-Path $credentialFile)){ throw 'browser credentials evidence missing' }
 }
