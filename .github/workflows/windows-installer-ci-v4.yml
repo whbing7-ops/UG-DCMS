@@ -33,11 +33,12 @@ jobs:
         continue-on-error: true
         shell: powershell
         run: |
-          foreach($file in @('ci\patch-installer.ps1','ci\patch-health-contract.ps1','ci\patch-auth-compat.ps1','ci\patch-e2e-auth-smoke.ps1','ci\patch-frontend-dom.ps1','ci\test-frontend-dom-browser.ps1','ci\patch-installer-metadata.ps1','ci\windows-e2e-validation.ps1')){
+          foreach($file in @('ci\patch-installer.ps1','ci\patch-health-contract.ps1','ci\patch-auth-compat.ps1','ci\patch-e2e-auth-smoke.ps1','ci\patch-frontend-dom.ps1','ci\test-frontend-dom-browser.ps1','ci\test-installed-ui-browser.ps1','ci\patch-installer-metadata.ps1','ci\windows-e2e-validation.ps1')){
             $tokens=$null; $errors=$null
             [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $file).Path,[ref]$tokens,[ref]$errors) | Out-Null
             if($errors.Count -gt 0){ foreach($e in $errors){ Write-Host ($file+': '+$e.Message+' line '+$e.Extent.StartLineNumber) }; throw ('parse failure: '+$file) }
           }
+          python -m py_compile ci\full-functional-smoke.py
 
       - name: Extract source
         id: extract
