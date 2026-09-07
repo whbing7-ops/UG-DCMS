@@ -1,2 +1,2 @@
-trigger=2026-09-07T06:38:00Z
-reason=normalize-version-publisher-product-company-metadata
+trigger=2026-09-07T06:41:00Z
+reason=verify-trimmed-version-resource-strings
