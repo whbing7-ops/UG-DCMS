@@ -12,31 +12,72 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+
       - name: Extract source
         shell: bash
         run: |
+          set -euo pipefail
           mkdir src
           unzip -q ci/rc210_ci_payload.zip -d src
+
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+
       - name: Install backend dependencies
         shell: bash
         run: python -m pip install -r src/backend/requirements.txt
+
       - name: Start local PostgreSQL with peer authentication
         shell: bash
         run: |
+          set -euo pipefail
           sudo systemctl start postgresql
           sudo -u postgres psql -v ON_ERROR_STOP=1 -c "CREATE ROLE runner LOGIN SUPERUSER;"
           sudo -u postgres createdb -O runner dcms
-      - name: Apply migrations
+
+      - name: Apply original 0001-0012 migrations
         shell: bash
         run: |
           set -euo pipefail
           for f in src/db/migrations/*.sql; do
             psql -h /var/run/postgresql -U runner -d dcms -v ON_ERROR_STOP=1 -f "$f" >/dev/null
           done
-      - name: Exercise pgcrypto-seeded success and denied-login paths
+
+      - name: Simulate persisted legacy authentication schema drift
+        shell: bash
+        run: |
+          set -euo pipefail
+          psql -h /var/run/postgresql -U runner -d dcms -v ON_ERROR_STOP=1 <<'SQL'
+          ALTER TABLE user_session DROP COLUMN IF EXISTS user_agent;
+          ALTER TABLE audit_log DROP COLUMN IF EXISTS session_id;
+          ALTER TABLE audit_log DROP COLUMN IF EXISTS client_ip;
+          ALTER TABLE audit_log DROP COLUMN IF EXISTS request_id;
+          ALTER TABLE audit_log DROP COLUMN IF EXISTS result;
+          DELETE FROM system_setting WHERE key IN ('max_concurrent_accounts','session_idle_minutes','session_absolute_hours','login_max_failures','login_lock_minutes');
+          DELETE FROM user_role ur USING app_user u WHERE ur.user_id=u.id AND lower(u.username)='admin';
+          UPDATE app_user SET failed_login_count=5, locked_until=now()+interval '1 hour' WHERE lower(username)='admin';
+          SQL
+          test "$(psql -h /var/run/postgresql -U runner -d dcms -Atc "select count(*) from information_schema.columns where table_name='user_session' and column_name='user_agent';")" = "0"
+          test "$(psql -h /var/run/postgresql -U runner -d dcms -Atc "select count(*) from user_role ur join app_user u on u.id=ur.user_id where lower(u.username)='admin';")" = "0"
+
+      - name: Generate migration 0013 using production patch logic
+        shell: pwsh
+        run: |
+          ./ci/patch-auth-compat.ps1 -SourceRoot src
+          if(-not(Test-Path 'src/db/migrations/0013_auth_runtime_compat.sql')){ throw '0013 migration was not generated' }
+
+      - name: Apply migration 0013 to the drifted database
+        shell: bash
+        run: |
+          set -euo pipefail
+          psql -h /var/run/postgresql -U runner -d dcms -v ON_ERROR_STOP=1 -1 -f src/db/migrations/0013_auth_runtime_compat.sql
+          test "$(psql -h /var/run/postgresql -U runner -d dcms -Atc "select count(*) from information_schema.columns where table_name='user_session' and column_name='user_agent';")" = "1"
+          test "$(psql -h /var/run/postgresql -U runner -d dcms -Atc "select count(*) from information_schema.columns where table_name='audit_log' and column_name in ('session_id','client_ip','request_id','result');")" = "4"
+          test "$(psql -h /var/run/postgresql -U runner -d dcms -Atc "select count(*) from user_role ur join app_user u on u.id=ur.user_id where lower(u.username)='admin' and ur.role_code in ('SYSTEM_ADMIN','DATA_ADMIN');")" = "2"
+          test "$(psql -h /var/run/postgresql -U runner -d dcms -Atc "select failed_login_count from app_user where lower(username)='admin';")" = "0"
+
+      - name: Exercise repaired pgcrypto success and denied-login paths
         working-directory: src/backend
         env:
           DCMS_PG_HOST: /var/run/postgresql
@@ -45,6 +86,7 @@ jobs:
           DCMS_ENVIRONMENT: DEV
         shell: bash
         run: |
+          set -euo pipefail
           python - <<'PY'
           import secrets, traceback
           from app.db import transaction, fetch_one
@@ -65,7 +107,7 @@ jobs:
           try:
               with transaction() as conn:
                   denied = login(conn, 'admin', probe + 'X', '127.0.0.1', 'ci-auth-denied')
-                  print('DENIED_OK=', denied.ok, 'CODE=', denied.code, 'REASON=', denied.reason)
+                  print('DENIED_OK=', denied.ok, 'CODE=', denied.code)
                   if denied.ok or denied.code != 'INVALID_CREDENTIALS':
                       raise RuntimeError('wrong credential path did not return INVALID_CREDENTIALS')
 
@@ -76,6 +118,8 @@ jobs:
                       raise RuntimeError(result.reason or 'login denied')
                   print('SESSION_ID=', result.session['id'])
                   print('ROLES=', result.user['roles'])
+                  if sorted(result.user['roles']) != ['DATA_ADMIN','SYSTEM_ADMIN']:
+                      raise RuntimeError('administrator roles were not restored')
           except Exception:
               traceback.print_exc()
               raise
