@@ -33,7 +33,7 @@ jobs:
         continue-on-error: true
         shell: powershell
         run: |
-          foreach($file in @('ci\patch-installer.ps1','ci\patch-health-contract.ps1','ci\patch-auth-compat.ps1','ci\patch-e2e-auth-smoke.ps1','ci\patch-installer-metadata.ps1','ci\windows-e2e-validation.ps1')){
+          foreach($file in @('ci\patch-installer.ps1','ci\patch-health-contract.ps1','ci\patch-auth-compat.ps1','ci\patch-e2e-auth-smoke.ps1','ci\patch-frontend-dom.ps1','ci\test-frontend-dom-browser.ps1','ci\patch-installer-metadata.ps1','ci\windows-e2e-validation.ps1')){
             $tokens=$null; $errors=$null
             [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $file).Path,[ref]$tokens,[ref]$errors) | Out-Null
             if($errors.Count -gt 0){ foreach($e in $errors){ Write-Host ($file+': '+$e.Message+' line '+$e.Extent.StartLineNumber) }; throw ('parse failure: '+$file) }
@@ -77,9 +77,16 @@ jobs:
         shell: powershell
         run: powershell -NoProfile -ExecutionPolicy Bypass -File ci\patch-e2e-auth-smoke.ps1 -SourceRoot src
 
+      - name: Fix nested frontend DOM rendering
+        id: frontenddom
+        if: steps.authe2e.outcome == 'success'
+        continue-on-error: true
+        shell: powershell
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File ci\patch-frontend-dom.ps1 -SourceRoot src
+
       - name: Normalize installer version and publisher metadata
         id: metadata
-        if: steps.authe2e.outcome == 'success'
+        if: steps.frontenddom.outcome == 'success'
         continue-on-error: true
         shell: powershell
         run: powershell -NoProfile -ExecutionPolicy Bypass -File ci\patch-installer-metadata.ps1 -SourceRoot src
@@ -90,9 +97,16 @@ jobs:
           python-version: '3.12'
           architecture: 'x64'
 
+      - name: Real Edge DOM regression test
+        id: domsmoke
+        if: steps.metadata.outcome == 'success'
+        continue-on-error: true
+        shell: powershell
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File ci\test-frontend-dom-browser.ps1 -SourceRoot src
+
       - name: Static installer audit
         id: static
-        if: steps.metadata.outcome == 'success'
+        if: steps.domsmoke.outcome == 'success'
         continue-on-error: true
         working-directory: src
         shell: powershell
@@ -110,7 +124,9 @@ jobs:
             healthpatch='${{ steps.healthpatch.outcome }}'
             authcompat='${{ steps.authcompat.outcome }}'
             authe2e='${{ steps.authe2e.outcome }}'
+            frontenddom='${{ steps.frontenddom.outcome }}'
             metadata='${{ steps.metadata.outcome }}'
+            domsmoke='${{ steps.domsmoke.outcome }}'
             static='${{ steps.static.outcome }}'
           }
           $states.GetEnumerator() | Sort-Object Name | Format-Table -AutoSize
@@ -199,7 +215,9 @@ jobs:
             [pscustomobject]@{Stage='healthpatch'; Outcome='${{ steps.healthpatch.outcome }}'},
             [pscustomobject]@{Stage='authcompat'; Outcome='${{ steps.authcompat.outcome }}'},
             [pscustomobject]@{Stage='authe2e'; Outcome='${{ steps.authe2e.outcome }}'},
+            [pscustomobject]@{Stage='frontenddom'; Outcome='${{ steps.frontenddom.outcome }}'},
             [pscustomobject]@{Stage='metadata'; Outcome='${{ steps.metadata.outcome }}'},
+            [pscustomobject]@{Stage='domsmoke'; Outcome='${{ steps.domsmoke.outcome }}'},
             [pscustomobject]@{Stage='static'; Outcome='${{ steps.static.outcome }}'},
             [pscustomobject]@{Stage='prereqs'; Outcome='${{ steps.prereqs.outcome }}'},
             [pscustomobject]@{Stage='build'; Outcome='${{ steps.build.outcome }}'},
@@ -227,7 +245,7 @@ jobs:
         run: |
           $critical=@(
             '${{ steps.archive.outcome }}','${{ steps.syntax.outcome }}','${{ steps.extract.outcome }}',
-            '${{ steps.reliability.outcome }}','${{ steps.healthpatch.outcome }}','${{ steps.authcompat.outcome }}','${{ steps.authe2e.outcome }}','${{ steps.metadata.outcome }}','${{ steps.static.outcome }}',
+            '${{ steps.reliability.outcome }}','${{ steps.healthpatch.outcome }}','${{ steps.authcompat.outcome }}','${{ steps.authe2e.outcome }}','${{ steps.frontenddom.outcome }}','${{ steps.metadata.outcome }}','${{ steps.domsmoke.outcome }}','${{ steps.static.outcome }}',
             '${{ steps.prereqs.outcome }}','${{ steps.build.outcome }}','${{ steps.verify.outcome }}','${{ steps.e2e.outcome }}'
           )
           if($critical -contains 'failure' -or $critical -contains 'cancelled'){
