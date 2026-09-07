@@ -1,3 +1,3 @@
-trigger=2026-09-07T08:40:00Z
-reason=auth-compat-smoke-passed-run-full-windows-lifecycle-with-real-login-checks
-commit=b9a25ae560848f6a2a7c191d502b82598ff58dac
+trigger=2026-09-07T14:28:30Z
+reason=frontend-dom-fix-passed-real-edge-smoke-run-full-windows-lifecycle
+commit=94a787452f8e3ea41b41f5d18958c7e643e45204
