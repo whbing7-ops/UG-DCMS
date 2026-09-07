@@ -1,2 +1,2 @@
-trigger=2026-09-07T08:24:00Z
-reason=verify-0013-repairs-persisted-legacy-auth-schema
+trigger=2026-09-07T08:27:00Z
+reason=verify-0013-repairs-persisted-legacy-auth-schema-through-production-patch-chain
