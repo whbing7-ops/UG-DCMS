@@ -139,12 +139,18 @@ if(-not $p.Contains('if([int]$migrationCount -ne 13){')){ throw 'installer migra
 if(-not $p.Contains('数据库迁移完整性检查通过：13/13')){ throw 'installer migration completion text was not patched to 13/13' }
 [IO.File]::WriteAllText($provision,$p,(New-Object Text.UTF8Encoding($true)))
 
+# Keep these replacements deliberately simple. Windows PowerShell 5.1 does not use
+# backslash to escape a quote inside a double-quoted string, so whole Python source
+# line replacements are fragile. Replacing stable tokens is both clearer and safer.
 $v = Get-Content $verify -Raw -Encoding UTF8
-$v = $v.Replace("ok(len(migs) == 12, f'expected 12 migrations, found {len(migs)}')","ok(len(migs) == 13, f'expected 13 migrations, found {len(migs)}')")
-$v = $v.Replace("'migration count gate': '数据库迁移完整性检查通过：12/12' in ps","'migration count gate': '数据库迁移完整性检查通过：13/13' in ps")
-$v = $v.Replace("ps.index(\"Write-Step '数据库迁移完整性检查通过：12/12'\")","ps.index(\"Write-Step '数据库迁移完整性检查通过：13/13'\")")
-$v = $v.Replace("print(f' [PASS] migrations UTF-8/order: {len(migs)}/12')","print(f' [PASS] migrations UTF-8/order: {len(migs)}/13')")
-if($v.Contains('expected 12 migrations') -or $v.Contains('/12')){ throw 'verify_installer_source.py still contains old migration-count expectations' }
+$v = $v.Replace('len(migs) == 12','len(migs) == 13')
+$v = $v.Replace('expected 12 migrations','expected 13 migrations')
+$v = $v.Replace('数据库迁移完整性检查通过：12/12','数据库迁移完整性检查通过：13/13')
+$v = $v.Replace('{len(migs)}/12','{len(migs)}/13')
+if($v.Contains('len(migs) == 12')){ throw 'verify_installer_source.py still checks for 12 migrations' }
+if($v.Contains('expected 12 migrations')){ throw 'verify_installer_source.py still contains old migration-count message' }
+if($v.Contains('数据库迁移完整性检查通过：12/12')){ throw 'verify_installer_source.py still contains old migration completion marker' }
+if($v.Contains('{len(migs)}/12')){ throw 'verify_installer_source.py still prints /12 migration total' }
 [IO.File]::WriteAllText($verify,$v,(New-Object Text.UTF8Encoding($false)))
 
 $b = Get-Content $build -Raw -Encoding UTF8
