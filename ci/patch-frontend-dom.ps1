@@ -8,12 +8,6 @@ foreach($p in @($ui,$app)){
 }
 
 $text = Get-Content $ui -Raw -Encoding UTF8
-$old = @'
-  for (const k of kids.flat()) {
-    if (k === null || k === undefined || k === false) continue;
-    n.append(k instanceof Node ? k : document.createTextNode(String(k)));
-  }
-'@
 $new = @'
   const appendKid = (k) => {
     if (Array.isArray(k)) { k.forEach(appendKid); return; }
@@ -23,21 +17,46 @@ $new = @'
   kids.forEach(appendKid);
 '@
 
-if($text.Contains($old)){
-  $text = $text.Replace($old,$new)
-} elseif(-not $text.Contains('const appendKid = (k) => {')) {
+$variants = @(
+@'
+  for (const k of kids) {
+    if (k === null || k === undefined || k === false) continue;
+    n.append(k instanceof Node ? k : document.createTextNode(String(k)));
+  }
+'@,
+@'
+  for (const k of kids.flat()) {
+    if (k === null || k === undefined || k === false) continue;
+    n.append(k instanceof Node ? k : document.createTextNode(String(k)));
+  }
+'@
+)
+
+$patched=$false
+foreach($old in $variants){
+  if($text.Contains($old)){
+    $text=$text.Replace($old,$new)
+    $patched=$true
+    break
+  }
+}
+if(-not $patched -and -not $text.Contains('const appendKid = (k) => {')){
+  Write-Host '--- ui.js relevant lines ---'
+  Get-Content $ui -Encoding UTF8 | Select-String -Pattern 'kids|append|createTextNode|instanceof Node' -Context 2,2 | ForEach-Object { Write-Host $_.ToString() }
   throw 'ui.js child append block not found'
 }
 
-if($text.Contains('kids.flat()')){ throw 'ui.js still performs only one-level child flattening' }
+if($text.Contains('for (const k of kids) {')){ throw 'ui.js still stringifies nested child arrays' }
+if($text.Contains('kids.flat()')){ throw 'ui.js still relies on shallow flattening' }
 if(-not $text.Contains('Array.isArray(k)')){ throw 'ui.js recursive array child handling missing' }
 if(-not $text.Contains('kids.forEach(appendKid)')){ throw 'ui.js recursive child append entrypoint missing' }
 
-# The sidebar intentionally passes nested arrays: NAV.map(group => [heading, items.map(...)])
-# so this is a required rendering contract, not merely an implementation preference.
+# The screenshot defect is produced when NAV group arrays are passed as children and
+# the DOM helper converts those arrays to String(), yielding text such as
+# [object HTMLHeadingElement],http://localhost:8080/#/....
 $appText = Get-Content $app -Raw -Encoding UTF8
 if(-not $appText.Contains('NAV.map(g => [')){ throw 'sidebar nested NAV rendering pattern changed; review DOM patch' }
 if(-not $appText.Contains('g.items.map(([href, label]) =>')){ throw 'sidebar item rendering pattern changed; review DOM patch' }
 
 [IO.File]::WriteAllText($ui,$text,(New-Object Text.UTF8Encoding($false)))
-Write-Host 'FRONTEND DOM PATCH PASS: nested child arrays render as DOM nodes instead of [object HTML*] text.'
+Write-Host 'FRONTEND DOM PATCH PASS: nested child arrays render as DOM nodes instead of [object HTML*]/URL text.'
