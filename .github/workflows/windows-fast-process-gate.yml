@@ -12,6 +12,9 @@ on:
       - 'ci/patch-e2e-auth-smoke.ps1'
       - 'ci/patch-frontend-dom.ps1'
       - 'ci/test-frontend-dom-browser.ps1'
+      - 'ci/test-installed-ui-browser.ps1'
+      - 'ci/full-functional-smoke.py'
+      - 'ci/windows-e2e-validation.ps1'
       - 'ci/test-bounded-process.ps1'
       - '.github/workflows/windows-fast-process-gate.yml'
 
@@ -34,7 +37,7 @@ jobs:
       - name: Parse PowerShell test and patch scripts
         shell: powershell
         run: |
-          foreach($file in @('ci\patch-installer.ps1','ci\patch-health-contract.ps1','ci\patch-env-acl.ps1','ci\patch-installer-metadata.ps1','ci\patch-auth-compat.ps1','ci\patch-e2e-auth-smoke.ps1','ci\patch-frontend-dom.ps1','ci\test-frontend-dom-browser.ps1','ci\test-bounded-process.ps1')){
+          foreach($file in @('ci\patch-installer.ps1','ci\patch-health-contract.ps1','ci\patch-env-acl.ps1','ci\patch-installer-metadata.ps1','ci\patch-auth-compat.ps1','ci\patch-e2e-auth-smoke.ps1','ci\patch-frontend-dom.ps1','ci\test-frontend-dom-browser.ps1','ci\test-installed-ui-browser.ps1','ci\windows-e2e-validation.ps1','ci\test-bounded-process.ps1')){
             $tokens=$null
             $errors=$null
             [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $file).Path,[ref]$tokens,[ref]$errors) | Out-Null
@@ -47,6 +50,10 @@ jobs:
       - name: Exercise bounded process helper on Windows PowerShell 5.1
         shell: powershell
         run: powershell -NoProfile -ExecutionPolicy Bypass -File ci\test-bounded-process.ps1
+
+      - name: Parse functional smoke test
+        shell: powershell
+        run: python -m py_compile ci\full-functional-smoke.py
 
       - name: Extract source
         shell: powershell
