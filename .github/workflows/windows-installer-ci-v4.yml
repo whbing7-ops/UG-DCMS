@@ -143,7 +143,7 @@ jobs:
             FileDescription='UG-DCMS Configuration Management System Setup'
             OriginalFilename='UG-DCMS-Setup-1.0.0-rc2.10.exe'
           }
-          foreach($k in $expected.Keys){ if([string]$vi.$k -ne [string]$expected[$k]){ throw ("VersionInfo $k mismatch: actual='"+$vi.$k+"' expected='"+$expected[$k]+"'") } }
+          foreach($k in $expected.Keys){ $actual=([string]$vi.$k).Trim(); if($actual -ne [string]$expected[$k]){ throw ("VersionInfo $k mismatch: actual='"+$actual+"' expected='"+$expected[$k]+"'") } }
           $item | Format-List FullName,Length,LastWriteTime
           $vi | Format-List CompanyName,ProductName,ProductVersion,FileVersion,FileDescription,OriginalFilename,LegalCopyright
           Get-FileHash $setup -Algorithm SHA256 | Format-List
