@@ -1,2 +1,2 @@
-trigger=2026-09-07T08:09:00Z
-reason=verify-pgcrypto-seed-and-denied-login-path
+trigger=2026-09-07T08:24:00Z
+reason=verify-0013-repairs-persisted-legacy-auth-schema
