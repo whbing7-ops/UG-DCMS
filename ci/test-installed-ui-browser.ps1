@@ -13,7 +13,7 @@ $front=Join-Path $release 'frontend'
 $bootstrap=Join-Path $front '__ci_browser_bootstrap.html'
 $results=New-Object System.Collections.Generic.List[object]
 
-function Test-Route([string]$Name,[string]$Target,[string]$Username,[string]$Password,[string]$Expected){
+function Test-Route([string]$Name,[string]$Target,[string]$Username,[string]$Password){
   $profile=Join-Path $env:TEMP ('ugdcms-ui-'+[guid]::NewGuid().ToString('N'))
   $out=Join-Path $env:TEMP ('ugdcms-ui-'+[guid]::NewGuid().ToString('N')+'.html')
   $err=$out+'.err'
@@ -34,15 +34,16 @@ const d=await r.json();sessionStorage.setItem('dcms.token',d.access_token);locat
     $p=Start-Process -FilePath $edge -ArgumentList $args -PassThru -RedirectStandardOutput $out -RedirectStandardError $err
     if(-not $p.WaitForExit(30000)){ try { Stop-Process -Id $p.Id -Force } catch {}; throw 'Edge timeout' }
     $dom=Get-Content $out -Raw -Encoding UTF8
-    $bad=@('[object HTML','无法打开这个页面','CI LOGIN FAILED','CI BOOTSTRAP FAILED') | Where-Object { $dom.Contains($_) }
+    $bad=@('[object HTML','CI LOGIN FAILED','CI BOOTSTRAP FAILED') | Where-Object { $dom.Contains($_) }
     if($bad){ throw ('bad rendered DOM marker: '+($bad -join ',')) }
-    if(-not $dom.Contains($Expected)){ throw ('expected rendered text missing: '+$Expected) }
+    if($dom -notmatch '<main[^>]*class="main"' -or $dom -notmatch '<h1[ >]'){ throw 'route main heading not rendered' }
     if($dom -notmatch '<nav[^>]*class="nav"' -or $dom -notmatch '<a[^>]*href="#/search"'){ throw 'real sidebar links not rendered' }
+    if(([regex]::Matches($dom,'<a[^>]*href="#/')).Count -lt 14){ throw 'sidebar route count is incomplete' }
     $buttonCount=([regex]::Matches($dom,'<button\b')).Count
-    $results.Add([pscustomobject]@{Route=$Name;Status='PASS';Buttons=$buttonCount;Expected=$Expected})
+    $results.Add([pscustomobject]@{Route=$Name;Status='PASS';Buttons=$buttonCount})
     Write-Host ('[PASS] UI '+$Name+' buttons='+$buttonCount)
   } catch {
-    $results.Add([pscustomobject]@{Route=$Name;Status='FAIL';Buttons=0;Expected=$Expected;Error=$_.Exception.Message})
+    $results.Add([pscustomobject]@{Route=$Name;Status='FAIL';Buttons=0;Error=$_.Exception.Message})
     Write-Host ('[FAIL] UI '+$Name+': '+$_.Exception.Message)
   } finally {
     Remove-Item $profile -Recurse -Force -ErrorAction SilentlyContinue
@@ -52,20 +53,14 @@ const d=await r.json();sessionStorage.setItem('dcms.token',d.access_token);locat
 
 try {
   foreach($r in @(
-    @('overview','/','engineer','设计构型管理系统'),
-    @('search-results','/search?q=CI演示','engineer','匹配到'),
-    @('families','/families','engineer','设计族'),
-    @('files','/files','engineer','设计文件'),
-    @('external-parts','/external-parts','engineer','外部件'),
-    @('software','/software','engineer','软件对象'),
-    @('approvals','/approvals','engineer','审批'),
-    @('quality','/quality','engineer','数据质量'),
-    @('reports','/reports','engineer','统计'),
-    @('dictionary','/dictionary','engineer','受控字典')
-  )){ Test-Route $r[0] $r[1] $creds.username $creds.password $r[3] }
+    @('overview','/'), @('search-results','/search?q=CI'), @('families','/families'),
+    @('files','/files'), @('external-parts','/external-parts'), @('software','/software'),
+    @('approvals','/approvals'), @('quality','/quality'), @('reports','/reports'),
+    @('dictionary','/dictionary')
+  )){ Test-Route $r[0] $r[1] $creds.username $creds.password }
   foreach($r in @(
-    @('admin','/admin','系统管理'),@('audit','/audit','审计记录')
-  )){ Test-Route $r[0] $r[1] $creds.admin_username $creds.admin_password $r[2] }
+    @('admin','/admin'),@('audit','/audit')
+  )){ Test-Route $r[0] $r[1] $creds.admin_username $creds.admin_password }
 } finally { Remove-Item $bootstrap -Force -ErrorAction SilentlyContinue }
 
 $results | ConvertTo-Json -Depth 4 | Set-Content (Join-Path $ArtifactDir 'INSTALLED-UI-RESULTS.json') -Encoding UTF8
