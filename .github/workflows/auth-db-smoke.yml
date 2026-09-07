@@ -61,9 +61,10 @@ jobs:
           test "$(psql -h /var/run/postgresql -U runner -d dcms -Atc "select count(*) from information_schema.columns where table_name='user_session' and column_name='user_agent';")" = "0"
           test "$(psql -h /var/run/postgresql -U runner -d dcms -Atc "select count(*) from user_role ur join app_user u on u.id=ur.user_id where lower(u.username)='admin';")" = "0"
 
-      - name: Generate migration 0013 using production patch logic
+      - name: Generate migration 0013 using production patch chain
         shell: pwsh
         run: |
+          ./ci/patch-installer.ps1 -SourceRoot src
           ./ci/patch-auth-compat.ps1 -SourceRoot src
           if(-not(Test-Path 'src/db/migrations/0013_auth_runtime_compat.sql')){ throw '0013 migration was not generated' }
 
