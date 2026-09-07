@@ -1,0 +1,2 @@
+trigger=2026-09-07T08:00:00Z
+reason=diagnose-login-database-operation-failure
