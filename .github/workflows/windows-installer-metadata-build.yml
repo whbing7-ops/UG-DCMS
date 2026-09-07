@@ -76,7 +76,7 @@ jobs:
             LegalCopyright='Copyright (C) 2026 UG. All rights reserved.'
           }
           foreach($kv in $expected.GetEnumerator()){
-            $actual=[string]$vi.($kv.Key)
+            $actual=([string]$vi.($kv.Key)).Trim()
             if($actual -ne [string]$kv.Value){ throw ("VersionInfo $($kv.Key) mismatch: actual='$actual' expected='$($kv.Value)'") }
           }
           $sig=Get-AuthenticodeSignature $setup
