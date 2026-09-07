@@ -68,6 +68,26 @@ $finalProvision = Get-Content $provision -Raw -Encoding UTF8
 if(-not $finalProvision.Contains('/api/v1/health')){ throw 'health contract lost after .env ACL patch' }
 if(-not $finalProvision.Contains("'*S-1-5-32-544:(F)'")){ throw '.env ACL hardening missing after patch chain' }
 
+# Application uninstall must not stop or unregister the dedicated PostgreSQL service.
+# The database service and cluster are intentionally retained so data stays online and
+# a later reinstall can reuse the same database without recovery gymnastics.
+$uninstallDbPattern = '(?m)^[ \t]*Stop-Service ''\$pgService'' -Force\r?\n[ \t]*& ''\$pgBin\\pg_ctl\.exe'' unregister -N ''\$pgService''\r?\n'
+if([regex]::IsMatch($finalProvision,$uninstallDbPattern)){
+  $finalProvision = [regex]::Replace($finalProvision,$uninstallDbPattern,"# Dedicated PostgreSQL service intentionally preserved during app uninstall.`r`n",1)
+} elseif($finalProvision.Contains('Stop-Service ''$pgService'' -Force') -or $finalProvision.Contains('& ''$pgBin\pg_ctl.exe'' unregister -N ''$pgService''')) {
+  throw 'PostgreSQL uninstall removal commands found but expected pair was not patchable'
+}
+if($finalProvision.Contains('Stop-Service ''$pgService'' -Force')){ throw 'uninstall still stops dedicated PostgreSQL service' }
+if($finalProvision.Contains('& ''$pgBin\pg_ctl.exe'' unregister -N ''$pgService''')){ throw 'uninstall still unregisters dedicated PostgreSQL service' }
+if(-not $finalProvision.Contains('Dedicated PostgreSQL service intentionally preserved during app uninstall')){ throw 'database-service preservation marker missing' }
+[IO.File]::WriteAllText($provision,$finalProvision,$utf8Bom)
+$tokens=$null; $errors=$null
+[System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $provision).Path,[ref]$tokens,[ref]$errors) | Out-Null
+if($errors.Count -gt 0){
+  foreach($e in $errors){ Write-Host ('Installer after uninstall patch: ' + $e.Message + ' at line ' + $e.Extent.StartLineNumber + ', column ' + $e.Extent.StartColumnNumber) }
+  throw 'install-oneclick.ps1 parse failure after PostgreSQL uninstall preservation patch'
+}
+
 # Fix the comprehensive E2E harness before any expensive Windows setup. In Windows
 # PowerShell, $Args is an automatic variable; using it as a named function parameter
 # caused Start-Process to receive a null ArgumentList and made every downstream test a
@@ -90,4 +110,4 @@ if($errors.Count -gt 0){
   throw 'windows-e2e-validation.ps1 parse failure after ArgumentList patch'
 }
 
-Write-Host 'HEALTH CONTRACT PATCH PASS: /api/v1/health, single-BOM scripts, upgrade-safe .env ACL, and E2E ArgumentList binding verified.'
+Write-Host 'HEALTH CONTRACT PATCH PASS: health path, script encoding, upgrade ACL, E2E binding, and PostgreSQL uninstall preservation verified.'
