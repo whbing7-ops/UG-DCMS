@@ -17,7 +17,7 @@ from pathlib import Path
 BASE = "http://127.0.0.1:8080/api/v1"
 STAMP = str(int(time.time()))[-8:]
 PASSWORDS = {
-    "admin": ("Admin@12345", "UG.Admin!" + STAMP),
+    "admin": ("Admin@12345", "Changed!Root" + STAMP),
     "engineer": ("UG.Engineer!" + STAMP, "UG.Engineer2!" + STAMP),
     "approver": ("UG.Approver!" + STAMP, "UG.Approver2!" + STAMP),
     "cm": ("UG.ConfigMgr!" + STAMP, "UG.ConfigMgr2!" + STAMP),
