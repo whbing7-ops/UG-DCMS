@@ -178,6 +178,17 @@ Run-Test 'FRESH-19 Create upgrade preservation sentinel' {
   $v=([string](Invoke-DbScalar $cfg 'SELECT note FROM ci_upgrade_sentinel WHERE id=1;')).Trim(); if($v -ne 'preserve-me'){ throw ('sentinel='+$v) }
   $script:sentinelCreated=$true
 }
+Run-Test 'FUNCTIONAL-01 Simulated-role complete business workflow' {
+  $credentialFile=Join-Path $ArtifactDir 'CI-BROWSER-CREDENTIALS.json'
+  & python (Join-Path $PSScriptRoot 'full-functional-smoke.py') $credentialFile
+  if($LASTEXITCODE -ne 0){ throw ('functional smoke exit code '+$LASTEXITCODE) }
+  if(-not(Test-Path $credentialFile)){ throw 'browser credentials evidence missing' }
+}
+Run-Test 'FUNCTIONAL-02 Installed Edge UI routes and controls' {
+  $credentialFile=Join-Path $ArtifactDir 'CI-BROWSER-CREDENTIALS.json'
+  & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'test-installed-ui-browser.ps1') -CredentialFile $credentialFile -ArtifactDir $ArtifactDir
+  if($LASTEXITCODE -ne 0){ throw ('installed UI browser smoke exit code '+$LASTEXITCODE) }
+}
 
 $canUpgrade=$freshSetupOk -and $oldRuntime -and $oldRelease -and (Get-Service 'UGDCMS-App' -ErrorAction SilentlyContinue)
 if($canUpgrade){
