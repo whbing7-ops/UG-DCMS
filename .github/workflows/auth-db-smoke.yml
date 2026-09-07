@@ -1,0 +1,66 @@
+name: UG-DCMS Authentication DB Smoke
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'ci/auth-db-smoke-trigger.txt'
+
+jobs:
+  auth-db-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Extract source
+        shell: bash
+        run: |
+          mkdir src
+          unzip -q ci/rc210_ci_payload.zip -d src
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install backend dependencies
+        shell: bash
+        run: python -m pip install -r src/backend/requirements.txt
+      - name: Start local PostgreSQL with peer authentication
+        shell: bash
+        run: |
+          sudo systemctl start postgresql
+          sudo -u postgres psql -v ON_ERROR_STOP=1 -c "CREATE ROLE runner LOGIN SUPERUSER;"
+          sudo -u postgres createdb -O runner dcms
+      - name: Apply migrations
+        shell: bash
+        run: |
+          set -euo pipefail
+          for f in src/db/migrations/*.sql; do
+            psql -h /var/run/postgresql -U runner -d dcms -v ON_ERROR_STOP=1 -f "$f" >/dev/null
+          done
+      - name: Exercise successful login transaction
+        working-directory: src/backend
+        env:
+          DCMS_PG_HOST: /var/run/postgresql
+          DCMS_PG_USER: runner
+          DCMS_PG_DATABASE: dcms
+          DCMS_ENVIRONMENT: DEV
+        shell: bash
+        run: |
+          python - <<'PY'
+          import secrets, traceback
+          from app.db import transaction, execute
+          from app.security import hash_password
+          from app.services.auth import login
+          probe = 'T' + secrets.token_urlsafe(18)
+          with transaction() as conn:
+              execute(conn, "UPDATE app_user SET password_hash=%s WHERE username='admin'", (hash_password(probe),))
+          try:
+              with transaction() as conn:
+                  result = login(conn, 'admin', probe, '127.0.0.1', 'ci-auth-smoke')
+                  print('LOGIN_OK=', result.ok, 'CODE=', result.code)
+                  if not result.ok:
+                      raise RuntimeError(result.reason or 'login denied')
+                  print('SESSION_ID=', result.session['id'])
+          except Exception:
+              traceback.print_exc()
+              raise
+          PY
