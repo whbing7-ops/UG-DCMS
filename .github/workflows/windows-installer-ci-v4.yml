@@ -33,7 +33,7 @@ jobs:
         continue-on-error: true
         shell: powershell
         run: |
-          foreach($file in @('ci\patch-installer.ps1','ci\patch-health-contract.ps1','ci\patch-installer-metadata.ps1','ci\windows-e2e-validation.ps1')){
+          foreach($file in @('ci\patch-installer.ps1','ci\patch-health-contract.ps1','ci\patch-auth-compat.ps1','ci\patch-e2e-auth-smoke.ps1','ci\patch-installer-metadata.ps1','ci\windows-e2e-validation.ps1')){
             $tokens=$null; $errors=$null
             [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $file).Path,[ref]$tokens,[ref]$errors) | Out-Null
             if($errors.Count -gt 0){ foreach($e in $errors){ Write-Host ($file+': '+$e.Message+' line '+$e.Extent.StartLineNumber) }; throw ('parse failure: '+$file) }
@@ -63,9 +63,23 @@ jobs:
         shell: powershell
         run: powershell -NoProfile -ExecutionPolicy Bypass -File ci\patch-health-contract.ps1 -SourceRoot src
 
+      - name: Apply authentication compatibility migration
+        id: authcompat
+        if: steps.healthpatch.outcome == 'success'
+        continue-on-error: true
+        shell: powershell
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File ci\patch-auth-compat.ps1 -SourceRoot src
+
+      - name: Add real authentication E2E smoke test
+        id: authe2e
+        if: steps.authcompat.outcome == 'success'
+        continue-on-error: true
+        shell: powershell
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File ci\patch-e2e-auth-smoke.ps1 -SourceRoot src
+
       - name: Normalize installer version and publisher metadata
         id: metadata
-        if: steps.healthpatch.outcome == 'success'
+        if: steps.authe2e.outcome == 'success'
         continue-on-error: true
         shell: powershell
         run: powershell -NoProfile -ExecutionPolicy Bypass -File ci\patch-installer-metadata.ps1 -SourceRoot src
@@ -94,6 +108,8 @@ jobs:
             extract='${{ steps.extract.outcome }}'
             reliability='${{ steps.reliability.outcome }}'
             healthpatch='${{ steps.healthpatch.outcome }}'
+            authcompat='${{ steps.authcompat.outcome }}'
+            authe2e='${{ steps.authe2e.outcome }}'
             metadata='${{ steps.metadata.outcome }}'
             static='${{ steps.static.outcome }}'
           }
@@ -181,6 +197,8 @@ jobs:
             [pscustomobject]@{Stage='extract'; Outcome='${{ steps.extract.outcome }}'},
             [pscustomobject]@{Stage='reliability'; Outcome='${{ steps.reliability.outcome }}'},
             [pscustomobject]@{Stage='healthpatch'; Outcome='${{ steps.healthpatch.outcome }}'},
+            [pscustomobject]@{Stage='authcompat'; Outcome='${{ steps.authcompat.outcome }}'},
+            [pscustomobject]@{Stage='authe2e'; Outcome='${{ steps.authe2e.outcome }}'},
             [pscustomobject]@{Stage='metadata'; Outcome='${{ steps.metadata.outcome }}'},
             [pscustomobject]@{Stage='static'; Outcome='${{ steps.static.outcome }}'},
             [pscustomobject]@{Stage='prereqs'; Outcome='${{ steps.prereqs.outcome }}'},
@@ -209,7 +227,7 @@ jobs:
         run: |
           $critical=@(
             '${{ steps.archive.outcome }}','${{ steps.syntax.outcome }}','${{ steps.extract.outcome }}',
-            '${{ steps.reliability.outcome }}','${{ steps.healthpatch.outcome }}','${{ steps.metadata.outcome }}','${{ steps.static.outcome }}',
+            '${{ steps.reliability.outcome }}','${{ steps.healthpatch.outcome }}','${{ steps.authcompat.outcome }}','${{ steps.authe2e.outcome }}','${{ steps.metadata.outcome }}','${{ steps.static.outcome }}',
             '${{ steps.prereqs.outcome }}','${{ steps.build.outcome }}','${{ steps.verify.outcome }}','${{ steps.e2e.outcome }}'
           )
           if($critical -contains 'failure' -or $critical -contains 'cancelled'){
