@@ -73,7 +73,7 @@ jobs:
             FileVersion='1.0.0-rc2.10'
             FileDescription='UG-DCMS Configuration Management System Setup'
             OriginalFilename='UG-DCMS-Setup-1.0.0-rc2.10.exe'
-            LegalCopyright='Copyright (C) 2026 UG. All rights reserved.'
+            LegalCopyright='Copyright © 2026 UG. All rights reserved.'
           }
           foreach($kv in $expected.GetEnumerator()){
             $actual=([string]$vi.($kv.Key)).Trim()
