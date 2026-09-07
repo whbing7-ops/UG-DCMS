@@ -1,2 +1,2 @@
-trigger=2026-09-07T06:44:00Z
-reason=verify-final-normalized-version-resources
+trigger=2026-09-07T06:47:00Z
+reason=encoding-independent-pe-copyright-verifier
