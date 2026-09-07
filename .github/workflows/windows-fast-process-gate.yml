@@ -11,6 +11,7 @@ on:
       - 'ci/patch-auth-compat.ps1'
       - 'ci/patch-e2e-auth-smoke.ps1'
       - 'ci/patch-frontend-dom.ps1'
+      - 'ci/test-frontend-dom-browser.ps1'
       - 'ci/test-bounded-process.ps1'
       - '.github/workflows/windows-fast-process-gate.yml'
 
@@ -33,7 +34,7 @@ jobs:
       - name: Parse PowerShell test and patch scripts
         shell: powershell
         run: |
-          foreach($file in @('ci\patch-installer.ps1','ci\patch-health-contract.ps1','ci\patch-env-acl.ps1','ci\patch-installer-metadata.ps1','ci\patch-auth-compat.ps1','ci\patch-e2e-auth-smoke.ps1','ci\patch-frontend-dom.ps1','ci\test-bounded-process.ps1')){
+          foreach($file in @('ci\patch-installer.ps1','ci\patch-health-contract.ps1','ci\patch-env-acl.ps1','ci\patch-installer-metadata.ps1','ci\patch-auth-compat.ps1','ci\patch-e2e-auth-smoke.ps1','ci\patch-frontend-dom.ps1','ci\test-frontend-dom-browser.ps1','ci\test-bounded-process.ps1')){
             $tokens=$null
             $errors=$null
             [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $file).Path,[ref]$tokens,[ref]$errors) | Out-Null
@@ -83,6 +84,10 @@ jobs:
           python-version: '3.12'
           architecture: 'x64'
 
+      - name: Real Edge DOM regression test
+        shell: powershell
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File ci\test-frontend-dom-browser.ps1 -SourceRoot src
+
       - name: Static installer audit
         working-directory: src
         shell: powershell
@@ -90,4 +95,4 @@ jobs:
 
       - name: Fast gate passed
         shell: powershell
-        run: Write-Host 'WINDOWS FAST INSTALLER GATE PASS - frontend DOM, auth compatibility, login smoke, metadata, and installer patches verified.'
+        run: Write-Host 'WINDOWS FAST INSTALLER GATE PASS - real Edge DOM, auth compatibility, login smoke, metadata, and installer patches verified.'
