@@ -29,7 +29,7 @@ jobs:
       - name: Parse patch scripts
         shell: powershell
         run: |
-          foreach($file in @('ci\patch-installer.ps1','ci\patch-health-contract.ps1','ci\patch-installer-metadata.ps1')){
+          foreach($file in @('ci\patch-installer.ps1','ci\patch-health-contract.ps1','ci\patch-auth-compat.ps1','ci\patch-e2e-auth-smoke.ps1','ci\patch-installer-metadata.ps1')){
             $tokens=$null; $errors=$null
             [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $file).Path,[ref]$tokens,[ref]$errors) | Out-Null
             if($errors.Count -gt 0){ throw ('PowerShell parse failure: '+$file) }
@@ -42,6 +42,8 @@ jobs:
           Expand-Archive 'ci\rc210_ci_payload.zip' src -Force
           powershell -NoProfile -ExecutionPolicy Bypass -File ci\patch-installer.ps1 -SourceRoot src
           powershell -NoProfile -ExecutionPolicy Bypass -File ci\patch-health-contract.ps1 -SourceRoot src
+          powershell -NoProfile -ExecutionPolicy Bypass -File ci\patch-auth-compat.ps1 -SourceRoot src
+          powershell -NoProfile -ExecutionPolicy Bypass -File ci\patch-e2e-auth-smoke.ps1 -SourceRoot src
           powershell -NoProfile -ExecutionPolicy Bypass -File ci\patch-installer-metadata.ps1 -SourceRoot src
 
       - uses: actions/setup-python@v5
