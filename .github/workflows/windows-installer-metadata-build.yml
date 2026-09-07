@@ -73,12 +73,14 @@ jobs:
             FileVersion='1.0.0-rc2.10'
             FileDescription='UG-DCMS Configuration Management System Setup'
             OriginalFilename='UG-DCMS-Setup-1.0.0-rc2.10.exe'
-            LegalCopyright='Copyright © 2026 UG. All rights reserved.'
           }
           foreach($kv in $expected.GetEnumerator()){
             $actual=([string]$vi.($kv.Key)).Trim()
             if($actual -ne [string]$kv.Value){ throw ("VersionInfo $($kv.Key) mismatch: actual='$actual' expected='$($kv.Value)'") }
           }
+          $actualCopyright=([string]$vi.LegalCopyright).Trim()
+          $expectedCopyright=('Copyright ' + [char]0x00A9 + ' 2026 UG. All rights reserved.')
+          if($actualCopyright -ne $expectedCopyright){ throw ("VersionInfo LegalCopyright mismatch: actual='$actualCopyright'") }
           $sig=Get-AuthenticodeSignature $setup
           Write-Host ('AuthenticodeStatus=' + $sig.Status)
           $vi | Format-List CompanyName,ProductName,ProductVersion,FileVersion,FileDescription,OriginalFilename,LegalCopyright
