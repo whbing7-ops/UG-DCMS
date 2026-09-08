@@ -125,6 +125,7 @@ with sync_playwright() as pw:
         user_context=browser.new_context(viewport={'width':1440,'height':1000},accept_downloads=True)
         page=user_context.new_page(); page.on('pageerror',lambda e: errors.append(str(e)))
         login(page,username,reset)
+        expect(page.get_by_role('heading',name='先修改初始口令')).to_be_visible()
         page.get_by_label('当前口令').fill(reset)
         page.get_by_label('新口令',exact=True).fill(changed)
         page.get_by_label('再次输入新口令').fill(changed)
