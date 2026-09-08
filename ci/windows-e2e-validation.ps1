@@ -192,6 +192,13 @@ Run-Test 'FUNCTIONAL-02 Installed Edge UI routes and controls' {
   if($LASTEXITCODE -ne 0){ throw ('installed UI browser smoke exit code '+$LASTEXITCODE) }
 }
 
+Run-Test 'FUNCTIONAL-03 Real UI account BOM file and dictionary operations' {
+  & python -m pip install 'playwright==1.51.0' --disable-pip-version-check
+  if($LASTEXITCODE -ne 0){ throw 'Playwright test dependency installation failed' }
+  & python (Join-Path $PSScriptRoot 'test-installed-actions.py') (Join-Path $ArtifactDir 'CI-BROWSER-CREDENTIALS.json') $ArtifactDir
+  if($LASTEXITCODE -ne 0){ throw ('UI interaction test exit code '+$LASTEXITCODE) }
+}
+
 $canUpgrade=$freshSetupOk -and $oldRuntime -and $oldRelease -and (Get-Service 'UGDCMS-App' -ErrorAction SilentlyContinue)
 if($canUpgrade){
   Run-Test 'UPGRADE-01 App running before live reinstall' { if((Get-Service 'UGDCMS-App').Status -ne 'Running'){ throw 'UGDCMS-App not Running before upgrade' } }

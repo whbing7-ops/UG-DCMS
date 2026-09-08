@@ -1,0 +1,127 @@
+// Browser interaction regression with a stateful HTTP contract fixture.
+// Windows CI additionally runs the same UI against the installed PostgreSQL backend.
+const { chromium } = require(process.env.DCMS_PLAYWRIGHT || 'playwright');
+const assert = require('node:assert/strict');
+(async () => {
+ const browser = await chromium.launch({headless:true, ...(process.platform === 'win32' ? {channel:'msedge'} : {})});
+ const page = await browser.newPage({viewport:{width:1440,height:1000}});
+ const errors=[]; page.on('pageerror',e=>errors.push(e.message));
+ const requests=[];
+ let users=[{id:'admin',username:'admin',full_name:'系统管理员',roles:['SYSTEM_ADMIN','DATA_ADMIN'],is_active:true}];
+ const rules=[], contexts=[];
+ let lines=[{id:'line1',item_number:'010',child_object_code:'UG-CHILD-001',child_name:'演示零件',quantity:1,unit_code:'EA',child_status:'ACTIVE'}];
+ const perms=['user_manage','session_manage','draft_write','read_audit','dictionary_write','baseline_release','submit','approve'];
+ await page.route('**/api/v1/**',async route=>{
+  const req=route.request(), url=new URL(req.url()), p=url.pathname.replace('/api/v1',''), method=req.method();
+  const data=req.postData()?JSON.parse(req.postData()):{};
+  requests.push({p,method,data}); let body=[];
+  if(p==='/auth/login') body={access_token:'test',user:users[0]};
+  else if(p==='/auth/me') body={...users[0],permissions:perms};
+  else if(p==='/reports/dashboard') body={objects:{},quality:{},integrity:{},families:{},baselines:{}};
+  else if(p==='/admin/users' && method==='GET') body=users;
+  else if(p==='/admin/users' && method==='POST') { body={...data,id:'new',is_active:true}; users.push(body); }
+  else if(p==='/admin/users/new' && method==='PATCH') { Object.assign(users[1],data); body=users[1]; }
+  else if(p==='/admin/users/admin' && method==='PATCH' && data.is_active===false) return route.fulfill({status:400,json:{error:{message:'这是最后一个启用状态的系统管理员，不得停用'}}});
+  else if(p==='/admin/license') body={limit:10,active_accounts:1,available:9};
+  else if(p==='/search') body={total:1,results:[{object_code:'UG-DEMO-001',display_name:'演示成品',kind:'PART_NUMBER'}]};
+  else if(p==='/bom/UG-DEMO-001') body={lines};
+  else if(p.endsWith('/validate')) body={errors:[],warnings:[]};
+  else if(p==='/applicability/rules') { if(method==='POST') rules.push({...data,status:'ACTIVE'}); body=rules; }
+  else if(p==='/configuration/contexts') { if(method==='POST') contexts.push({...data,status:'ACTIVE'}); body=contexts; }
+  else if(p==='/bom/lines/line1' && method==='PATCH') { Object.assign(lines[0],data); body=lines[0]; }
+  else if(p==='/bom/lines/line1' && method==='DELETE') {lines=[]; body={};}
+  else if(p.endsWith('/resolve')) body={line_count:lines.length,lines,excluded:[],overlaps:[]};
+  else if(p==='/dictionary') body=['unit'];
+  else if(p==='/dictionary/unit') body=[{code:'EA',name_cn:'件',status:'ACTIVE'}];
+  else if(p==='/import/bom/template') {assert.equal(req.headers().authorization,'Bearer test'); return route.fulfill({body:'item_number,child_object_code,quantity\n',contentType:'text/csv'});}
+  await route.fulfill({json:body});
+ });
+ await page.goto('http://127.0.0.1:8765/');
+ await page.getByRole('textbox',{name:'账户',exact:true}).fill('admin');
+ await page.getByLabel('当前口令').fill('TestPassword!26');
+ await page.getByRole('button',{name:'登录',exact:true}).click();
+ await page.locator('.nav a[href="#/admin"]').click();
+ await page.getByRole('button',{name:'＋ 新建账户'}).click();
+ let d=page.getByRole('dialog');
+ await d.getByLabel('账户名（字母开头）').fill('designer01');
+ await d.getByLabel('姓名',{exact:true}).fill('设计工程师');
+ await d.getByLabel('初始密码').fill('Start@2026Demo');
+ await d.getByLabel('设计工程师',{exact:true}).check();
+ await d.getByRole('button',{name:'保存',exact:true}).click();
+ await page.getByText('designer01',{exact:true}).waitFor();
+ let row=page.getByRole('row').filter({hasText:'designer01'});
+ await row.getByRole('button',{name:'编辑',exact:true}).click();
+ await d.getByLabel('姓名',{exact:true}).fill('设计工程师甲');
+ await d.getByLabel('变更原因').fill('补全姓名');
+ await d.getByRole('button',{name:'保存',exact:true}).click();
+ await page.getByText('设计工程师甲',{exact:true}).waitFor();
+ await row.getByRole('button',{name:'停用',exact:true}).click();
+ await d.getByLabel('操作原因').fill('测试停用');
+ await d.getByRole('button',{name:'确认停用账户'}).click();
+ await row.getByRole('button',{name:'启用',exact:true}).waitFor();
+ await row.getByRole('button',{name:'启用',exact:true}).click();
+ await d.getByLabel('操作原因').fill('测试启用');
+ await d.getByRole('button',{name:'确认启用账户'}).click();
+ await row.getByRole('button',{name:'重置密码'}).click();
+ await d.getByLabel('新临时密码').fill('Fresh@2026Demo');
+ await d.getByLabel('再次输入密码').fill('Wrong');
+ await d.getByLabel('操作原因').fill('测试重置');
+ await d.getByRole('button',{name:'确认重置密码'}).click();
+ await d.getByText('两次密码不一致').waitFor();
+ await d.getByLabel('再次输入密码').fill('Fresh@2026Demo');
+ await d.getByRole('button',{name:'确认重置密码'}).click();
+ await d.waitFor({state:'hidden'});
+ await row.getByRole('button',{name:'解锁',exact:true}).click();
+ await d.getByRole('button',{name:'确认解除登录锁定'}).click();
+ await d.waitFor({state:'hidden'});
+ await page.getByRole('row').filter({hasText:'admin'}).getByRole('button',{name:'停用',exact:true}).click();
+ await d.getByLabel('操作原因').fill('验证最后管理员保护');
+ await d.getByRole('button',{name:'确认停用账户'}).click();
+ await d.getByText('这是最后一个启用状态的系统管理员，不得停用').waitFor();
+ await d.getByRole('button',{name:'取消',exact:true}).click();
+ await page.getByLabel('搜索账户').fill('工程师甲');
+ assert.equal(await page.getByRole('row').filter({hasText:'admin'}).count(),0);
+ await page.getByLabel('搜索账户').fill('');
+ await page.screenshot({path:'accounts-ui.png',fullPage:true});
+ await page.locator('.nav a[href="#/bom"]').click();
+ await page.getByLabel('父件号或名称').fill('演示');
+ await page.getByRole('button',{name:'查找件号'}).click();
+ await page.getByRole('link',{name:'打开 BOM'}).click();
+ await page.getByRole('button',{name:'新建适用性规则',exact:true}).click();
+ await d.getByLabel('编号',{exact:true}).fill('MODEL-A');
+ await d.getByLabel('名称',{exact:true}).fill('A 构型');
+ await d.getByLabel('属性名',{exact:true}).fill('model');
+ await d.getByLabel('属性值',{exact:true}).fill('A');
+ await d.getByRole('button',{name:'保存',exact:true}).click();
+ await d.waitFor({state:'hidden'});
+ await page.getByRole('button',{name:'新建构型',exact:true}).click();
+ await d.getByLabel('编号',{exact:true}).fill('CTX-A');
+ await d.getByLabel('名称',{exact:true}).fill('A 构型定义');
+ await d.getByLabel('属性名',{exact:true}).fill('model');
+ await d.getByLabel('属性值',{exact:true}).fill('A');
+ await d.getByRole('button',{name:'保存',exact:true}).click();
+ await d.waitFor({state:'hidden'});
+ await page.getByRole('button',{name:'编辑',exact:true}).click();
+ await d.getByLabel('数量',{exact:true}).fill('3');
+ await d.getByLabel('适用性规则').selectOption('MODEL-A');
+ await d.getByRole('button',{name:'保存',exact:true}).click();
+ await d.waitFor({state:'hidden'});
+ assert.equal(lines[0].quantity,3); assert.equal(lines[0].applicability_rule_code,'MODEL-A');
+ await page.getByLabel('构型上下文').selectOption('CTX-A');
+ await page.getByRole('button',{name:'解析构型',exact:true}).click();
+ await page.getByText('解析通过，共 1 行；排除 0 行。').waitFor();
+ const downloadPromise=page.waitForEvent('download');
+ await page.getByRole('button',{name:'下载模板'}).click();
+ assert.equal((await downloadPromise).suggestedFilename(),'bom_template.csv');
+ await page.screenshot({path:'bom-ui.png',fullPage:true});
+ await page.setViewportSize({width:390,height:844});
+ assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'Mobile page overflows horizontally');
+ await page.getByRole('button',{name:'删除子项'}).click();
+ await d.getByLabel('原因（记入审计）').fill('删除测试');
+ await d.getByRole('button',{name:'保存',exact:true}).click();
+ await d.waitFor({state:'hidden'}); assert.equal(lines.length,0);
+ assert.deepEqual(errors,[]);
+ assert(requests.some(r=>r.p==='/admin/users/new/password-reset'));
+ console.log('PASS: login, account create/edit/filter/disable/enable/reset/unlock/error, BOM search/rule/context/edit/resolve/delete, authenticated download, mobile layout.');
+ await browser.close();
+})().catch(e=>{console.error(e);process.exit(1)});

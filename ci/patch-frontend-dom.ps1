@@ -46,3 +46,12 @@ if(-not $appText.Contains('g.items.map(([href, label]) =>')){ throw 'sidebar ite
 
 [IO.File]::WriteAllText($ui,$text,(New-Object Text.UTF8Encoding($false)))
 Write-Host 'FRONTEND DOM PATCH PASS: nested child arrays recursively render as DOM nodes instead of [object HTML*]/URL text.'
+
+# Ship the reviewed UI sources after repairing the archived payload.
+# This overlay is shared by the fast gate and the complete Windows installer build.
+foreach($area in @('frontend','backend')) {
+  $overlay = Join-Path $PSScriptRoot $area
+  if(-not(Test-Path $overlay)){ throw ('Missing UI source overlay: '+$overlay) }
+  Copy-Item (Join-Path $overlay '*') (Join-Path $SourceRoot $area) -Recurse -Force
+}
+Write-Host 'ACCOUNT AND BOM UI OVERLAY APPLIED'
