@@ -5,6 +5,7 @@ Runs only against the disposable Windows CI installation. No mocked API response
 import json
 import sys
 import time
+import os
 from pathlib import Path
 from playwright.sync_api import sync_playwright, expect
 
@@ -46,7 +47,7 @@ def reason(page, label='原因（记入审计）'):
     page.get_by_role('dialog').get_by_label(label).fill('CI UI operation verification')
 
 with sync_playwright() as pw:
-    browser = pw.chromium.launch(channel='msedge', headless=True)
+    browser = pw.chromium.launch(headless=True, **({'executable_path': os.environ['DCMS_BROWSER_PATH']} if os.environ.get('DCMS_BROWSER_PATH') else {'channel':'msedge'}))
     context = browser.new_context(viewport={'width':1440, 'height':1000}, accept_downloads=True)
     admin = context.new_page()
     errors=[]
@@ -62,7 +63,7 @@ with sync_playwright() as pw:
         dialog.get_by_label('设计工程师', exact=True).check()
         dialog.get_by_label('构型管理员', exact=True).check()
         save(admin)
-        row = admin.get_by_role('row').filter(has_text=username)
+        row = admin.get_by_role('row').filter(has=admin.get_by_text(username,exact=True))
         expect(row).to_be_visible()
         row.get_by_role('button', name='编辑', exact=True).click()
         dialog.get_by_label('姓名', exact=True).fill('UI 工程师甲')
@@ -238,7 +239,7 @@ with sync_playwright() as pw:
         admin.get_by_label('动作',exact=True).fill('USER_CREATE')
         admin.get_by_role('button',name='查询',exact=True).click()
         expect(admin.get_by_role('cell',name=username,exact=True)).to_be_visible()
-        admin.get_by_role('row').filter(has_text=username).get_by_text('查看变更',exact=True).click()
+        admin.get_by_role('row').filter(has=admin.get_by_role('cell',name=username,exact=True)).get_by_text('查看变更',exact=True).click()
         mark('audit/filter-view-change')
         page.set_viewport_size({'width':390,'height':844})
         assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
