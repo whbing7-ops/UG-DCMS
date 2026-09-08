@@ -1,1 +1,3 @@
-UI revision 2: first-login routing fix, empty emails, baseline entry, snapshot chooser and audited operations. Real UI regression required.
+trigger=2026-09-08T10:55:00Z
+reason=final-ui-bom-account-completion-live-regression-passed
+source=31a63e99a4749a5c2ce6e7c6fbe73f75af9bffcc
