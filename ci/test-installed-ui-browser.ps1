@@ -38,8 +38,9 @@ const d=await r.json();sessionStorage.setItem('dcms.token',d.access_token);locat
     if($bad){ throw ('bad rendered DOM marker: '+($bad -join ',')) }
     if($dom -notmatch '<main[^>]*class="main"' -or $dom -notmatch '<h1[ >]'){ throw 'route main heading not rendered' }
     if($dom -notmatch '<nav[^>]*class="nav"' -or $dom -notmatch '<a[^>]*href="#/search"'){ throw 'real sidebar links not rendered' }
-    $navRouteCount=([regex]::Matches($dom,'<a[^>]*href="#/')).Count
-    if($navRouteCount -ne 12){ throw ('sidebar route count mismatch: expected 12, actual '+$navRouteCount) }
+    foreach($href in @('#/','#/search','#/families','#/files','#/external-parts','#/software','#/approvals','#/quality','#/reports','#/dictionary','#/audit','#/admin')){
+      if(-not $dom.Contains('href="'+$href+'"')){ throw ('sidebar route missing: '+$href) }
+    }
     $buttonCount=([regex]::Matches($dom,'<button\b')).Count
     $results.Add([pscustomobject]@{Route=$Name;Status='PASS';Buttons=$buttonCount})
     Write-Host ('[PASS] UI '+$Name+' buttons='+$buttonCount)
