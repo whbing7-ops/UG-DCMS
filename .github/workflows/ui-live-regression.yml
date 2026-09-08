@@ -30,7 +30,7 @@ jobs:
       DCMS_PG_PASSWORD: ci-only-pg
       DCMS_PG_DATABASE: dcms
       DCMS_FRONTEND_ROOT: ${{ github.workspace }}/src/frontend
-      DCMS_STORAGE_ROOT: ${{ runner.temp }}/ug-ui-uploads
+      DCMS_STORAGE_ROOT: ${{ github.workspace }}/ui-evidence/uploads
       DCMS_BROWSER_PATH: /usr/bin/google-chrome
       PGPASSWORD: ci-only-pg
     steps:
