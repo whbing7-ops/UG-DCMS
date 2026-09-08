@@ -10,7 +10,10 @@ export function setToken(t)      { t ? sessionStorage.setItem(TOKEN_KEY, t) : se
 export class ApiError extends Error {
   constructor(status, body) {
     const e = (body && body.error) || {};
-    super(e.message || `请求失败 (${status})`);
+    const labels = {username:'账户名',password:'密码',new_password:'新密码',quantity:'数量',item_number:'项号',child_object_code:'子件号',name_cn:'名称',full_name:'姓名',file_number:'文件编号'};
+    const validation = Array.isArray(body?.detail) ? body.detail.map(d => `${labels[d.loc?.at(-1)] || d.loc?.at(-1) || '输入'}：${d.msg}`).join('；') : null;
+    const duplicate = {uq_app_user_username:'账户名已存在，请更换账户名',uq_app_user_email:'该邮箱已被其他账户使用'}[e.rule];
+    super(duplicate || e.message || validation || `请求失败 (${status})`);
     this.status = status;
     this.code = e.code;
     this.rule = e.rule || null;   // 违反的不变量编号, 界面上要显示出来

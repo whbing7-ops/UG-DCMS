@@ -75,6 +75,19 @@ with sync_playwright() as pw:
         user = next(u for u in call(admin,'GET','/admin/users') if u['username']==username)
         assert user['full_name']=='UI 工程师甲' and 'ENGINEER' in user['roles']
         mark('account/create-edit-role-filter-persisted')
+        assert user['email'] is None
+        admin.get_by_role('button',name='＋ 新建账户').click()
+        dialog.get_by_label('账户名（字母开头）').fill(username+'_view')
+        dialog.get_by_label('姓名',exact=True).fill('UI 只读验证账户')
+        dialog.get_by_label('初始密码').fill(initial); save(admin)
+        row.get_by_role('button',name='编辑',exact=True).click()
+        dialog.get_by_label('邮箱（可选）').fill(username+'@example.test')
+        dialog.get_by_label('变更原因').fill('测试邮箱'); save(admin)
+        row.get_by_role('button',name='编辑',exact=True).click()
+        dialog.get_by_label('邮箱（可选）').fill('')
+        dialog.get_by_label('变更原因').fill('清空邮箱'); save(admin)
+        assert next(u for u in call(admin,'GET','/admin/users') if u['username']==username)['email'] is None
+        mark('account/multiple-empty-emails-and-clear-email')
 
         user_context = browser.new_context(viewport={'width':1440,'height':1000}, accept_downloads=True)
         page = user_context.new_page(); page.on('pageerror', lambda e: errors.append(str(e)))
@@ -168,6 +181,20 @@ with sync_playwright() as pw:
         assert download.value.suggested_filename=='bom_template.csv'
         page.get_by_role('button',name='冻结构型 BOM').click()
         expect(page.locator('#toast')).to_contain_text('已冻结')
+        snapshots=call(page,'GET','/bom/'+pn+'/snapshots')
+        resolved_number=snapshots['resolved'][0]['resolved_snapshot_number']
+        page.get_by_label('构型快照编号').select_option(resolved_number)
+        page.get_by_role('button',name='查看构型快照').click()
+        expect(page.locator('main')).to_contain_text(resolved_number)
+        page.get_by_role('button',name='生成 BOM 快照').click()
+        expect(page.locator('#toast')).to_contain_text('已生成快照')
+        snapshots=call(page,'GET','/bom/'+pn+'/snapshots')
+        snap=snapshots['bom'][0]['snapshot_number']
+        page.get_by_label('旧快照编号').select_option(snap)
+        page.get_by_label('新快照编号').select_option(snap)
+        page.get_by_role('button',name='比较 BOM 快照').click()
+        expect(page.locator('main')).to_contain_text('内容相同')
+        call(page,'GET','/bom/snapshots/compare?a=NONEXISTENT&b=NONEXISTENT',status=404)
         page.screenshot(path=str(output/'bom-ui.png'),full_page=True)
         bom_row.get_by_role('button',name='删除子项').click(); reason(page); save(page)
         assert not any(x['item_number']=='990' for x in call(page,'GET','/bom/'+pn)['lines'])
@@ -195,6 +222,17 @@ with sync_playwright() as pw:
         page.get_by_role('button',name='取消版次').click(); reason(page); save(page)
         expect(page.locator('.st-CANCELLED')).to_be_visible()
         mark('files/create-revision-upload-Chinese-download-delete-cancel')
+
+        page.goto(base+'/#/object/'+pn)
+        page.get_by_role('button',name='关联设计文件').click()
+        page.get_by_role('dialog').get_by_label('文件编号').fill(file_number); save(page)
+        expect(page.get_by_role('link',name=file_number,exact=True)).to_be_visible()
+        page.get_by_role('link',name='设计基线',exact=True).click()
+        page.once('dialog',lambda d:d.accept('UI first baseline test'))
+        page.get_by_role('button',name='新建基线',exact=True).click()
+        page.get_by_role('button',name='取消基线',exact=True).click(); reason(page); save(page)
+        expect(page.locator('.tb-grid')).to_contain_text('CANCELLED')
+        mark('definitions/link-and-display-first-baseline-create-cancel')
 
         nav(admin,'/audit')
         admin.get_by_label('动作',exact=True).fill('USER_CREATE')

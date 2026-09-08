@@ -3,11 +3,19 @@
 const { chromium } = require(process.env.DCMS_PLAYWRIGHT || 'playwright');
 const assert = require('node:assert/strict');
 (async () => {
- const browser = await chromium.launch({headless:true, ...(process.platform === 'win32' ? {channel:'msedge'} : {})});
+ const http=require('node:http'),fs=require('node:fs'),path=require('node:path');
+ const frontend=path.resolve(__dirname,'frontend');
+ const server=http.createServer((req,res)=>{
+  const file=path.resolve(frontend,'.'+new URL(req.url,'http://localhost').pathname.replace(/\/$/,'/index.html'));
+  if(!file.startsWith(frontend+path.sep)||!fs.existsSync(file)){res.writeHead(404);res.end();return;}
+  res.setHeader('Content-Type',file.endsWith('.js')?'text/javascript':file.endsWith('.css')?'text/css':'text/html');res.end(fs.readFileSync(file));
+ });
+ await new Promise(resolve=>server.listen(8765,'127.0.0.1',resolve));
+ const browser = await chromium.launch({headless:true, ...(process.env.DCMS_BROWSER_PATH ? {executablePath:process.env.DCMS_BROWSER_PATH} : process.platform === 'win32' ? {channel:'msedge'} : {})});
  const page = await browser.newPage({viewport:{width:1440,height:1000}});
  const errors=[]; page.on('pageerror',e=>errors.push(e.message));
  const requests=[];
- let users=[{id:'admin',username:'admin',full_name:'系统管理员',roles:['SYSTEM_ADMIN','DATA_ADMIN'],is_active:true}];
+ let users=[{id:'admin',username:'admin',full_name:'系统管理员',roles:['SYSTEM_ADMIN','DATA_ADMIN'],is_active:true,must_change_password:true}];
  const rules=[], contexts=[];
  let lines=[{id:'line1',item_number:'010',child_object_code:'UG-CHILD-001',child_name:'演示零件',quantity:1,unit_code:'EA',child_status:'ACTIVE'}];
  const perms=['user_manage','session_manage','draft_write','read_audit','dictionary_write','baseline_release','submit','approve'];
@@ -16,6 +24,7 @@ const assert = require('node:assert/strict');
   const data=req.postData()?JSON.parse(req.postData()):{};
   requests.push({p,method,data}); let body=[];
   if(p==='/auth/login') body={access_token:'test',user:users[0]};
+  else if(p==='/auth/password') {users[0].must_change_password=false;body={};}
   else if(p==='/auth/me') body={...users[0],permissions:perms};
   else if(p==='/reports/dashboard') body={objects:{},quality:{},integrity:{},families:{},baselines:{}};
   else if(p==='/admin/users' && method==='GET') body=users;
@@ -25,6 +34,7 @@ const assert = require('node:assert/strict');
   else if(p==='/admin/license') body={limit:10,active_accounts:1,available:9};
   else if(p==='/search') body={total:1,results:[{object_code:'UG-DEMO-001',display_name:'演示成品',kind:'PART_NUMBER'}]};
   else if(p==='/bom/UG-DEMO-001') body={lines};
+  else if(p==='/bom/UG-DEMO-001/snapshots') body={bom:[],resolved:[]};
   else if(p.endsWith('/validate')) body={errors:[],warnings:[]};
   else if(p==='/applicability/rules') { if(method==='POST') rules.push({...data,status:'ACTIVE'}); body=rules; }
   else if(p==='/configuration/contexts') { if(method==='POST') contexts.push({...data,status:'ACTIVE'}); body=contexts; }
@@ -37,9 +47,19 @@ const assert = require('node:assert/strict');
   await route.fulfill({json:body});
  });
  await page.goto('http://127.0.0.1:8765/');
+ if(process.env.DCMS_TEST_FONT){
+  const font=fs.readFileSync(process.env.DCMS_TEST_FONT).toString('base64');
+  await page.addStyleTag({content:`@font-face{font-family:UITestChinese;src:url(data:font/woff2;base64,${font}) format('woff2')} :root{--sans:UITestChinese,system-ui;--mono:Consolas,UITestChinese,monospace}`});
+  await page.evaluate(()=>document.fonts.ready);
+ }
  await page.getByRole('textbox',{name:'账户',exact:true}).fill('admin');
  await page.getByLabel('当前口令').fill('TestPassword!26');
  await page.getByRole('button',{name:'登录',exact:true}).click();
+ await page.getByRole('heading',{name:'先修改初始口令'}).waitFor();
+ await page.getByLabel('当前口令').fill('TestPassword!26');
+ await page.getByLabel('新口令',{exact:true}).fill('ChangedPassword!26');
+ await page.getByLabel('再次输入新口令').fill('ChangedPassword!26');
+ await page.getByRole('button',{name:'修改口令',exact:true}).click();
  await page.locator('.nav a[href="#/admin"]').click();
  await page.getByRole('button',{name:'＋ 新建账户'}).click();
  let d=page.getByRole('dialog');
@@ -124,4 +144,5 @@ const assert = require('node:assert/strict');
  assert(requests.some(r=>r.p==='/admin/users/new/password-reset'));
  console.log('PASS: login, account create/edit/filter/disable/enable/reset/unlock/error, BOM search/rule/context/edit/resolve/delete, authenticated download, mobile layout.');
  await browser.close();
+ await new Promise(resolve=>server.close(resolve));
 })().catch(e=>{console.error(e);process.exit(1)});

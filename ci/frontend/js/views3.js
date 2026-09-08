@@ -7,7 +7,7 @@ import {
   toast, toastError, fmtDate, link, askReason,
 } from "./ui.js";
 
-const reload = () => { const h = location.hash; location.hash = "#/"; setTimeout(() => location.hash = h, 0); };
+const reload = () => window.dispatchEvent(new HashChangeEvent("hashchange"));
 
 /* ==================== BOM ==================== */
 export async function bom(ctx, params, code) {
@@ -115,14 +115,14 @@ function resolvePanel(code, contexts, ctx) {
   };
   return el("div", {},
     el("p", { class: "muted" }, "选择已保存构型，或输入临时 JSON 上下文。系统只展开适用规则命中的 BOM 行；未绑定规则的行按 ALL 处理。"),
-    field("构型上下文", ctxSel), field("临时/覆盖属性(JSON)", attrs),
+    field("构型上下文", ctxSel), el('details',{},el('summary',{},'临时构型属性（高级）'),field("临时/覆盖属性(JSON)", attrs)),
     el("div", { class: "actions" },
       el("button", { class: "btn primary", onclick: async () => {
         try { const r = await api.post(`/bom/${encodeURIComponent(code)}/resolve`, { json: payload() });
           out.replaceChildren(resolvedResult(r)); } catch(e) { toastError(e); } } }, "解析构型"),
       ctx.can("baseline_release") ? el("button", { class: "btn", onclick: async () => {
         try { const r = await api.post(`/bom/${encodeURIComponent(code)}/resolved-snapshot`, { json: payload() });
-          toast(`已冻结 ${r.resolved_snapshot_number}`); } catch(e) { toastError(e); } } }, "冻结构型 BOM") : null),
+          toast(`已冻结 ${r.resolved_snapshot_number}`); reload(); } catch(e) { toastError(e); } } }, "冻结构型 BOM") : null),
     out);
 }
 
@@ -136,14 +136,6 @@ function resolvedResult(r) {
         el("td",{class:"mono"},x.child_object_code),el("td",{class:"num"},x.quantity),
         el("td",{class:"num"},x.extended_quantity),el("td",{class:"mono"},x.rule_code || "ALL"),
         el("td",{class:"mono muted"},x.path)]));
-}
-
-function applicabilityRulePanel(rules) {
-  return el("div", {},
-    el("p", { class: "muted" }, "规则采用结构化 JSON 表达式，可通过系统 API/管理工具建立。示例：model=A320-214 且 msn 1~50。"),
-    rules.length ? table([{label:"规则",mono:1},{label:"名称"},{label:"表达式",mono:1}], rules, r => [
-      el("td",{class:"mono"},r.rule_code), el("td",{},r.name_cn),
-      el("td",{class:"mono muted"},JSON.stringify(r.expression))]) : empty("尚无 Applicability 规则"));
 }
 
 function importForm(code) {

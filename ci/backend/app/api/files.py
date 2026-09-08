@@ -161,9 +161,10 @@ def download_attachment(attachment_id: str, conn: Conn, user: CurrentUser):
 
 @router.delete("/attachments/{attachment_id}")
 def delete_attachment(attachment_id: str, conn: Conn,
+                      reason: str | None = Query(None, max_length=256),
                       actor: dict = Depends(require(Perm.DRAFT_WRITE))):
     try:
-        file_svc.delete_attachment(conn, attachment_id, actor)
+        file_svc.delete_attachment(conn, attachment_id, actor, reason=reason)
     except LookupError as e:
         raise errors.not_found(str(e))
     except ValueError as e:

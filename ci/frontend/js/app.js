@@ -13,6 +13,7 @@ import { diagnostics, auditPage } from "./extras.js";
 
 const root = document.getElementById("root");
 let ctx = null;
+let renderVersion = 0;
 
 /* 路由表。顺序即匹配顺序, 静态路径在前。 */
 const ROUTES = [
@@ -87,9 +88,10 @@ function loginView(msg) {
     try {
       const r = await api.login(u.value.trim(), p.value);
       setToken(r.access_token);
+      if (!(await boot())) return;
       if (r.user.must_change_password) { location.hash = "#/change-password"; }
       else { location.hash = "#/"; }
-      await boot();
+      await render();
     } catch (e) {
       err.replaceChildren(el("div", { class: "note error" }, e.message,
         e.rule ? el("div", { class: "mono muted" }, "规则 " + e.rule) : null));
@@ -124,8 +126,9 @@ function changePasswordView() {
     try {
       await api.changePassword(oldP.value, newP.value);
       toast("口令已修改，其他会话已失效");
+      if (!(await boot())) return;
       location.hash = "#/";
-      await boot();
+      await render();
     } catch (e) {
       err.replaceChildren(el("div", { class: "note error" }, e.message));
     }
@@ -133,8 +136,8 @@ function changePasswordView() {
   clear(root).append(el("div", { class: "login-wrap" },
     el("div", { class: "login" },
       el("div", { class: "head" },
-        el("h1", {}, "先修改初始口令"),
-        el("p", {}, "修改完成后才能使用系统")),
+        el("h1", {}, ctx?.user.must_change_password ? "先修改初始口令" : "修改密码"),
+        el("p", {}, "口令至少 10 位，不得包含账户名")),
       el("div", { class: "body" },
         el("div", { class: "note" },
           "口令至少 10 位，需包含大小写字母、数字、符号中的三类，且不能含账户名。"),
@@ -143,6 +146,7 @@ function changePasswordView() {
         el("label", {}, "再次输入新口令"), newP2,
         err,
         el("div", { class: "actions" },
+          !ctx?.user.must_change_password ? el('a', {class:'btn',href:'#/'},'取消') : null,
           el("button", { class: "btn primary", onclick: submit }, "修改口令"))))));
 }
 
@@ -163,12 +167,13 @@ function shell(content) {
       el("a", { href: "#", onclick: async e => {
         e.preventDefault();
         try { await api.logout(); } catch {}
-        setToken(null); location.hash = "#/login"; loginView("已退出登录。");
+        setToken(null); ctx = null; location.hash = "#/login"; loginView("已退出登录。");
       } }, "退出登录")));
   clear(root).append(el("div", { class: "shell" }, rail, el("main", { class: "main" }, content)));
 }
 
 async function render() {
+  const version = ++renderVersion;
   if (!token()) return loginView();
   const hash = location.hash.slice(1) || "/";
   if (hash === "/change-password") return changePasswordView();
@@ -188,8 +193,9 @@ async function render() {
   shell(loading);
   try {
     const node = await m.view(ctx, new URLSearchParams(qs || ""), ...m.args);
-    shell(node);
+    if (version === renderVersion) shell(node);
   } catch (e) {
+    if (version !== renderVersion) return;
     if (e.status === 401) return;
     shell(el("div", {},
       el("h1", {}, "无法打开这个页面"),

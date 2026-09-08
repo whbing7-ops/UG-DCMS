@@ -7,7 +7,7 @@ import {
   toast, toastError, fmtDate, link, askReason,
 } from "./ui.js";
 
-const reload = () => { const h = location.hash; location.hash = "#/"; setTimeout(() => location.hash = h, 0); };
+const reload = () => window.dispatchEvent(new HashChangeEvent("hashchange"));
 const ITEM_CN = { FILE_REVISION: "文件版次", BOM_SNAPSHOT: "BOM 快照",
                   EXTERNAL_TECHNICAL_STATE: "外部件技术状态", SOFTWARE_VERSION: "软件版本" };
 const ROLE_CN = { PRIMARY_DEFINITION: "主设计定义", SUPPORTING_DEFINITION: "支持性定义",
@@ -55,7 +55,7 @@ export async function baselines(ctx, params, pn) {
 export async function baselineDetail(ctx, params, id) {
   const [bl, val] = await Promise.all([
     api.get("/baselines/" + id),
-    api.get(`/baselines/${id}/validate`).catch(() => null),
+    api.get(`/baselines/${id}/validate`),
   ]);
   const editable = ["DRAFT", "IN_REVIEW"].includes(bl.status);
 
@@ -168,15 +168,19 @@ export async function baselineCompare(ctx, params, a, b) {
 
 /* ==================== 数据质量 ==================== */
 export async function quality(ctx) {
-  const [issues, rules] = await Promise.all([
+  const [issues, rules, integrity] = await Promise.all([
     api.get("/quality/issues", { query: { limit: 500 } }),
     api.get("/quality/rules"),
+    ctx.can('read_audit') ? api.get('/integrity/issues') : [],
   ]);
   const ruleName = Object.fromEntries(rules.map(r => [r.code, r.name_cn]));
 
   return el("div", {},
     el("h1", {}, "数据质量"),
     el("p", { class: "sub" }, "错误级问题会阻止基线发布。豁免需要理由和有效期，到期自动恢复。"),
+    ctx.can('read_audit') ? panel('附件完整性问题', recordView(integrity), el('button', {class:'btn',onclick:async()=>{
+      try { await api.post('/integrity/check'); toast('完整性检查完成'); reload(); } catch(e) {toastError(e);}
+    }},'检查全部附件')) : null,
     el("div", { class: "actions" },
       ctx.can("read_audit") ? el("button", { class: "btn primary", onclick: async () => {
         try { const s = await api.post("/quality/scan");
@@ -272,64 +276,8 @@ export async function reports() {
 }
 
 /* ==================== 系统管理 ==================== */
-export async function admin(ctx) {
-  const [users, license, sessions] = await Promise.all([
-    api.get("/admin/users"),
-    api.get("/admin/license").catch(() => null),
-    api.get("/admin/sessions").catch(() => []),
-  ]);
-
-  return el("div", {},
-    el("h1", {}, "系统管理"),
-    license ? el("div", { class: license.available === 0 ? "note error" : "note" },
-      `同时在线账户 ${license.active_accounts} / ${license.limit}，剩余 ${license.available} 个名额。`,
-      license.available === 0 ? " 已满员，其他账户暂时无法登录。" : "") : null,
-
-    tablePanel("在线会话",
-      table([{ label: "账户", mono: 1 }, { label: "姓名" }, { label: "登录时间" },
-             { label: "最近活动" }, { label: "" }],
-        sessions, s => [
-          el("td", { class: "mono" }, s.username),
-          el("td", {}, s.full_name),
-          el("td", { class: "muted nowrap" }, fmtDate(s.issued_at)),
-          el("td", { class: "muted nowrap" }, fmtDate(s.last_seen_at)),
-          el("td", { class: "right" }, el("button", { class: "btn small danger",
-            onclick: async () => {
-              const reason = await askReason("强制下线", "请说明原因（将记入审计）");
-              if (!reason) return;
-              try { await api.del("/admin/sessions/" + s.id, { query: { reason } });
-                    toast("会话已撤销"); reload(); }
-              catch (e) { toastError(e); } } }, "强制下线"))])
-      || empty("当前没有在线会话")),
-
-    tablePanel("账户",
-      table([{ label: "账户", mono: 1 }, { label: "姓名" }, { label: "角色" },
-             { label: "在线" }, { label: "状态" }, { label: "最近登录" }],
-        users, u => [
-          el("td", { class: "mono" }, u.username),
-          el("td", {}, u.full_name),
-          el("td", { class: "muted" }, (u.roles || []).join("、") || "—"),
-          el("td", {}, u.is_online ? el("span", { class: "st-current" }, "在线") : ""),
-          el("td", {}, u.is_active ? status("ACTIVE") : status("CANCELLED")),
-          el("td", { class: "muted nowrap" }, fmtDate(u.last_login_at))])));
-}
-
-export async function audit(ctx) {
-  const rows = await api.get("/admin/audit", { query: { limit: 200 } });
-  return el("div", {},
-    el("h1", {}, "审计记录"),
-    el("p", { class: "sub" }, "审计记录不可修改也不可删除，由数据库层强制。"),
-    tablePanel("最近 200 条",
-      table([{ label: "时间" }, { label: "账户", mono: 1 }, { label: "动作" },
-             { label: "对象", mono: 1 }, { label: "结果" }, { label: "原因" }],
-        rows, a => [
-          el("td", { class: "muted nowrap" }, fmtDate(a.occurred_at)),
-          el("td", { class: "mono" }, a.username || "—"),
-          el("td", { class: "nowrap" }, a.action),
-          el("td", { class: "mono" }, a.object_code || "—"),
-          el("td", {}, status(a.result)),
-          el("td", { class: "muted" }, a.reason || "—")])));
-}
+export { accounts as admin } from "./manage.js";
+export { auditPage as audit } from "./extras.js";
 
 export async function dictionary(ctx) {
   const names = await api.get("/dictionary");

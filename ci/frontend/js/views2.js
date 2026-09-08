@@ -212,7 +212,7 @@ export async function familyDetail(ctx, params, id) {
       await api.post(`/families/${id}/numbers/${Number(dash.value)}/skip`, { query: { reason: reason.value.trim() } }); toast("已登记跳号"); reload();
     });
   } }, "登记跳号"));
-  const reload = () => { const h = location.hash; location.hash = "#/"; setTimeout(() => location.hash = h, 0); };
+  const reload = () => window.dispatchEvent(new HashChangeEvent("hashchange"));
 
   return el("div", {},
     el("div", { class: "titleblock" },

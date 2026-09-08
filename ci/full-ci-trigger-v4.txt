@@ -1,1 +1,1 @@
-Account management, complete BOM UI, controlled-data operations and real Edge interaction gate. 2026-09-08 UI revision 1
+UI revision 2: first-login routing fix, empty emails, baseline entry, snapshot chooser and audited operations. Real UI regression required.

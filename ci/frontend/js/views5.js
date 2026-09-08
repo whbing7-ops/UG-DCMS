@@ -5,7 +5,7 @@ import {
   toast, toastError, fmtDate, link, askReason,
 } from "./ui.js";
 
-const reload = () => { const h = location.hash; location.hash = "#/"; setTimeout(() => location.hash = h, 0); };
+const reload = () => window.dispatchEvent(new HashChangeEvent("hashchange"));
 
 const REQ_CN = {
   BASIC_DRAWING_NUMBER: "新建设计族", DASH_NUMBER: "申请 Dash 号",

@@ -60,7 +60,7 @@ export async function accounts(ctx) {
       el('fieldset', {}, el('legend', {}, '角色权限（可多选）'), el('div', { class: 'role-grid' }, checks.map(c => c.node))),
       user ? field('变更原因', reason) : null), async () => {
       if (!name.value.trim()) throw Error('请填写姓名');
-      const json = { full_name: name.value.trim(), email: email.value.trim(), roles: checks.filter(c => c.box.checked).map(c => c.code) };
+      const json = { full_name: name.value.trim(), email: email.value.trim() || null, roles: checks.filter(c => c.box.checked).map(c => c.code) };
       if (!json.roles.length) throw Error('请至少选择一个角色');
       if (user) await api.patch('/admin/users/' + user.id, { json: { ...json, reason: reason.value.trim() } });
       else await api.post('/admin/users', { json: { ...json, username: username.value.trim(), password: password.value } });

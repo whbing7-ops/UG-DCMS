@@ -117,13 +117,14 @@ const MATCH_CN = { EXACT: "编号完全一致", NORMALIZED: "编号归一后一�
 /* ============================ 对象详情 ============================ */
 export async function objectDetail(ctx, params, code) {
   const obj = await api.get("/objects/" + encodeURIComponent(code));
+  const definitions = await api.get('/definitions/' + encodeURIComponent(code));
   const isPart = obj.object_type === "INTERNAL_PART";
 
   let cfg = null, wu = null;
   if (isPart) {
     [cfg, wu] = await Promise.all([
-      api.get(`/parts/${encodeURIComponent(obj.full_part_number)}/configuration`).catch(() => null),
-      api.get("/where-used/" + encodeURIComponent(code)).catch(() => null),
+      api.get(`/parts/${encodeURIComponent(obj.full_part_number)}/configuration`),
+      api.get("/where-used/" + encodeURIComponent(code)),
     ]);
   }
 
@@ -132,7 +133,9 @@ export async function objectDetail(ctx, params, code) {
        el("span", { class: mono ? "mono" : null }, value ?? "—"));
 
   return el("div", {},
-    el("div", { class: "actions" }, link("BOM 管理", "#/bom/" + encodeURIComponent(code), "btn primary"), ctx.can("draft_write") ? definitionButton(code) : null),
+    el("div", { class: "actions" }, link("BOM 管理", "#/bom/" + encodeURIComponent(code), "btn primary"),
+      isPart ? link('设计基线', '#/baselines/' + encodeURIComponent(obj.full_part_number), 'btn') : null,
+      ctx.can("draft_write") ? definitionButton(code) : null),
     // 标题栏: 与工程师在图纸上看到的格子结构一致
     el("div", { class: "titleblock" },
       el("div", { class: "tb-head" },
@@ -165,6 +168,9 @@ export async function objectDetail(ctx, params, code) {
             el("td", { class: "nowrap" }, c.reference_type),
             el("td", { class: "mono" }, c.reference_value)]))),
 
+    tablePanel('关联设计文件', table([{label:'文件号'},{label:'名称'},{label:'关联角色'}], definitions, d => [
+      el('td',{},link(d.file_number,'#/file/'+encodeURIComponent(d.file_number))),
+      el('td',{},d.title_cn),el('td',{},ROLE_CN[d.relation_type] || d.relation_type)])),
     tablePanel("属性",
       table([{ label: "属性" }, { label: "值" }, { label: "单位" }],
         obj.attributes, a => [

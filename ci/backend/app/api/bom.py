@@ -6,7 +6,7 @@ from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, Field
 
 from .. import errors
-from ..db import fetch_one
+from ..db import fetch_one, fetch_all
 from ..txroute import TransactionalRoute
 from ..deps import Conn, CurrentUser, require
 from ..rbac import Perm
@@ -94,9 +94,10 @@ def update_line(line_id: str, payload: LineUpdateRequest, conn: Conn,
 
 @router.delete("/bom/lines/{line_id}")
 def delete_line(line_id: str, conn: Conn,
+                reason: str | None = Query(None, max_length=256),
                 actor: dict = Depends(require(Perm.DRAFT_WRITE))):
     try:
-        bom_svc.delete_line(conn, line_id, actor)
+        bom_svc.delete_line(conn, line_id, actor, reason=reason)
     except LookupError as e:
         raise errors.not_found(str(e))
     return {"message": "BOM 行已删除"}
@@ -146,7 +147,31 @@ def create_snapshot(object_code: str, conn: Conn,
 def compare(conn: Conn, user: CurrentUser,
             a: str = Query(..., description="快照编号"),
             b: str = Query(..., description="快照编号")):
-    return bom_svc.compare_snapshots(conn, a, b)
+    headers = [fetch_one(conn, "SELECT id,parent_design_object_id FROM bom_snapshot WHERE snapshot_number=%s", (n,)) for n in (a,b)]
+    if any(h is None for h in headers):
+        raise errors.not_found("BOM 快照不存在，请从快照列表中选择")
+    if headers[0]['parent_design_object_id'] != headers[1]['parent_design_object_id']:
+        raise errors.bad_request("只能比较同一父件号的 BOM 快照")
+    def lines(header):
+        rows = fetch_all(conn, """SELECT item_number,child_object_code,quantity,unit_code,
+            reference_designator,effectivity,notes FROM bom_snapshot_line
+            WHERE bom_snapshot_id=%s ORDER BY sort_order,item_number""", (header['id'],))
+        return {(r['item_number'],r['child_object_code']):r for r in rows}
+    old,new = map(lines,headers)
+    added=[new[k] for k in sorted(new.keys()-old.keys())]
+    removed=[old[k] for k in sorted(old.keys()-new.keys())]
+    changed=[{'item_number':k[0],'child_object_code':k[1],'from':old[k],'to':new[k]}
+             for k in sorted(old.keys() & new.keys()) if old[k] != new[k]]
+    return {'from':a,'to':b,'added':added,'removed':removed,'changed':changed,'identical':not(added or removed or changed)}
+
+
+@router.get('/bom/{object_code}/snapshots')
+def snapshots(object_code: str, conn: Conn, user: CurrentUser):
+    oid = _object_id(conn, object_code)
+    return {
+        'bom': fetch_all(conn, 'SELECT snapshot_number,line_count,created_at FROM bom_snapshot WHERE parent_design_object_id=%s ORDER BY created_at DESC', (oid,)),
+        'resolved': fetch_all(conn, 'SELECT resolved_snapshot_number,line_count,context_attributes,created_at FROM resolved_bom_snapshot WHERE parent_design_object_id=%s ORDER BY created_at DESC', (oid,)),
+    }
 
 
 # ---------------- 导入 ----------------
