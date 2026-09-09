@@ -1,5 +1,5 @@
 import { api } from './api.js';
-import { el, field, input, select, panel, table, toast, empty } from './ui.js';
+import { el, field, input, select, panel, table, tablePanel, toast, empty } from './ui.js';
 import { editor } from './manage.js';
 import { recordView } from './bom-tools.js';
 
