@@ -269,9 +269,11 @@ FROM (SELECT id,row_number() OVER(ORDER BY file_number)n FROM design_file WHERE 
 CROSS JOIN generate_series(0,1)r CROSS JOIN demo_actor a
 ON CONFLICT(design_file_id,revision_number) DO NOTHING;
 
-UPDATE design_file f SET current_released_revision_id=x.id
-FROM LATERAL(SELECT fr.id FROM file_revision fr WHERE fr.design_file_id=f.id AND fr.status='RELEASED' ORDER BY revision_sequence DESC LIMIT 1)x
-WHERE f.file_number LIKE 'DEMO50K-F-%' AND f.current_released_revision_id IS NULL;
+UPDATE design_file f SET current_released_revision_id=(
+ SELECT fr.id FROM file_revision fr WHERE fr.design_file_id=f.id AND fr.status='RELEASED'
+ ORDER BY revision_sequence DESC LIMIT 1)
+WHERE f.file_number LIKE 'DEMO50K-F-%' AND f.current_released_revision_id IS NULL
+  AND EXISTS(SELECT 1 FROM file_revision fr WHERE fr.design_file_id=f.id AND fr.status='RELEASED');
 
 INSERT INTO revision_attachment(file_revision_id,attachment_role,filename,storage_key,mime_type,size_bytes,
  sha256,integrity_status,search_text,uploaded_by)
