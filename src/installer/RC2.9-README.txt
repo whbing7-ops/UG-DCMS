@@ -1,0 +1,10 @@
+UG-DCMS 1.0.0-rc2.11
+
+本版修复：
+1. Inno Setup 6.7.3 [Code] 段编译错误：LoadStringFromFile 的第二参数必须是 AnsiString；改用 LoadStringsFromFile(TArrayOfString)，兼容 UTF-8 日志。
+2. 错误消息换行改用 Pascal #13#10，不再使用字面量 \n。
+3. 构建器输出版本号统一到 rc2.11。
+4. 一键安装运行时固定 Python 3.12，与构建时离线 wheelhouse ABI 保持一致。
+5. 安装日志仍固定保存在 C:\ProgramData\UG-DCMS\logs\install.log。
+
+本包已执行：Python 源码编译检查、前端 JavaScript 语法检查、SQL 迁移静态顺序检查、Inno Setup 6.7.3 API 签名核对、安装器版本一致性检查。

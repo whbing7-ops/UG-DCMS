@@ -1,0 +1,104 @@
+name: UG-DCMS rc2.11 source integration and installer
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'src/**'
+      - 'ci/full-functional-smoke.py'
+      - '.github/workflows/windows-installer-ci-v5.yml'
+
+concurrency:
+  group: ug-dcms-rc211
+  cancel-in-progress: true
+
+jobs:
+  integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: dcms
+          POSTGRES_PASSWORD: dcms-ci-password
+          POSTGRES_DB: dcms
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U dcms -d dcms"
+          --health-interval 5s --health-timeout 5s --health-retries 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install backend
+        run: pip install -r src/backend/requirements.txt
+      - name: Apply all migrations
+        env:
+          PGPASSWORD: dcms-ci-password
+        run: |
+          psql -X -v ON_ERROR_STOP=1 -h 127.0.0.1 -U dcms -d dcms -c "CREATE TABLE schema_migration (version text PRIMARY KEY, filename text NOT NULL, sha256 text NOT NULL, applied_at timestamptz NOT NULL DEFAULT now(), applied_by text NOT NULL DEFAULT current_user, duration_ms integer)"
+          for f in src/db/migrations/*.sql; do
+            psql -X -1 -v ON_ERROR_STOP=1 -h 127.0.0.1 -U dcms -d dcms -f "$f"
+            v="$(basename "$f" .sql)"
+            sha="$(sha256sum "$f" | cut -d' ' -f1)"
+            psql -X -v ON_ERROR_STOP=1 -h 127.0.0.1 -U dcms -d dcms -c "INSERT INTO schema_migration(version,filename,sha256) VALUES ('$v','$(basename "$f")','$sha')"
+          done
+          test "$(psql -XAt -h 127.0.0.1 -U dcms -d dcms -c 'select count(*) from schema_migration')" = 14
+      - name: Start application and run role-separated functional smoke
+        env:
+          DCMS_PG_HOST: 127.0.0.1
+          DCMS_PG_USER: dcms
+          DCMS_PG_PASSWORD: dcms-ci-password
+          DCMS_PG_DATABASE: dcms
+          DCMS_STORAGE_ROOT: ${{ runner.temp }}/dcms-files
+          DCMS_BACKUP_ROOT: ${{ runner.temp }}/dcms-backups
+          DCMS_FRONTEND_ROOT: ${{ github.workspace }}/src/frontend
+          DCMS_BCRYPT_ROUNDS: 4
+        run: |
+          python -m uvicorn app.main:app --app-dir src/backend --host 127.0.0.1 --port 8080 > /tmp/ug-dcms.log 2>&1 &
+          for i in {1..30}; do curl -fsS http://127.0.0.1:8080/api/v1/health && break; sleep 1; done
+          curl -fsS http://127.0.0.1:8080/api/v1/health
+          python ci/full-functional-smoke.py
+      - name: Upload application log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-log
+          path: /tmp/ug-dcms.log
+
+  installer:
+    needs: integration
+    runs-on: windows-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          architecture: x64
+      - name: Install Inno Setup
+        shell: powershell
+        run: |
+          choco install innosetup -y --no-progress
+          'C:\Program Files (x86)\Inno Setup 6' | Out-File $env:GITHUB_PATH -Append
+      - name: Verify and build canonical source
+        shell: powershell
+        run: |
+          python src\installer\verify_installer_source.py
+          powershell -NoProfile -ExecutionPolicy Bypass -File src\installer\Build-Setup.ps1
+          $setup='src\installer\output\UG-DCMS-Setup-1.0.0-rc2.11.exe'
+          if(-not(Test-Path $setup)){ throw 'installer missing' }
+          if((Get-Item $setup).Length -lt 1000000){ throw 'installer unexpectedly small' }
+          Get-FileHash $setup -Algorithm SHA256
+      - name: Package installer and source
+        shell: powershell
+        run: |
+          Compress-Archive -Path src\installer\output\UG-DCMS-Setup-1.0.0-rc2.11.exe -DestinationPath svgUG-DCMS-20260909-rc2.11.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: svgUG-DCMS-20260909-rc2.11
+          path: |
+            src/installer/output/UG-DCMS-Setup-1.0.0-rc2.11.exe
+            svgUG-DCMS-20260909-rc2.11.zip
