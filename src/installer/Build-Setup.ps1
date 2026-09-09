@@ -11,7 +11,7 @@ New-Item -ItemType Directory -Force -Path $pre | Out-Null
 
 
 function Validate-InstallerSource {
-  $expected = '1.0.0-rc2.15'
+  $expected = '1.0.0-rc2.16'
   $issPath = Join-Path $PSScriptRoot 'UG-DCMS-Setup.iss'
   $cmdPath = Join-Path $PSScriptRoot 'BUILD-SETUP.cmd'
   $provisionPath = Join-Path $root 'windows\install-oneclick.ps1'
@@ -31,11 +31,11 @@ function Validate-InstallerSource {
   if($provisionText -match 'if\(Test-Path \"\$InstallDir\\venv\"\)\{ Remove-Item'){ throw 'Unsafe pre-install deletion of the legacy runtime detected.' }
   if($provisionText -notmatch 'CURRENT-RUNTIME\.txt'){ throw 'Versioned runtime pointer logic is missing.' }
   if($provisionText -notmatch 'CURRENT-RELEASE\.txt'){ throw 'Versioned release pointer logic is missing.' }
-  if($provisionText -notmatch 'app-1\.0\.0-rc2\.15-'){ throw 'Versioned release naming is missing.' }
+  if($provisionText -notmatch 'app-1\.0\.0-rc2\.16-'){ throw 'Versioned release naming is missing.' }
   if($issText -match 'DestDir: "\{app\}\\backend"'){ throw 'Unsafe in-place backend deployment detected. Payload must be staged.' }
   if($issText -notmatch 'DestDir: "\{app\}\\payload\\backend"'){ throw 'Expected staged backend payload is missing.' }
   if($provisionText -notmatch '已恢复上一版本 Release/Runtime 指针'){ throw 'Upgrade rollback pointer logic is missing.' }
-  if($provisionText -notmatch 'venv-1\.0\.0-rc2\.15-'){ throw 'Versioned runtime naming is missing.' }
+  if($provisionText -notmatch 'venv-1\.0\.0-rc2\.16-'){ throw 'Versioned runtime naming is missing.' }
   if($provisionText -notmatch 'verify-runtime\.py' -or $provisionText -notmatch 'RUNTIME-VERIFIED\.txt'){
     throw 'New runtime import self-check is missing.'
   }
@@ -44,6 +44,9 @@ function Validate-InstallerSource {
   if($provisionText -notmatch 'HTTP 健康检查通过'){ throw 'Strict HTTP health check is missing.' }
   if($provisionText -notmatch '/api/v1/health' -or $provisionText -match '/api/v1/system/health'){
     throw 'Installer health endpoint must match the backend route /api/v1/health.'
+  }
+  if($provisionText -notmatch "'\*S-1-5-32-544:\(F\)'" -or $provisionText -notmatch 'attrib\.exe -R'){
+    throw 'Upgrade-safe .env ACL repair is missing.'
   }
   $migrations = @(Get-ChildItem (Join-Path $root 'db\migrations\*.sql') -File | Sort-Object Name)
   if($migrations.Count -ne 15){ throw "Expected 15 DB migrations, found $($migrations.Count)." }
@@ -196,5 +199,5 @@ Push-Location $PSScriptRoot
 try {
   & $iscc 'UG-DCMS-Setup.iss'
   if($LASTEXITCODE -ne 0){ throw "ISCC compile failed: $LASTEXITCODE" }
-  Write-Host "Setup.exe created: installer\output\UG-DCMS-Setup-1.0.0-rc2.15.exe" -ForegroundColor Green
+  Write-Host "Setup.exe created: installer\output\UG-DCMS-Setup-1.0.0-rc2.16.exe" -ForegroundColor Green
 } finally { Pop-Location }

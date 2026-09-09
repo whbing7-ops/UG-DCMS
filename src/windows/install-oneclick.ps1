@@ -214,7 +214,7 @@ if(Test-Path $currentReleaseFile){
   if($previousRelease -and -not [IO.Path]::IsPathRooted($previousRelease)){ $previousRelease = Join-Path $releaseRoot $previousRelease }
   if($previousRelease -and -not (Test-Path $previousRelease)){ $previousRelease = $null }
 }
-$releaseName = 'app-1.0.0-rc2.15-' + (Get-Date -Format 'yyyyMMddHHmmss')
+$releaseName = 'app-1.0.0-rc2.16-' + (Get-Date -Format 'yyyyMMddHHmmss')
 $newRelease = Join-Path $releaseRoot $releaseName
 if(Test-Path $newRelease){ Fail "目标 Release 已存在：$newRelease" }
 New-Item -ItemType Directory -Force -Path $newRelease | Out-Null
@@ -242,7 +242,7 @@ if(Test-Path $currentRuntimeFile){
   }
   if($previousRuntime -and -not (Test-Path $previousRuntime)){ $previousRuntime = $null }
 }
-$runtimeName = 'venv-1.0.0-rc2.15-' + (Get-Date -Format 'yyyyMMddHHmmss')
+$runtimeName = 'venv-1.0.0-rc2.16-' + (Get-Date -Format 'yyyyMMddHHmmss')
 $newRuntime = Join-Path $runtimeRoot $runtimeName
 if(Test-Path $newRuntime){ Fail "目标 Runtime 已存在：$newRuntime" }
 Invoke-ProcessWithTimeout -FilePath $python -ArgumentList @('-m','venv',$newRuntime) -TimeoutSeconds 180 -Step '创建 Python 虚拟环境'
@@ -384,9 +384,17 @@ DCMS_FRONTEND_ROOT=$newRelease\frontend
 DCMS_ENVIRONMENT=PROD
 "@
 $envPath="$InstallDir\.env"
-if(Test-Path $envPath){ $previousEnvContent = Get-Content $envPath -Raw -ErrorAction SilentlyContinue }
+if(Test-Path $envPath){
+  # rc2.15 and earlier restricted Administrators to read-only access. Restore
+  # upgrade-safe permissions before reading/replacing the protected config.
+  & attrib.exe -R $envPath 2>$null
+  & icacls $envPath /grant:r '*S-1-5-18:(R)' '*S-1-5-32-544:(F)' | Out-Null
+  if($LASTEXITCODE -ne 0){ Fail "无法修复现有配置文件权限：$envPath" }
+  $previousEnvContent = Get-Content $envPath -Raw -ErrorAction SilentlyContinue
+}
 Set-Content -Path $envPath -Value $envText -Encoding UTF8
-& icacls $envPath /inheritance:r /grant:r '*S-1-5-18:(R)' '*S-1-5-32-544:(R)' | Out-Null
+& icacls $envPath /inheritance:r /grant:r '*S-1-5-18:(R)' '*S-1-5-32-544:(F)' | Out-Null
+if($LASTEXITCODE -ne 0){ Fail "无法保护应用配置文件：$envPath" }
 
 # 启动脚本 + WinSW 服务配置
 # 只有新 Runtime 已安装、依赖验证和数据库迁移全部成功后，才原子切换 CURRENT-RUNTIME。
@@ -508,7 +516,7 @@ if(Test-Path $legacyVenv){
 # 安装状态
 $status=@"
 InstalledAt=$(Get-Date -Format o)
-Version=1.0.0-rc2.15
+Version=1.0.0-rc2.16
 AppPort=$AppPort
 DatabasePort=$PgPort
 AppService=UGDCMS-App
