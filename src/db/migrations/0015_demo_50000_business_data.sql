@@ -46,12 +46,12 @@ ON CONFLICT DO NOTHING;
 -- 本数据集的稳定创建人/申请人/审批人。
 CREATE TEMP TABLE demo_actor AS
 SELECT
- max(id) FILTER(WHERE username='demo_engineer1') AS engineer1,
- max(id) FILTER(WHERE username='demo_engineer2') AS engineer2,
- max(id) FILTER(WHERE username='demo_config') AS config_mgr,
- max(id) FILTER(WHERE username='demo_project') AS project_mgr,
- max(id) FILTER(WHERE username='demo_approver1') AS approver1,
- max(id) FILTER(WHERE username='demo_approver2') AS approver2
+ max(id::text) FILTER(WHERE username='demo_engineer1')::uuid AS engineer1,
+ max(id::text) FILTER(WHERE username='demo_engineer2')::uuid AS engineer2,
+ max(id::text) FILTER(WHERE username='demo_config')::uuid AS config_mgr,
+ max(id::text) FILTER(WHERE username='demo_project')::uuid AS project_mgr,
+ max(id::text) FILTER(WHERE username='demo_approver1')::uuid AS approver1,
+ max(id::text) FILTER(WHERE username='demo_approver2')::uuid AS approver2
 FROM app_user;
 
 -- ---------------------------------------------------------------------
