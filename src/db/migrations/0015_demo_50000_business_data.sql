@@ -63,6 +63,7 @@ WITH dict AS (
         row_number() OVER(ORDER BY pc.sort_order,pc.code) AS rn,
         count(*) OVER() AS cnt
  FROM physical_class pc WHERE pc.status='ACTIVE' AND pc.primary_class_code IN('T1','T2','T3')
+   AND pc.code NOT LIKE '%-99'
 ), core AS (
  SELECT n.id,n.primary_class_code,row_number() OVER(PARTITION BY n.primary_class_code ORDER BY n.code) rn,
         count(*) OVER(PARTITION BY n.primary_class_code) cnt
