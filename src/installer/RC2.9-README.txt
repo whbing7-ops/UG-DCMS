@@ -1,11 +1,13 @@
-UG-DCMS 1.0.0-rc2.12
+UG-DCMS 1.0.0-rc2.13
 
 本版修复：
 1. Inno Setup 6.7.3 [Code] 段编译错误：LoadStringFromFile 的第二参数必须是 AnsiString；改用 LoadStringsFromFile(TArrayOfString)，兼容 UTF-8 日志。
 2. 错误消息换行改用 Pascal #13#10，不再使用字面量 \n。
-3. 构建器输出版本号统一到 rc2.12。
+3. 构建器输出版本号统一到 rc2.13。
 4. 兼容部分 Windows 10 / Windows PowerShell 5.1 不返回子进程 ExitCode 的行为；
    以虚拟环境、pip、模块导入、迁移计数和 HTTP 健康检查的实际结果作为最终判据。
+5. 后端导入校验改为独立 Python 脚本，避免 Start-Process 拆分 python -c。
+6. psql 参数变量由保留自动变量 Args 改为 PsqlArgs，防止进入交互终端。
 4. 一键安装运行时固定 Python 3.12，与构建时离线 wheelhouse ABI 保持一致。
 5. 安装日志仍固定保存在 C:\ProgramData\UG-DCMS\logs\install.log。
 

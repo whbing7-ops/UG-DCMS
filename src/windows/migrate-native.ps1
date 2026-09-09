@@ -17,13 +17,13 @@ $env:PGDATABASE=$PgDatabase
 $env:PGCLIENTENCODING='UTF8'
 
 function Invoke-Psql {
-  param([string[]]$Args,[string]$Step='psql')
-  & $psql @Args
+  param([string[]]$PsqlArgs,[string]$Step='psql')
+  & $psql @PsqlArgs
   $code=$LASTEXITCODE
   if($code -ne 0){ throw "$Step failed with exit code $code" }
 }
 
-Invoke-Psql @('-X','-v','ON_ERROR_STOP=1','-q','-c',"CREATE TABLE IF NOT EXISTS schema_migration (version text PRIMARY KEY, filename text NOT NULL, sha256 text NOT NULL, applied_at timestamptz NOT NULL DEFAULT now(), applied_by text NOT NULL DEFAULT current_user, duration_ms integer);") 'create schema_migration'
+Invoke-Psql -PsqlArgs @('-X','-v','ON_ERROR_STOP=1','-q','-c',"CREATE TABLE IF NOT EXISTS schema_migration (version text PRIMARY KEY, filename text NOT NULL, sha256 text NOT NULL, applied_at timestamptz NOT NULL DEFAULT now(), applied_by text NOT NULL DEFAULT current_user, duration_ms integer);") -Step 'create schema_migration'
 
 Get-ChildItem "$InstallDir\db\migrations\*.sql" | Sort-Object Name | ForEach-Object {
   $v=$_.BaseName
@@ -41,7 +41,7 @@ Get-ChildItem "$InstallDir\db\migrations\*.sql" | Sort-Object Name | ForEach-Obj
   if($code -ne 0){ throw "Migration $v failed with exit code $code" }
 
   $insert="INSERT INTO schema_migration(version,filename,sha256,duration_ms) VALUES ('$v','$($_.Name)','$hash',$($sw.ElapsedMilliseconds));"
-  Invoke-Psql @('-X','-v','ON_ERROR_STOP=1','-q','-c',$insert) "record migration $v"
+  Invoke-Psql -PsqlArgs @('-X','-v','ON_ERROR_STOP=1','-q','-c',$insert) -Step "record migration $v"
 }
 
 Write-Host 'All database migrations completed successfully.' -ForegroundColor Green

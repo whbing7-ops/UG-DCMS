@@ -28,8 +28,8 @@ build = (ROOT/'installer'/'Build-Setup.ps1').read_text(encoding='utf-8-sig')
 checks = {
     'versioned runtime pointer': 'CURRENT-RUNTIME.txt' in ps and 'CURRENT-RUNTIME.txt' in start,
     'versioned release pointer': 'CURRENT-RELEASE.txt' in ps and 'CURRENT-RELEASE.txt' in start,
-    'versioned runtime name': 'venv-1.0.0-rc2.12-' in ps,
-    'versioned release name': 'app-1.0.0-rc2.12-' in ps,
+    'versioned runtime name': 'venv-1.0.0-rc2.13-' in ps,
+    'versioned release name': 'app-1.0.0-rc2.13-' in ps,
     'Inno payload staging': 'DestDir: "{app}\\payload\\backend"' in iss,
     'no Inno in-place backend': 'DestDir: "{app}\\backend"' not in iss,
     'migration runs from new release': '-InstallDir $newRelease' in ps,
@@ -40,7 +40,9 @@ checks = {
     'strict HTTP health': 'HTTP 健康检查通过' in ps,
     'upgrade pointer rollback': '已恢复上一版本 Release/Runtime 指针' in ps,
     'legacy start script rollback': '$previousStartNativeContent' in ps,
-    'runtime import checks app': 'import app.main' in ps,
+    'runtime import checks app': 'verify-runtime.py' in ps and 'RUNTIME-VERIFIED.txt' in ps,
+    'psql args are not automatic variable': ('param([string[]]$PsqlArgs' in migrate and '@PsqlArgs' in migrate
+                                               and migrate.count('Invoke-Psql -PsqlArgs') == 2),
     'Windows wheel target cp312': '--python-version 3.12' in build and '--platform win_amd64' in build and '--abi cp312' in build,
     'offline pip bootstrap': "'-m','ensurepip','--upgrade'" in ps,
     'wheel SHA256 manifest': 'SHA256SUMS.txt' in ps and 'SHA256SUMS.txt' in build and 'Get-FileHash' in ps,

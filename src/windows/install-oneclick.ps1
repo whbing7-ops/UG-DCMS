@@ -214,7 +214,7 @@ if(Test-Path $currentReleaseFile){
   if($previousRelease -and -not [IO.Path]::IsPathRooted($previousRelease)){ $previousRelease = Join-Path $releaseRoot $previousRelease }
   if($previousRelease -and -not (Test-Path $previousRelease)){ $previousRelease = $null }
 }
-$releaseName = 'app-1.0.0-rc2.12-' + (Get-Date -Format 'yyyyMMddHHmmss')
+$releaseName = 'app-1.0.0-rc2.13-' + (Get-Date -Format 'yyyyMMddHHmmss')
 $newRelease = Join-Path $releaseRoot $releaseName
 if(Test-Path $newRelease){ Fail "目标 Release 已存在：$newRelease" }
 New-Item -ItemType Directory -Force -Path $newRelease | Out-Null
@@ -242,7 +242,7 @@ if(Test-Path $currentRuntimeFile){
   }
   if($previousRuntime -and -not (Test-Path $previousRuntime)){ $previousRuntime = $null }
 }
-$runtimeName = 'venv-1.0.0-rc2.12-' + (Get-Date -Format 'yyyyMMddHHmmss')
+$runtimeName = 'venv-1.0.0-rc2.13-' + (Get-Date -Format 'yyyyMMddHHmmss')
 $newRuntime = Join-Path $runtimeRoot $runtimeName
 if(Test-Path $newRuntime){ Fail "目标 Runtime 已存在：$newRuntime" }
 Invoke-ProcessWithTimeout -FilePath $python -ArgumentList @('-m','venv',$newRuntime) -TimeoutSeconds 180 -Step '创建 Python 虚拟环境'
@@ -271,7 +271,12 @@ if(Test-Path $wheelhouse){
   Invoke-ProcessWithTimeout -FilePath $venvPy -ArgumentList @('-m','pip','install','--disable-pip-version-check','--prefer-binary','--only-binary=:all:','--retries','2','--timeout','30','-r',"$newRelease\backend\requirements.txt") -TimeoutSeconds 1200 -Step '安装 UG-DCMS Python 依赖（在线）'
 }
 # 在切换服务前先验证新 Runtime 能实际导入应用关键依赖。
-Invoke-ProcessWithTimeout -FilePath $venvPy -ArgumentList @('-c',"import sys; sys.path.insert(0, r'$($newRelease.Replace("'","''"))\backend'); import fastapi,uvicorn,psycopg,bcrypt,pydantic,openpyxl; import app.main; print('UG-DCMS runtime import check OK')") -TimeoutSeconds 120 -Step '验证新 Python Runtime 和后端应用导入'
+# 不使用 python -c：Windows PowerShell 5.1 的 Start-Process 会错误拆分多语句参数。
+$runtimeVerifyScript = Join-Path $InstallDir 'windows\verify-runtime.py'
+$runtimeVerifyMarker = Join-Path $newRuntime 'RUNTIME-VERIFIED.txt'
+Remove-Item $runtimeVerifyMarker -Force -ErrorAction SilentlyContinue
+Invoke-ProcessWithTimeout -FilePath $venvPy -ArgumentList @($runtimeVerifyScript,(Join-Path $newRelease 'backend'),$runtimeVerifyMarker) -TimeoutSeconds 120 -Step '验证新 Python Runtime 和后端应用导入'
+if(-not (Test-Path $runtimeVerifyMarker)){ Fail 'Python Runtime 导入校验未生成成功标记；依赖或后端应用导入失败' }
 
 
 # 数据库专用集群，不使用/覆盖现有 PostgreSQL 集群。
@@ -503,7 +508,7 @@ if(Test-Path $legacyVenv){
 # 安装状态
 $status=@"
 InstalledAt=$(Get-Date -Format o)
-Version=1.0.0-rc2.12
+Version=1.0.0-rc2.13
 AppPort=$AppPort
 DatabasePort=$PgPort
 AppService=UGDCMS-App
