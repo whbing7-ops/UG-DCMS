@@ -362,7 +362,7 @@ JOIN (SELECT id,row_number() OVER(ORDER BY snapshot_number)n FROM bom_snapshot W
 ON CONFLICT DO NOTHING;
 
 INSERT INTO baseline_item(design_baseline_id,item_type,file_revision_id,item_role,sequence,notes)
-SELECT b.id,'FILE_REVISION',fr.id,'SUPPORTING_DEFINITION',20,'固定主设计定义的已发布版次'
+SELECT b.id,'FILE_REVISION',fr.id,'PRIMARY_DEFINITION',20,'固定主设计定义的已发布版次'
 FROM design_baseline b
 JOIN part_number pn ON pn.id=b.part_number_id
 JOIN design_definition_link ddl ON ddl.design_object_id=pn.design_object_id
