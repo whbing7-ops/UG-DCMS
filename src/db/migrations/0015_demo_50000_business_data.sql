@@ -261,7 +261,7 @@ INSERT INTO file_revision(design_file_id,revision_number,revision_sequence,statu
  change_summary,prepared_by,checked_by,approved_by,released_at,created_by)
 SELECT f.id,lpad(r::text,2,'0'),r+1,
  CASE WHEN r=0 AND f.n%5=0 THEN 'WORKING' WHEN r=1 AND f.n%5=1 THEN 'IN_REVIEW'
-      WHEN r=0 THEN 'SUPERSEDED' ELSE 'RELEASED' END,current_date-(f.n%500)+r,
+      WHEN r=0 THEN 'SUPERSEDED' ELSE 'RELEASED' END,current_date-(f.n%500)::int+r,
  CASE WHEN r=0 THEN '初始设计与接口定义' ELSE '项目适用性、PSU/IMA接口和验证证据更新' END,
  a.engineer1,a.engineer2,CASE WHEN NOT(r=0 AND f.n%5=0) AND NOT(r=1 AND f.n%5=1) THEN a.approver1 END,
  CASE WHEN NOT(r=0 AND f.n%5=0) AND NOT(r=1 AND f.n%5=1) THEN now()-(f.n%400)*interval '1 day' END,a.engineer1
