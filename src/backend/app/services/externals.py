@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 
 import psycopg
 
@@ -328,11 +329,11 @@ def submit_project_control(conn: psycopg.Connection, control_id: str,
     request_number=approvals.next_request_number(conn)
     req=fetch_one(conn,"""INSERT INTO approval_request(request_number,request_type,
       object_type,object_id,object_code,title,requester_id,payload)
-      VALUES(%s,'EXTERNAL_PROJECT_APPROVAL','EXTERNAL_PROJECT_CONTROL',%s,%s,%s,%s,
-      jsonb_build_object('project_code',%s,'applicability',%s,'evaluation_basis',%s))
+      VALUES(%s,'EXTERNAL_PROJECT_APPROVAL','EXTERNAL_PROJECT_CONTROL',%s,%s,%s,%s,%s::jsonb)
       RETURNING id,request_number""",(request_number,control_id,c["object_code"],
       f"外部件项目准入 {c['project_code']} {c['object_code']}",actor["user_id"],
-      c["project_code"],c["applicability"],c["evaluation_basis"]))
+      json.dumps({"project_code":c["project_code"],"applicability":c["applicability"],
+                  "evaluation_basis":c["evaluation_basis"]},ensure_ascii=False)))
     execute(conn,"""INSERT INTO approval_step(approval_request_id,step_order,step_name,
       required_role_code,assignee_user_id,is_final) VALUES(%s,1,'项目准入批准','APPROVER',%s,true)""",
       (req["id"],approver["id"]))
