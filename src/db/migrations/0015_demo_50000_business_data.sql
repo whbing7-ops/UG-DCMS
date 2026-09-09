@@ -357,10 +357,16 @@ JOIN (SELECT id,row_number() OVER(ORDER BY snapshot_number)n FROM bom_snapshot W
 ON CONFLICT DO NOTHING;
 
 INSERT INTO baseline_item(design_baseline_id,item_type,file_revision_id,item_role,sequence,notes)
-SELECT b.id,'FILE_REVISION',fr.id,'SUPPORTING_DEFINITION',20,'固定已批准文件版次'
-FROM (SELECT id,row_number() OVER(ORDER BY baseline_code)n FROM design_baseline WHERE baseline_code LIKE 'BL-DEMO50K-%')b
-JOIN (SELECT fr.id,row_number() OVER(ORDER BY f.file_number)n FROM file_revision fr JOIN design_file f ON f.id=fr.design_file_id
-      WHERE f.file_number LIKE 'DEMO50K-F-%' AND fr.status='RELEASED' ORDER BY f.file_number LIMIT 500)fr USING(n)
+SELECT b.id,'FILE_REVISION',fr.id,'SUPPORTING_DEFINITION',20,'固定主设计定义的已发布版次'
+FROM design_baseline b
+JOIN part_number pn ON pn.id=b.part_number_id
+JOIN design_definition_link ddl ON ddl.design_object_id=pn.design_object_id
+ AND ddl.relation_type='PRIMARY_DEFINITION' AND ddl.is_active
+JOIN LATERAL(
+ SELECT x.id FROM file_revision x WHERE x.design_file_id=ddl.design_file_id
+   AND x.status IN('RELEASED','SUPERSEDED') ORDER BY x.revision_sequence DESC LIMIT 1
+)fr ON true
+WHERE b.baseline_code LIKE 'BL-DEMO50K-%'
 ON CONFLICT DO NOTHING;
 
 -- 明细必须在草稿状态写入；之后经数据库发布校验转为 IN_REVIEW/RELEASED。

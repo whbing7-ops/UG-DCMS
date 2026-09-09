@@ -38,6 +38,7 @@ jobs:
         env:
           PGPASSWORD: dcms-ci-password
         run: |
+          exec > >(tee /tmp/ug-dcms-migrations.log) 2>&1
           psql -X -v ON_ERROR_STOP=1 -h 127.0.0.1 -U dcms -d dcms -c "CREATE TABLE schema_migration (version text PRIMARY KEY, filename text NOT NULL, sha256 text NOT NULL, applied_at timestamptz NOT NULL DEFAULT now(), applied_by text NOT NULL DEFAULT current_user, duration_ms integer)"
           for f in src/db/migrations/*.sql; do
             psql -X -1 -v ON_ERROR_STOP=1 -h 127.0.0.1 -U dcms -d dcms -f "$f"
@@ -67,6 +68,12 @@ jobs:
         with:
           name: integration-log
           path: /tmp/ug-dcms.log
+      - name: Upload migration log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: migration-log
+          path: /tmp/ug-dcms-migrations.log
 
   installer:
     needs: integration
