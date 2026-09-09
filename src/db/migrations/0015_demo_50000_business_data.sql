@@ -86,14 +86,15 @@ WITH dict AS (
 )
 INSERT INTO basic_drawing_family(
  basic_drawing_number,primary_class_code,physical_class_id,object_level_code,
- family_name_cn,family_name_en,core_term_id,family_definition,allowed_variation,
+ family_name_cn,family_name_en,core_term_id,primary_function_id,family_definition,allowed_variation,
  excluded_variation,status,similar_check_at,similar_check_result,reuse_decision,
  new_family_reason,approved_by,approved_at,created_by)
 SELECT 'DEMO50K-BD-'||lpad(p.g::text,4,'0'),p.pclass,pc.id,
  CASE WHEN p.g%25=4 THEN 'END_ITEM' WHEN p.g%25 IN(1,2,3) THEN 'EQUIPMENT'
       WHEN p.g%5=0 THEN 'MODULE' ELSE 'ASSEMBLY' END,
  p.product_name||'-'||lpad(p.g::text,4,'0'),'Demo '||p.product_name||' '||p.g,
- c.id,'演示数据：'||p.product_name||'的稳定设计族定义','允许接口、安装和性能范围内的受控 Dash 差异',
+ c.id,(SELECT id FROM function_item WHERE status='ACTIVE' ORDER BY code OFFSET ((p.g-1)%(SELECT count(*) FROM function_item WHERE status='ACTIVE')) LIMIT 1),
+ '演示数据：'||p.product_name||'的稳定设计族定义','允许接口、安装和性能范围内的受控 Dash 差异',
  '不允许改变产品级功能边界或绕过变更审批','ACTIVE',now(),
  jsonb_build_object('checked',true,'dataset','DEMO50K'),'NEW_FAMILY','综合业务验收数据集',
  a.approver1,now(),a.engineer1
