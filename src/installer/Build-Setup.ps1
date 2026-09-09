@@ -36,7 +36,9 @@ function Validate-InstallerSource {
   if($issText -notmatch 'DestDir: "\{app\}\\payload\\backend"'){ throw 'Expected staged backend payload is missing.' }
   if($provisionText -notmatch '已恢复上一版本 Release/Runtime 指针'){ throw 'Upgrade rollback pointer logic is missing.' }
   if($provisionText -notmatch 'venv-1\.0\.0-rc2\.13-'){ throw 'Versioned runtime naming is missing.' }
-  if($provisionText -notmatch 'runtime import check OK'){ throw 'New runtime import self-check is missing.' }
+  if($provisionText -notmatch 'verify-runtime\.py' -or $provisionText -notmatch 'RUNTIME-VERIFIED\.txt'){
+    throw 'New runtime import self-check is missing.'
+  }
   if($provisionText -notmatch '数据库迁移完整性检查通过：15/15'){ throw 'Database migration completeness check is missing.' }
   if($provisionText -match '兼容 health 路径差异'){ throw 'Weak TCP-only health fallback must not be present.' }
   if($provisionText -notmatch 'HTTP 健康检查通过'){ throw 'Strict HTTP health check is missing.' }

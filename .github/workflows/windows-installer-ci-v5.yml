@@ -8,9 +8,6 @@ on:
       - 'ci/full-functional-smoke.py'
       - '.github/workflows/windows-installer-ci-v5.yml'
 
-permissions:
-  contents: write
-
 concurrency:
   group: ug-dcms-rc213
   cancel-in-progress: true
@@ -112,16 +109,3 @@ jobs:
           path: |
             src/installer/output/UG-DCMS-Setup-1.0.0-rc2.13.exe
             svgUG-DCMS-20260909-rc2.13.zip
-      - name: Publish direct-download GitHub Release
-        shell: powershell
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh release delete rc2.13 --cleanup-tag --yes 2>$null
-          gh release create rc2.13 `
-            svgUG-DCMS-20260909-rc2.13.zip `
-            src\installer\output\UG-DCMS-Setup-1.0.0-rc2.13.exe `
-            --target $env:GITHUB_SHA `
-            --title "UG-DCMS 1.0.0-rc2.13" `
-            --notes "修复 Windows PowerShell 5.1 不返回子进程退出码导致的虚拟环境误报；包含 50,000 个综合业务设计对象及 PSU、IMA、复杂产品和 10 个业务账户。" `
-            --latest
