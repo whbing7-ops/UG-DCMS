@@ -1,6 +1,8 @@
 -- UG-DCMS 0013 — 外部件分类、项目级准入、指定审批人与附件检索
 
-CREATE TABLE external_part_class (
+-- Early Windows installers could apply this migration without recording it.
+-- Keep every operation safe to repeat so upgrades preserve customer data.
+CREATE TABLE IF NOT EXISTS external_part_class (
     code text PRIMARY KEY,
     name_cn text NOT NULL UNIQUE,
     definition text NOT NULL,
@@ -51,11 +53,20 @@ ON CONFLICT (code) DO NOTHING;
 ALTER TABLE external_part ADD COLUMN IF NOT EXISTS external_class_code text;
 UPDATE external_part SET external_class_code='E99' WHERE external_class_code IS NULL;
 ALTER TABLE external_part ALTER COLUMN external_class_code SET NOT NULL;
-ALTER TABLE external_part ADD CONSTRAINT fk_external_part_class
-  FOREIGN KEY (external_class_code) REFERENCES external_part_class(code);
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conrelid = 'external_part'::regclass
+      AND conname = 'fk_external_part_class'
+  ) THEN
+    ALTER TABLE external_part ADD CONSTRAINT fk_external_part_class
+      FOREIGN KEY (external_class_code) REFERENCES external_part_class(code);
+  END IF;
+END $$;
 CREATE INDEX IF NOT EXISTS idx_external_part_class ON external_part(external_class_code);
 
-CREATE TABLE external_part_project_control (
+CREATE TABLE IF NOT EXISTS external_part_project_control (
     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     external_part_id uuid NOT NULL REFERENCES external_part(id),
     project_code text NOT NULL,
@@ -73,7 +84,8 @@ CREATE TABLE external_part_project_control (
     CONSTRAINT ck_external_project_approved CHECK
       (status <> 'APPROVED' OR (approved_by IS NOT NULL AND approved_at IS NOT NULL))
 );
-CREATE INDEX idx_external_project_status ON external_part_project_control(project_code,status);
+CREATE INDEX IF NOT EXISTS idx_external_project_status ON external_part_project_control(project_code,status);
+DROP TRIGGER IF EXISTS trg_external_project_touch ON external_part_project_control;
 CREATE TRIGGER trg_external_project_touch BEFORE UPDATE ON external_part_project_control
   FOR EACH ROW EXECUTE FUNCTION dcms_touch_updated_at();
 

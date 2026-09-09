@@ -30,7 +30,8 @@ if(Test-Path $previousStartNativePath){ $previousStartNativeContent = Get-Conten
 function Write-Status([string]$Text) {
   $stamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
   Write-Host "[$stamp] $Text" -ForegroundColor Cyan
-  try { Add-Content -Path $LogFile -Value "[$stamp] $Text" -Encoding UTF8 } catch {}
+  # Start-Transcript already records console output. A second writer races with
+  # the transcript file lock on Windows PowerShell 5.1.
 }
 function Invoke-ProcessWithTimeout {
   param([string]$FilePath,[string[]]$ArgumentList=@(),[int]$TimeoutSeconds=900,[string]$Step='外部程序')
@@ -150,7 +151,6 @@ trap {
   $failedText = "[FAILED] $($_.Exception.Message)`r`n$($_.Exception.ToString())"
   Write-Host "`n[FAILED] $($_.Exception.Message)" -ForegroundColor Red
   Write-Host "安装日志：$LogFile" -ForegroundColor Yellow
-  try { Add-Content -Path $LogFile -Value $failedText -Encoding UTF8 } catch {}
   try { Set-Content -Path $LastErrorFile -Value $failedText -Encoding UTF8 } catch {}
 
   # Transactional rollback for an upgrade: restore the old pointers/config and try to restart
@@ -168,7 +168,7 @@ trap {
         Start-Service 'UGDCMS-App' -ErrorAction SilentlyContinue
       }
       Write-Status '升级失败后已恢复上一版本 Release/Runtime 指针。'
-    } catch { try { Add-Content -Path $LogFile -Value "[ROLLBACK-WARN] $($_.Exception.Message)" -Encoding UTF8 } catch {} }
+    } catch { Write-Host "[ROLLBACK-WARN] $($_.Exception.Message)" -ForegroundColor Yellow }
   }
   try { Stop-Transcript | Out-Null } catch {}
   exit 1
@@ -214,7 +214,7 @@ if(Test-Path $currentReleaseFile){
   if($previousRelease -and -not [IO.Path]::IsPathRooted($previousRelease)){ $previousRelease = Join-Path $releaseRoot $previousRelease }
   if($previousRelease -and -not (Test-Path $previousRelease)){ $previousRelease = $null }
 }
-$releaseName = 'app-1.0.0-rc2.13-' + (Get-Date -Format 'yyyyMMddHHmmss')
+$releaseName = 'app-1.0.0-rc2.14-' + (Get-Date -Format 'yyyyMMddHHmmss')
 $newRelease = Join-Path $releaseRoot $releaseName
 if(Test-Path $newRelease){ Fail "目标 Release 已存在：$newRelease" }
 New-Item -ItemType Directory -Force -Path $newRelease | Out-Null
@@ -242,7 +242,7 @@ if(Test-Path $currentRuntimeFile){
   }
   if($previousRuntime -and -not (Test-Path $previousRuntime)){ $previousRuntime = $null }
 }
-$runtimeName = 'venv-1.0.0-rc2.13-' + (Get-Date -Format 'yyyyMMddHHmmss')
+$runtimeName = 'venv-1.0.0-rc2.14-' + (Get-Date -Format 'yyyyMMddHHmmss')
 $newRuntime = Join-Path $runtimeRoot $runtimeName
 if(Test-Path $newRuntime){ Fail "目标 Runtime 已存在：$newRuntime" }
 Invoke-ProcessWithTimeout -FilePath $python -ArgumentList @('-m','venv',$newRuntime) -TimeoutSeconds 180 -Step '创建 Python 虚拟环境'
@@ -508,7 +508,7 @@ if(Test-Path $legacyVenv){
 # 安装状态
 $status=@"
 InstalledAt=$(Get-Date -Format o)
-Version=1.0.0-rc2.13
+Version=1.0.0-rc2.14
 AppPort=$AppPort
 DatabasePort=$PgPort
 AppService=UGDCMS-App

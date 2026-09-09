@@ -28,8 +28,8 @@ build = (ROOT/'installer'/'Build-Setup.ps1').read_text(encoding='utf-8-sig')
 checks = {
     'versioned runtime pointer': 'CURRENT-RUNTIME.txt' in ps and 'CURRENT-RUNTIME.txt' in start,
     'versioned release pointer': 'CURRENT-RELEASE.txt' in ps and 'CURRENT-RELEASE.txt' in start,
-    'versioned runtime name': 'venv-1.0.0-rc2.13-' in ps,
-    'versioned release name': 'app-1.0.0-rc2.13-' in ps,
+    'versioned runtime name': 'venv-1.0.0-rc2.14-' in ps,
+    'versioned release name': 'app-1.0.0-rc2.14-' in ps,
     'Inno payload staging': 'DestDir: "{app}\\payload\\backend"' in iss,
     'no Inno in-place backend': 'DestDir: "{app}\\backend"' not in iss,
     'migration runs from new release': '-InstallDir $newRelease' in ps,
