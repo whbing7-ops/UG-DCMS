@@ -214,7 +214,7 @@ if(Test-Path $currentReleaseFile){
   if($previousRelease -and -not [IO.Path]::IsPathRooted($previousRelease)){ $previousRelease = Join-Path $releaseRoot $previousRelease }
   if($previousRelease -and -not (Test-Path $previousRelease)){ $previousRelease = $null }
 }
-$releaseName = 'app-1.0.0-rc2.14-' + (Get-Date -Format 'yyyyMMddHHmmss')
+$releaseName = 'app-1.0.0-rc2.15-' + (Get-Date -Format 'yyyyMMddHHmmss')
 $newRelease = Join-Path $releaseRoot $releaseName
 if(Test-Path $newRelease){ Fail "目标 Release 已存在：$newRelease" }
 New-Item -ItemType Directory -Force -Path $newRelease | Out-Null
@@ -242,7 +242,7 @@ if(Test-Path $currentRuntimeFile){
   }
   if($previousRuntime -and -not (Test-Path $previousRuntime)){ $previousRuntime = $null }
 }
-$runtimeName = 'venv-1.0.0-rc2.14-' + (Get-Date -Format 'yyyyMMddHHmmss')
+$runtimeName = 'venv-1.0.0-rc2.15-' + (Get-Date -Format 'yyyyMMddHHmmss')
 $newRuntime = Join-Path $runtimeRoot $runtimeName
 if(Test-Path $newRuntime){ Fail "目标 Runtime 已存在：$newRuntime" }
 Invoke-ProcessWithTimeout -FilePath $python -ArgumentList @('-m','venv',$newRuntime) -TimeoutSeconds 180 -Step '创建 Python 虚拟环境'
@@ -470,12 +470,12 @@ Write-Step '执行安装后健康检查...'
 $deadline=(Get-Date).AddSeconds(60); $healthy=$false
 while((Get-Date) -lt $deadline){
   try {
-    $r=Invoke-WebRequest "http://127.0.0.1:$AppPort/api/v1/system/health" -UseBasicParsing -TimeoutSec 3
+    $r=Invoke-WebRequest "http://127.0.0.1:$AppPort/api/v1/health" -UseBasicParsing -TimeoutSec 3
     if($r.StatusCode -eq 200){ $healthy=$true; break }
   } catch { Start-Sleep 1 }
 }
 if(-not $healthy){
-  Fail 'UGDCMS-App 未通过 HTTP 健康检查 /api/v1/system/health；安装不会被标记为完成。请检查 logs 目录。'
+  Fail 'UGDCMS-App 未通过 HTTP 健康检查 /api/v1/health；安装不会被标记为完成。请检查 logs 目录。'
 }
 Write-Step 'HTTP 健康检查通过'
 
@@ -508,7 +508,7 @@ if(Test-Path $legacyVenv){
 # 安装状态
 $status=@"
 InstalledAt=$(Get-Date -Format o)
-Version=1.0.0-rc2.14
+Version=1.0.0-rc2.15
 AppPort=$AppPort
 DatabasePort=$PgPort
 AppService=UGDCMS-App
