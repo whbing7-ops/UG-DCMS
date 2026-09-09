@@ -284,7 +284,8 @@ SELECT fr.id,CASE fr.revision_sequence WHEN 1 THEN 'PRIMARY_NATIVE' ELSE 'RELEAS
  10240+fr.revision_sequence*1024,encode(digest(f.file_number||fr.revision_number,'sha256'),'hex'),'MISSING',
  'DEMO50K 附件全文索引 PSU 电源分配 IMA 综合模块化航电 复杂产品 接口控制 环境鉴定 符合性声明 项目批准 基线',a.engineer1
 FROM file_revision fr JOIN design_file f ON f.id=fr.design_file_id CROSS JOIN demo_actor a
-WHERE f.file_number LIKE 'DEMO50K-F-%' ON CONFLICT(storage_key) DO NOTHING;
+WHERE f.file_number LIKE 'DEMO50K-F-%' AND fr.status IN('WORKING','IN_REVIEW')
+ON CONFLICT(storage_key) DO NOTHING;
 
 INSERT INTO design_definition_link(design_object_id,design_file_id,relation_type,applicability_note,created_by)
 SELECT d.id,f.id,'PRIMARY_DEFINITION','DEMO50K项目级适用，不作为飞机级控制',a.engineer1
