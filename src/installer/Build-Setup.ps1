@@ -37,12 +37,12 @@ function Validate-InstallerSource {
   if($provisionText -notmatch '已恢复上一版本 Release/Runtime 指针'){ throw 'Upgrade rollback pointer logic is missing.' }
   if($provisionText -notmatch 'venv-1\.0\.0-rc2\.11-'){ throw 'Versioned runtime naming is missing.' }
   if($provisionText -notmatch 'runtime import check OK'){ throw 'New runtime import self-check is missing.' }
-  if($provisionText -notmatch '数据库迁移完整性检查通过：14/14'){ throw 'Database migration completeness check is missing.' }
+  if($provisionText -notmatch '数据库迁移完整性检查通过：15/15'){ throw 'Database migration completeness check is missing.' }
   if($provisionText -match '兼容 health 路径差异'){ throw 'Weak TCP-only health fallback must not be present.' }
   if($provisionText -notmatch 'HTTP 健康检查通过'){ throw 'Strict HTTP health check is missing.' }
   $migrations = @(Get-ChildItem (Join-Path $root 'db\migrations\*.sql') -File | Sort-Object Name)
-  if($migrations.Count -ne 14){ throw "Expected 14 DB migrations, found $($migrations.Count)." }
-  for($i=1; $i -le 14; $i++){
+  if($migrations.Count -ne 15){ throw "Expected 15 DB migrations, found $($migrations.Count)." }
+  for($i=1; $i -le 15; $i++){
     $prefix = ('{0:D4}_' -f $i)
     if(-not $migrations[$i-1].Name.StartsWith($prefix)){ throw "Migration sequence broken at $prefix" }
   }

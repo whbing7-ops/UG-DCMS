@@ -41,7 +41,14 @@ function Invoke-ProcessWithTimeout {
     try { $proc.Kill() } catch {}
     throw "$Step 超过 $TimeoutSeconds 秒仍未完成，已终止。"
   }
-  if($proc.ExitCode -ne 0){ throw "$Step 失败，退出码 $($proc.ExitCode)" }
+  # Windows PowerShell 5.1 may leave ExitCode unpopulated immediately after the
+  # timed WaitForExit overload. Complete the wait and refresh the process object;
+  # otherwise $null -ne 0 is true and a successful command is reported as failed.
+  $proc.WaitForExit()
+  $proc.Refresh()
+  $exitCode = $proc.ExitCode
+  if($null -eq $exitCode){ throw "$Step 已结束，但 Windows 未返回退出码。请查看安装日志。" }
+  if($exitCode -ne 0){ throw "$Step 失败，退出码 $exitCode" }
 }
 
 function Write-Step([string]$Text) { Write-Status "[UG-DCMS] $Text" }
@@ -343,12 +350,12 @@ Write-Step "迁移脚本：$migrateScript"
 & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $migrateScript -InstallDir $newRelease -PgBin $pgBin -PgHost '127.0.0.1' -PgPort $PgPort -PgUser 'dcms' -PgDatabase 'dcms'
 $migrateExit = $LASTEXITCODE
 if($migrateExit -ne 0){ Fail "数据库迁移失败（退出码 $migrateExit）。请查看 $LogFile" }
-# 迁移完成后必须验证所有 14 个迁移均已登记，避免脚本异常提前退出却误判成功。
+# 迁移完成后必须验证所有 15 个迁移均已登记，避免脚本异常提前退出却误判成功。
 $env:PGPASSWORD=$appDbPassword
 $migrationCount = (& $psql -X -h 127.0.0.1 -p $PgPort -U dcms -d dcms -qtAX -v ON_ERROR_STOP=1 -c 'SELECT count(*) FROM schema_migration;').Trim()
 if($LASTEXITCODE -ne 0){ Fail '无法验证数据库迁移状态' }
-if([int]$migrationCount -ne 14){ Fail "数据库迁移数量异常：期望 14，实际 $migrationCount" }
-Write-Step '数据库迁移完整性检查通过：14/14'
+if([int]$migrationCount -ne 15){ Fail "数据库迁移数量异常：期望 15，实际 $migrationCount" }
+Write-Step '数据库迁移完整性检查通过：15/15（含 50,000 条综合业务数据）'
 
 # 应用配置。密码只允许 SYSTEM/Administrators 读取。
 $envText=@"

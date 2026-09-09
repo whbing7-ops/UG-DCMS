@@ -11,7 +11,7 @@ def ok(cond: bool, msg: str):
 
 # UTF-8 readability and migration order
 migs = sorted((ROOT / 'db' / 'migrations').glob('*.sql'))
-ok(len(migs) == 14, f'expected 14 migrations, found {len(migs)}')
+ok(len(migs) == 15, f'expected 15 migrations, found {len(migs)}')
 for i, f in enumerate(migs, 1):
     ok(f.name.startswith(f'{i:04d}_'), f'migration order broken: {f.name}')
     try:
@@ -36,7 +36,7 @@ checks = {
     'frontend root points at new release': 'DCMS_FRONTEND_ROOT=$newRelease\\frontend' in ps,
     'UTF8 psql client': "PGCLIENTENCODING='UTF8'" in ps and "PGCLIENTENCODING='UTF8'" in migrate,
     'migration stops on error': 'ON_ERROR_STOP=1' in migrate,
-    'migration count gate': '数据库迁移完整性检查通过：14/14' in ps,
+    'migration count gate': '数据库迁移完整性检查通过：15/15' in ps,
     'strict HTTP health': 'HTTP 健康检查通过' in ps,
     'upgrade pointer rollback': '已恢复上一版本 Release/Runtime 指针' in ps,
     'legacy start script rollback': '$previousStartNativeContent' in ps,
@@ -50,7 +50,7 @@ for name, cond in checks.items(): ok(cond, name)
 
 # Ordering invariants
 try:
-    mig_done = ps.index("Write-Step '数据库迁移完整性检查通过：14/14'")
+    mig_done = ps.index("Write-Step '数据库迁移完整性检查通过：15/15（含 50,000 条综合业务数据）'")
     switch_runtime = ps.index('Move-Item -Path $tmpRuntimeFile')
     switch_release = ps.index('Move-Item -Path $tmpReleaseFile')
     service = ps.index("Write-Step '注册 UG-DCMS 应用 Windows 服务...'")
@@ -68,4 +68,4 @@ if errors:
     sys.exit(1)
 print('INSTALLER SOURCE AUDIT: PASS')
 for name in checks: print(' [PASS]', name)
-print(f' [PASS] migrations UTF-8/order: {len(migs)}/14')
+print(f' [PASS] migrations UTF-8/order: {len(migs)}/15')
