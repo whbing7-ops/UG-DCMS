@@ -108,9 +108,7 @@ SELECT 'INTERNAL_PART','DEMO50K-I-'||lpad(g::text,5,'0'),
  CASE WHEN g<=1200 THEN
    (ARRAY['复杂产品顶层','PSU电源分配单元','IMA核心处理模块','IMA网络交换模块','远程数据集中器','LRI航电设备'])[(g%6)+1]
   ELSE (ARRAY['结构组件','电子组件','线束组件','安装组件','控制组件'])[(g%5)+1] END||'-'||g,
- CASE WHEN g<=500 AND g%5>=2 THEN 'RELEASED'
-      WHEN g%10 IN(0,3,6,9) THEN 'DRAFT' WHEN g%10 IN(1,4,7) THEN 'IN_REVIEW'
-      ELSE 'OBSOLETE' END::lifecycle_status,
+ CASE WHEN g%3=0 THEN 'DRAFT' WHEN g%3=1 THEN 'IN_REVIEW' ELSE 'OBSOLETE' END::lifecycle_status,
  CASE WHEN g%10<2 THEN 'L2' ELSE 'L4' END,a.engineer1
 FROM generate_series(1,30000) g CROSS JOIN demo_actor a
 ON CONFLICT(object_code) DO NOTHING;
@@ -396,6 +394,17 @@ UPDATE part_number pn SET current_baseline_id=b.id
 FROM design_baseline b
 WHERE b.part_number_id=pn.id AND b.baseline_code LIKE 'BL-DEMO50K-%'
   AND b.status='RELEASED' AND b.is_current;
+
+-- Current Baseline 已就位后再发布 P/N，避免延迟约束使用插入时的空指针行像。
+UPDATE part_number pn SET lifecycle_status='RELEASED'
+FROM design_baseline b
+WHERE b.part_number_id=pn.id AND b.baseline_code LIKE 'BL-DEMO50K-%'
+  AND b.status='RELEASED' AND b.is_current;
+
+UPDATE design_object d SET lifecycle_status='RELEASED'
+FROM part_number pn
+WHERE pn.design_object_id=d.id AND pn.full_part_number LIKE 'DEMO50K-I-%'
+  AND pn.lifecycle_status='RELEASED';
 
 INSERT INTO change_package(change_number,title,reason,impact_summary,status,created_by)
 SELECT 'CR-DEMO50K-'||lpad(g::text,5,'0'),'复杂产品工程更改-'||g,
