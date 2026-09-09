@@ -28,8 +28,8 @@ build = (ROOT/'installer'/'Build-Setup.ps1').read_text(encoding='utf-8-sig')
 checks = {
     'versioned runtime pointer': 'CURRENT-RUNTIME.txt' in ps and 'CURRENT-RUNTIME.txt' in start,
     'versioned release pointer': 'CURRENT-RELEASE.txt' in ps and 'CURRENT-RELEASE.txt' in start,
-    'versioned runtime name': 'venv-1.0.0-rc2.11-' in ps,
-    'versioned release name': 'app-1.0.0-rc2.11-' in ps,
+    'versioned runtime name': 'venv-1.0.0-rc2.12-' in ps,
+    'versioned release name': 'app-1.0.0-rc2.12-' in ps,
     'Inno payload staging': 'DestDir: "{app}\\payload\\backend"' in iss,
     'no Inno in-place backend': 'DestDir: "{app}\\backend"' not in iss,
     'migration runs from new release': '-InstallDir $newRelease' in ps,
@@ -45,6 +45,7 @@ checks = {
     'offline pip bootstrap': "'-m','ensurepip','--upgrade'" in ps,
     'wheel SHA256 manifest': 'SHA256SUMS.txt' in ps and 'SHA256SUMS.txt' in build and 'Get-FileHash' in ps,
     'permanent log': "Join-Path $InstallDir 'logs'" in ps and 'LAST-ERROR.txt' in ps,
+    'missing ExitCode compatibility': 'Windows 未提供退出码，继续执行后续结果校验' in ps,
 }
 for name, cond in checks.items(): ok(cond, name)
 

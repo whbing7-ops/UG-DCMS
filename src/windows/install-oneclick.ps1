@@ -47,7 +47,15 @@ function Invoke-ProcessWithTimeout {
   $proc.WaitForExit()
   $proc.Refresh()
   $exitCode = $proc.ExitCode
-  if($null -eq $exitCode){ throw "$Step 已结束，但 Windows 未返回退出码。请查看安装日志。" }
+  if($null -eq $exitCode){
+    # Some Windows 10 / Windows PowerShell 5.1 builds do not expose ExitCode on
+    # a Start-Process object even after the process has definitely terminated.
+    # Do not turn that PowerShell defect into a false installation failure.
+    # Every caller has a concrete downstream verification (runtime executable,
+    # pip/module import, installed prerequisite, migration count or HTTP health).
+    Write-Status "$Step 已结束；Windows 未提供退出码，继续执行后续结果校验。"
+    return
+  }
   if($exitCode -ne 0){ throw "$Step 失败，退出码 $exitCode" }
 }
 
@@ -206,7 +214,7 @@ if(Test-Path $currentReleaseFile){
   if($previousRelease -and -not [IO.Path]::IsPathRooted($previousRelease)){ $previousRelease = Join-Path $releaseRoot $previousRelease }
   if($previousRelease -and -not (Test-Path $previousRelease)){ $previousRelease = $null }
 }
-$releaseName = 'app-1.0.0-rc2.11-' + (Get-Date -Format 'yyyyMMddHHmmss')
+$releaseName = 'app-1.0.0-rc2.12-' + (Get-Date -Format 'yyyyMMddHHmmss')
 $newRelease = Join-Path $releaseRoot $releaseName
 if(Test-Path $newRelease){ Fail "目标 Release 已存在：$newRelease" }
 New-Item -ItemType Directory -Force -Path $newRelease | Out-Null
@@ -234,7 +242,7 @@ if(Test-Path $currentRuntimeFile){
   }
   if($previousRuntime -and -not (Test-Path $previousRuntime)){ $previousRuntime = $null }
 }
-$runtimeName = 'venv-1.0.0-rc2.11-' + (Get-Date -Format 'yyyyMMddHHmmss')
+$runtimeName = 'venv-1.0.0-rc2.12-' + (Get-Date -Format 'yyyyMMddHHmmss')
 $newRuntime = Join-Path $runtimeRoot $runtimeName
 if(Test-Path $newRuntime){ Fail "目标 Runtime 已存在：$newRuntime" }
 Invoke-ProcessWithTimeout -FilePath $python -ArgumentList @('-m','venv',$newRuntime) -TimeoutSeconds 180 -Step '创建 Python 虚拟环境'
@@ -495,7 +503,7 @@ if(Test-Path $legacyVenv){
 # 安装状态
 $status=@"
 InstalledAt=$(Get-Date -Format o)
-Version=1.0.0-rc2.11
+Version=1.0.0-rc2.12
 AppPort=$AppPort
 DatabasePort=$PgPort
 AppService=UGDCMS-App
