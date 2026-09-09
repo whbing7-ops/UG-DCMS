@@ -3,6 +3,7 @@
   [switch]$SkipCompile
 )
 $ErrorActionPreference='Stop'
+$buildScriptPath=$PSCommandPath
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 $root=Split-Path -Parent $PSScriptRoot
 $pre=Join-Path $root 'windows\prerequisites'
@@ -26,7 +27,7 @@ function Validate-InstallerSource {
   if($issText -match 'LoadStringFromFile\s*\('){ throw 'Unsafe Inno API usage detected: LoadStringFromFile requires AnsiString. Use LoadStringsFromFile for UTF-8 logs.' }
   if($issText -notmatch 'LoadStringsFromFile\s*\('){ throw 'Expected UTF-8-safe LoadStringsFromFile error-log reader is missing.' }
   if($provisionText -notmatch "sys\.version_info\[:2\] == \(3,12\)"){ throw 'Runtime pin check for Python 3.12 is missing.' }
-  if((Get-Content $MyInvocation.MyCommand.Path -Raw -Encoding UTF8) -notmatch '--python-version 3\.12'){ throw 'Wheelhouse is not explicitly targeted to Python 3.12.' }
+  if((Get-Content $buildScriptPath -Raw -Encoding UTF8) -notmatch '--python-version 3\.12'){ throw 'Wheelhouse is not explicitly targeted to Python 3.12.' }
   if($provisionText -match 'if\(Test-Path \"\$InstallDir\\venv\"\)\{ Remove-Item'){ throw 'Unsafe pre-install deletion of the legacy runtime detected.' }
   if($provisionText -notmatch 'CURRENT-RUNTIME\.txt'){ throw 'Versioned runtime pointer logic is missing.' }
   if($provisionText -notmatch 'CURRENT-RELEASE\.txt'){ throw 'Versioned release pointer logic is missing.' }
