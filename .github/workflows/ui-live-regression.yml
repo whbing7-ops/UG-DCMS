@@ -6,6 +6,7 @@ on:
       - 'ci/frontend/**'
       - 'ci/backend/**'
       - 'ci/test-installed-actions.py'
+      - 'ci/test-ui-interactions.cjs'
       - 'ci/full-functional-smoke.py'
       - '.github/workflows/ui-live-regression.yml'
 jobs:
@@ -55,6 +56,10 @@ jobs:
           done
           python -m pip install -q -r src/backend/requirements.txt playwright==1.51.0
           google-chrome --version
+      - name: Check browser interactions and state-specific rendering
+        run: |
+          npm install --no-save playwright@1.51.0
+          node ci/test-ui-interactions.cjs
       - name: Start application and run actual UI operations
         run: |
           mkdir -p ui-evidence

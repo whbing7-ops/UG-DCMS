@@ -15,6 +15,12 @@ const REQ_CN = {
   CHANGE_PACKAGE: "变更包", FAMILY_CLOSE: "关闭设计族", OBJECT_OBSOLETE: "废止对象",
 };
 
+function approvalObjectLink(r, label = "打开对象办理") {
+  const routes = { BASIC_DRAWING_FAMILY: "/family/", FILE_REVISION: "/revision/", DESIGN_BASELINE: "/baseline/" };
+  const route = routes[r.object_type];
+  return route && r.object_id ? link(label, "#" + route + encodeURIComponent(r.object_id), "btn small") : null;
+}
+
 /* ==================== 审批中心 ==================== */
 export async function approvals(ctx) {
   const [inbox, mine] = await Promise.all([
@@ -54,6 +60,7 @@ export async function approvals(ctx) {
           el("td", {}, r.requester_name),
           el("td", { class: "muted nowrap" }, fmtDate(r.requested_at)),
           el("td", { class: "right nowrap" },
+            approvalObjectLink(r), " ",
             el("button", { class: "btn small", onclick: () =>
               act(r.id, "return", "退回补充", "需要补充什么？申请人改完可再次提交") }, "退回"),
             " ",
@@ -105,7 +112,7 @@ export async function approvalDetail(ctx, params, id) {
           el("td", { class: "mono" }, s.decided_by_username || "—"),
           el("td", {}, s.comments || "—"),
           el("td", { class: "muted nowrap" }, fmtDate(s.acted_at))])),
-    el("div", { class: "actions" }, link("返回审批中心", "#/approvals", "btn")));
+    el("div", { class: "actions" }, approvalObjectLink(r), link("返回审批中心", "#/approvals", "btn")));
 }
 
 /* ==================== 外部件 ==================== */

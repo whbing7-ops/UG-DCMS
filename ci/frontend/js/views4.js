@@ -28,7 +28,8 @@ export async function baselines(ctx, params, pn) {
             location.hash = "#/baseline/" + r.id; }
       catch (e) { toastError(e); } } }, "新建基线"));
   }
-  const twoReleased = rows.filter(r => r.status !== "DRAFT").slice(-2);
+  const twoReleased = rows.filter(r => ["RELEASED", "SUPERSEDED"].includes(r.status))
+    .sort((a, b) => a.baseline_sequence - b.baseline_sequence).slice(-2);
   if (twoReleased.length === 2)
     acts.append(link("比较最近两版", `#/baseline-compare/${twoReleased[0].id}/${twoReleased[1].id}`, "btn"));
 
@@ -97,7 +98,8 @@ export async function baselineDetail(ctx, params, id) {
       val.errors.length ? "以下问题会阻止发布：" : "以下内容请确认：",
       el("ul", {}, val.errors.concat(val.warnings).map(x => el("li", {}, x)))) : null,
     !editable ? el("div", { class: "note" },
-      "该基线已发布，内容不可更改。要调整锁定的版次，请新建一条基线。") : null,
+      bl.status === "CANCELLED" ? "该基线已取消，不能继续编辑或发布。需要时请新建基线。"
+        : "该基线已发布，内容不可更改。要调整锁定的版次，请新建一条基线。") : null,
     acts, itemForm,
 
     tablePanel("基线明细",

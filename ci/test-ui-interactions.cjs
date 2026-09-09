@@ -140,6 +140,47 @@ const assert = require('node:assert/strict');
  await d.getByLabel('原因（记入审计）').fill('删除测试');
  await d.getByRole('button',{name:'保存',exact:true}).click();
  await d.waitFor({state:'hidden'}); assert.equal(lines.length,0);
+ // Exercise approval target navigation and baseline state/permission rendering.
+ const reviewChecks=await page.evaluate(async()=>{
+  const {api}=await import('/js/api.js');
+  const {approvals,approvalDetail}=await import('/js/views5.js');
+  const {baselines,baselineDetail}=await import('/js/views4.js');
+  const original=api.get;
+  const records=[
+   {id:'cancel',status:'CANCELLED',baseline_sequence:5},
+   {id:'old',status:'SUPERSEDED',baseline_sequence:1},
+   {id:'review',status:'IN_REVIEW',baseline_sequence:4},
+   {id:'new',status:'RELEASED',baseline_sequence:3},
+   {id:'middle',status:'SUPERSEDED',baseline_sequence:2},
+  ];
+  const ctx={can:()=>false};
+  try {
+   api.get=async path=>path.endsWith('/validate')?{errors:[],warnings:[]}:path.startsWith('/parts/')?records:{status:'CANCELLED',items:[]};
+   const list=await baselines(ctx,{},'PN');
+   const comparison=[...list.querySelectorAll('a')].find(a=>a.textContent==='比较最近两版');
+   if(comparison?.getAttribute('href')!=='#/baseline-compare/middle/new') throw Error('Baseline comparison selected unpublished or wrong revisions');
+   records.splice(0,records.length,{id:'only',status:'RELEASED',baseline_sequence:1},{id:'cancel',status:'CANCELLED',baseline_sequence:2});
+   if((await baselines(ctx,{},'PN')).textContent.includes('比较最近两版')) throw Error('Comparison should require two published baselines');
+   const cancelled=await baselineDetail(ctx,{},'cancel');
+   if(!cancelled.textContent.includes('该基线已取消')||cancelled.textContent.includes('该基线已发布')) throw Error('Cancelled state misrepresented');
+   for(const [type,target] of [['BASIC_DRAWING_FAMILY','family'],['FILE_REVISION','revision'],['DESIGN_BASELINE','baseline']]) {
+    const r={id:'request',object_type:type,object_id:'target',steps:[],status:'PENDING'};
+    api.get=async path=>path==='/approvals/inbox'?[r]:path==='/approvals/mine'?[]:r;
+    for(const view of [await approvals(ctx),await approvalDetail(ctx,{},'request')]) {
+     const a=[...view.querySelectorAll('a')].find(a=>a.textContent==='打开对象办理');
+     if(a?.getAttribute('href')!=='#/'+target+'/target') throw Error('Approval target missing: '+type);
+    }
+   }
+   for(const allowed of [false,true]) {
+    api.get=async path=>path.endsWith('/validate')?{errors:[],warnings:[]}:{status:'IN_REVIEW',items:[]};
+    const view=await baselineDetail({can:()=>allowed},{},'bl');
+    if(view.textContent.includes('批准发布')!==allowed) throw Error('Baseline approval permission rendering');
+   }
+   return true;
+  } finally {api.get=original;}
+ });
+ assert(reviewChecks);
+ console.log('PASS: approval target links, published baseline selection, cancellation message, approval permission rendering.');
  assert.deepEqual(errors,[]);
  assert(requests.some(r=>r.p==='/admin/users/new/password-reset'));
  console.log('PASS: login, account create/edit/filter/disable/enable/reset/unlock/error, BOM search/rule/context/edit/resolve/delete, authenticated download, mobile layout.');
