@@ -125,8 +125,8 @@ def get_external(conn: psycopg.Connection, object_code: str) -> dict | None:
         return None
     ep["technical_states"] = technical_states(conn, str(ep["id"]))
     ep["project_controls"] = fetch_all(conn, """
-        SELECT id, project_code, status, applicability, evaluation_basis,
-               approved_at, u.full_name AS approved_by_name,
+        SELECT c.id, c.project_code, c.status, c.applicability, c.evaluation_basis,
+               c.approved_at, u.full_name AS approved_by_name,
                aps.assignee_user_id AS approval_assignee_user_id
           FROM external_part_project_control c
           LEFT JOIN app_user u ON u.id=c.approved_by
