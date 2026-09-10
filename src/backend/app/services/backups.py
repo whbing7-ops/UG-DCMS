@@ -38,6 +38,22 @@ def _sha(path: Path) -> str:
     return h.hexdigest()
 
 
+def _restore_status(state: str, progress: int, message: str, **extra) -> dict:
+    data={"state":state,"progress":progress,"message":message,
+          "updated_at":datetime.now(timezone.utc).isoformat(),**extra}
+    path=_root()/"restore-status.json"; part=path.with_suffix(".part")
+    part.write_text(json.dumps(data,ensure_ascii=False),encoding="utf-8")
+    os.replace(part,path)
+    return data
+
+
+def restore_status() -> dict:
+    path=_root()/"restore-status.json"
+    if not path.exists(): return {"state":"IDLE","progress":0,"message":"当前没有恢复任务"}
+    try: return json.loads(path.read_text(encoding="utf-8"))
+    except Exception: return {"state":"UNKNOWN","progress":0,"message":"恢复状态文件不可读"}
+
+
 def create_backup(reason: str = "MANUAL") -> dict:
     s=get_settings(); stamp=datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     final=_root()/f"UG-DCMS-BACKUP-{stamp}.zip"
@@ -88,27 +104,45 @@ def queue_restore(content: bytes, filename: str, confirmation: str) -> dict:
     if confirmation != "恢复UG-DCMS": raise ValueError("恢复确认文字不正确")
     target=_root()/"pending-restore.zip"; part=target.with_suffix(".part")
     part.write_bytes(content); info=validate_backup(part); os.replace(part,target)
-    (_root()/"pending-restore.json").write_text(json.dumps({"filename":filename,"queued_at":datetime.now(timezone.utc).isoformat()}),encoding="utf-8")
+    queued_at=datetime.now(timezone.utc).isoformat()
+    (_root()/"pending-restore.json").write_text(json.dumps({"filename":filename,"queued_at":queued_at}),encoding="utf-8")
+    _restore_status("QUEUED",0,"备份包已校验，等待执行",filename=filename,queued_at=queued_at)
     return info
 
 
 def apply_pending_restore() -> None:
     root=_root(); pending=root/"pending-restore.zip"; marker=root/"pending-restore.json"
     if not pending.exists() or not marker.exists(): return
-    validate_backup(pending); create_backup("PRE_RESTORE")
-    s=get_settings()
-    with tempfile.TemporaryDirectory(dir=root) as td:
-        tmp=Path(td)
-        with zipfile.ZipFile(pending) as z: z.extractall(tmp)
-        cmd=[_pg("pg_restore"),"--clean","--if-exists","--no-owner","--single-transaction",
-             "-h",s.pg_host,"-p",str(s.pg_port),"-U",s.pg_user,"-d",s.pg_database,str(tmp/"database.dump")]
-        subprocess.run(cmd,env=_env(),check=True,capture_output=True,text=True)
-        staged=tmp/"files"; live=Path(s.storage_root); old=live.with_name(live.name+".pre-restore")
-        if old.exists(): shutil.rmtree(old)
-        if live.exists(): os.replace(live,old)
-        if staged.exists(): shutil.copytree(staged,live)
-        else: live.mkdir(parents=True,exist_ok=True)
-    pending.rename(root/("applied-"+pending.name)); marker.unlink(missing_ok=True)
+    meta=json.loads(marker.read_text(encoding="utf-8"))
+    try:
+        _restore_status("RUNNING",5,"正在校验备份包",**meta)
+        validate_backup(pending)
+        _restore_status("RUNNING",15,"正在创建恢复前安全备份",**meta)
+        create_backup("PRE_RESTORE")
+        s=get_settings()
+        with tempfile.TemporaryDirectory(dir=root) as td:
+            tmp=Path(td); _restore_status("RUNNING",30,"正在解压数据库和附件",**meta)
+            with zipfile.ZipFile(pending) as z: z.extractall(tmp)
+            _restore_status("RUNNING",45,"正在恢复数据库",**meta)
+            cmd=[_pg("pg_restore"),"--clean","--if-exists","--no-owner","--single-transaction",
+                 "-h",s.pg_host,"-p",str(s.pg_port),"-U",s.pg_user,"-d",s.pg_database,str(tmp/"database.dump")]
+            subprocess.run(cmd,env=_env(),check=True,capture_output=True,text=True)
+            _restore_status("RUNNING",80,"数据库恢复完成，正在恢复附件",**meta)
+            staged=tmp/"files"; live=Path(s.storage_root); old=live.with_name(live.name+".pre-restore")
+            if old.exists(): shutil.rmtree(old)
+            if live.exists(): os.replace(live,old)
+            try:
+                if staged.exists(): shutil.copytree(staged,live)
+                else: live.mkdir(parents=True,exist_ok=True)
+            except Exception:
+                if live.exists(): shutil.rmtree(live)
+                if old.exists(): os.replace(old,live)
+                raise
+        pending.rename(root/("applied-"+pending.name)); marker.unlink(missing_ok=True)
+        _restore_status("COMPLETED",100,"恢复完成，可以重新登录系统",
+                        completed_at=datetime.now(timezone.utc).isoformat(),**meta)
+    except Exception as exc:
+        _restore_status("FAILED",100,f"恢复失败：{exc}",**meta)
 
 
 def schedule() -> dict:

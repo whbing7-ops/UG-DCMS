@@ -85,7 +85,13 @@ def backup_list(conn: Conn, actor: dict = Depends(require(Perm.SYSTEM_SETTING)))
     marker=Path(backups._root())/"pending-restore.json"
     pending=json.loads(marker.read_text(encoding="utf-8")) if marker.exists() else None
     return {"schedule": backups.schedule(), "backups": backups.list_backups(),
-            "restore_pending": pending}
+            "restore_pending": pending, "restore_status":backups.restore_status()}
+
+
+@router.get("/system/restore/status")
+def restore_status():
+    """恢复期间数据库和登录会话可能暂不可用，因此状态探针不依赖数据库或认证。"""
+    return backups.restore_status()
 
 
 @router.post("/system/backups", status_code=201)
@@ -138,6 +144,7 @@ def cancel_restore(conn: Conn, actor: dict=Depends(require(Perm.SYSTEM_SETTING))
     audit.write(conn,action="SYSTEM_RESTORE_CANCEL",user_id=str(actor["user_id"]),
       username=actor["username"],object_type="SYSTEM_BACKUP",object_code="pending-restore",
       new_value={"removed":removed},session_id=str(actor.get("session_id")),client_ip=actor.get("client_ip"))
+    backups._restore_status("CANCELLED",0,"待执行的恢复任务已取消")
     return {"message":"待执行的恢复任务已取消"}
 
 
@@ -150,6 +157,8 @@ def apply_restore(conn: Conn, actor: dict=Depends(require(Perm.SYSTEM_SETTING)))
     audit.write(conn,action="SYSTEM_RESTORE_APPLY",user_id=str(actor["user_id"]),
       username=actor["username"],object_type="SYSTEM_BACKUP",object_code="pending-restore",
       reason="管理员确认立即重启并恢复",session_id=str(actor.get("session_id")),client_ip=actor.get("client_ip"))
+    marker=json.loads((root/"pending-restore.json").read_text(encoding="utf-8"))
+    backups._restore_status("RESTARTING",2,"正在重启应用服务，准备执行恢复",**marker)
     command="Start-Sleep -Seconds 3; Restart-Service -Name 'UGDCMS-App' -Force"
     flags=getattr(subprocess,"DETACHED_PROCESS",0) | getattr(subprocess,"CREATE_NEW_PROCESS_GROUP",0)
     subprocess.Popen(["powershell.exe","-NoProfile","-ExecutionPolicy","Bypass","-Command",command],

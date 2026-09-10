@@ -134,8 +134,12 @@ def main() -> None:
               f"paged list is not bounded: {path}")
     results.append("large-lists/server-pagination-bounded")
     backup_state = admin.get("/system/backups")
-    check("schedule" in backup_state and "backups" in backup_state and "restore_pending" in backup_state,
+    check("schedule" in backup_state and "backups" in backup_state and "restore_pending" in backup_state
+          and "restore_status" in backup_state,
           "backup management contract incomplete")
+    restore_state = engineer.get("/system/restore/status")
+    check(set(("state", "progress", "message")).issubset(restore_state),
+          "restore progress contract incomplete")
     admin.put("/system/backup-schedule", {
         "enabled": False, "frequency": "DAILY", "hour": 2, "weekday": 6, "retention": 14,
     })

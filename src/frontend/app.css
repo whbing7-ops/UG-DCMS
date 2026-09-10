@@ -29,6 +29,12 @@
           "PingFang SC", system-ui, sans-serif;
 }
 
+.restore-mask{position:fixed;inset:0;z-index:9999;background:rgba(15,31,52,.58);display:flex;align-items:center;justify-content:center;padding:24px}
+.restore-dialog{width:min(560px,100%);background:#fff;border-radius:10px;box-shadow:0 20px 60px rgba(0,0,0,.3);padding:28px}
+.restore-dialog progress{width:100%;height:22px;margin:14px 0 8px;accent-color:#2469ad}
+.restore-progress-line{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px}
+.restore-progress-line b{font-size:22px;color:#185b9d}
+
 * { box-sizing: border-box; }
 html, body { height: 100%; }
 body {

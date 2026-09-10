@@ -56,6 +56,30 @@ export async function diagnostics() {
 export async function backupPage(ctx) {
   if (!ctx.can('system_setting')) return empty('无系统备份权限', '仅系统管理员可执行备份和恢复。');
   const root=el('div');
+  const monitorRestore=async initial=>{
+    const started=Date.now(), title=el('h3',{},'正在恢复系统'), message=el('p',{},initial.message||'正在重启应用服务'),
+      percent=el('b',{class:'mono'},'2%'), bar=el('progress',{max:100,value:2}), elapsed=el('span',{class:'muted'},'已耗时 0 秒'),
+      dialog=el('div',{class:'restore-dialog'}), box=el('div',{class:'restore-mask'},dialog);
+    dialog.append(title,bar,el('div',{class:'restore-progress-line'},percent,elapsed),message,
+      el('p',{class:'muted'},'服务重启期间显示预计进度；服务恢复后自动读取实际结果。'));
+    document.body.append(box); let done=false;
+    while(!done){
+      const seconds=Math.floor((Date.now()-started)/1000); elapsed.textContent=`已耗时 ${seconds} 秒`;
+      const estimated=Math.min(95,seconds<4?2:seconds<10?15:seconds<20?30:seconds<45?45:80);
+      bar.value=estimated; percent.textContent=estimated+'%';
+      try{
+        const s=await api.get('/system/restore/status');
+        const value=Number(s.progress||0); bar.value=value; percent.textContent=value+'%'; message.textContent=s.message||'正在恢复';
+        if(s.state==='COMPLETED'){
+          done=true; title.textContent='恢复完成'; bar.value=100; percent.textContent='100%';
+          dialog.append(el('button',{class:'btn primary',onclick:()=>{box.remove();location.hash='#/login';location.reload();}},'重新登录系统'));
+        }else if(s.state==='FAILED'){
+          done=true; title.textContent='恢复失败'; dialog.append(el('button',{class:'btn',onclick:()=>box.remove()},'关闭'));
+        }
+      }catch(e){ message.textContent='应用服务正在重启并恢复数据，请勿关闭此页面…'; }
+      if(!done) await new Promise(resolve=>setTimeout(resolve,2000));
+    }
+  };
   const draw=async()=>{
     const data=await api.get('/system/backups'); const s=data.schedule;
     const enabled=input({type:'checkbox',checked:s.enabled});
@@ -66,6 +90,11 @@ export async function backupPage(ctx) {
     const restoreFile=input({type:'file',accept:'.zip'}); const confirm=input({placeholder:'输入：恢复UG-DCMS'});
     root.replaceChildren(el('h1',{},'系统备份与恢复'),
       el('p',{class:'sub'},'备份集同时包含PostgreSQL数据库和全部附件；恢复前自动生成恢复前备份。'),
+      data.restore_status?.state==='COMPLETED' ? el('div',{class:'note ok'},
+        el('b',{},'恢复完成（100%）'),el('div',{},data.restore_status.message),
+        el('div',{class:'muted'},`完成时间：${fmtDate(data.restore_status.completed_at)}`)) :
+      data.restore_status?.state==='FAILED' ? el('div',{class:'note error'},
+        el('b',{},'恢复失败'),el('div',{},data.restore_status.message)) : null,
       el('div',{class:'actions'},el('button',{class:'btn primary',onclick:async()=>{try{await api.post('/system/backups');toast('全量备份已完成');await draw();}catch(e){toast(e.message,'error')}}},'立即备份')),
       panel('定时备份',el('div',{class:'inline-form'},field('启用',enabled),field('频率',freq),field('执行小时',hour),field('星期',weekday),field('保留份数',retention),
         el('button',{class:'btn',onclick:async()=>{try{await api.put('/system/backup-schedule',{json:{enabled:enabled.checked,frequency:freq.value,hour:Number(hour.value),weekday:Number(weekday.value),retention:Number(retention.value)}});toast('定时任务已保存');await draw();}catch(e){toast(e.message,'error')}}},'保存设置'))),
@@ -80,7 +109,7 @@ export async function backupPage(ctx) {
           el('h4',{},'第2步：执行恢复'),
           el('p',{},`待恢复文件：${data.restore_pending.filename||'备份包'}；排队时间：${fmtDate(data.restore_pending.queued_at)}`),
           el('div',{class:'actions'},
-            el('button',{class:'btn danger',onclick:async()=>{if(!window.confirm('确认立即重启UG-DCMS并恢复数据库和全部附件？'))return;try{const r=await api.post('/system/restore/apply');toast(r.message);setTimeout(()=>location.reload(),65000);}catch(e){toast(e.message,'error')}}},'立即重启并执行恢复'),
+            el('button',{class:'btn danger',onclick:async()=>{if(!window.confirm('确认立即重启UG-DCMS并恢复数据库和全部附件？'))return;try{const r=await api.post('/system/restore/apply');await monitorRestore({message:r.message});}catch(e){toast(e.message,'error')}}},'立即重启并执行恢复'),
             el('button',{class:'btn',onclick:async()=>{try{const r=await api.del('/system/restore');toast(r.message);await draw();}catch(e){toast(e.message,'error')}}},'取消待恢复任务'))) :
           el('p',{class:'muted'},'备份包校验通过后，此处将出现“立即重启并执行恢复”按钮。'))));
   }; await draw(); return root;
