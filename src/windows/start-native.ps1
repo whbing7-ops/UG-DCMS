@@ -17,3 +17,7 @@ if(-not (Test-Path $python)){ throw "UG-DCMS runtime python missing: $python" }
 if(-not (Test-Path (Join-Path $backend 'app\main.py'))){ throw "UG-DCMS release backend missing: $backend" }
 Set-Location $backend
 & $python -m uvicorn app.main:app --host 0.0.0.0 --port $Port
+# PowerShell 默认不会把原生子进程退出码作为脚本退出码返回。恢复流程使用
+# 专用非零退出码 75 请求 WinSW 重启；必须原样传递，否则 WinSW 会误判为
+# “正常停止”，服务不再拉起，恢复界面只能一直显示估算进度。
+exit $LASTEXITCODE

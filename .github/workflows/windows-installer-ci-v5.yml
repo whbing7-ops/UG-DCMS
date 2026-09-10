@@ -1,4 +1,4 @@
-name: UG-DCMS rc2.28 source integration and installer
+name: UG-DCMS rc2.29 source integration and installer
 
 on:
   workflow_dispatch:
@@ -9,7 +9,7 @@ on:
       - '.github/workflows/windows-installer-ci-v5.yml'
 
 concurrency:
-  group: ug-dcms-rc228
+  group: ug-dcms-rc229
   cancel-in-progress: true
 
 jobs:
@@ -103,17 +103,17 @@ jobs:
         run: |
           python src\installer\verify_installer_source.py
           powershell -NoProfile -ExecutionPolicy Bypass -File src\installer\Build-Setup.ps1
-          $setup='src\installer\output\UG-DCMS-Setup-1.0.0-rc2.28.exe'
+          $setup='src\installer\output\UG-DCMS-Setup-1.0.0-rc2.29.exe'
           if(-not(Test-Path $setup)){ throw 'installer missing' }
           if((Get-Item $setup).Length -lt 1000000){ throw 'installer unexpectedly small' }
           Get-FileHash $setup -Algorithm SHA256
       - name: Package installer and source
         shell: powershell
         run: |
-          Compress-Archive -Path src\installer\output\UG-DCMS-Setup-1.0.0-rc2.28.exe -DestinationPath svgUG-DCMS-20260910-rc2.28.zip
+          Compress-Archive -Path src\installer\output\UG-DCMS-Setup-1.0.0-rc2.29.exe -DestinationPath svgUG-DCMS-20260910-rc2.29.zip
       - uses: actions/upload-artifact@v4
         with:
-          name: svgUG-DCMS-20260910-rc2.28
+          name: svgUG-DCMS-20260910-rc2.29
           path: |
-            src/installer/output/UG-DCMS-Setup-1.0.0-rc2.28.exe
-            svgUG-DCMS-20260910-rc2.28.zip
+            src/installer/output/UG-DCMS-Setup-1.0.0-rc2.29.exe
+            svgUG-DCMS-20260910-rc2.29.zip
