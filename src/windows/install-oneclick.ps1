@@ -238,7 +238,7 @@ if(Test-Path $currentReleaseFile){
   if($previousRelease -and -not [IO.Path]::IsPathRooted($previousRelease)){ $previousRelease = Join-Path $releaseRoot $previousRelease }
   if($previousRelease -and -not (Test-Path $previousRelease)){ $previousRelease = $null }
 }
-$releaseName = 'app-1.0.0-rc2.26-' + (Get-Date -Format 'yyyyMMddHHmmss')
+$releaseName = 'app-1.0.0-rc2.27-' + (Get-Date -Format 'yyyyMMddHHmmss')
 $newRelease = Join-Path $releaseRoot $releaseName
 if(Test-Path $newRelease){ Fail "目标 Release 已存在：$newRelease" }
 New-Item -ItemType Directory -Force -Path $newRelease | Out-Null
@@ -266,7 +266,7 @@ if(Test-Path $currentRuntimeFile){
   }
   if($previousRuntime -and -not (Test-Path $previousRuntime)){ $previousRuntime = $null }
 }
-$runtimeName = 'venv-1.0.0-rc2.26-' + (Get-Date -Format 'yyyyMMddHHmmss')
+$runtimeName = 'venv-1.0.0-rc2.27-' + (Get-Date -Format 'yyyyMMddHHmmss')
 $newRuntime = Join-Path $runtimeRoot $runtimeName
 if(Test-Path $newRuntime){ Fail "目标 Runtime 已存在：$newRuntime" }
 Invoke-ProcessWithTimeout -FilePath $python -ArgumentList @('-m','venv',$newRuntime) -TimeoutSeconds 180 -Step '创建 Python 虚拟环境'
@@ -452,8 +452,8 @@ $serviceXml=@"
   <workingdirectory>$InstallDir</workingdirectory>
   <startmode>Automatic</startmode>
   <depend>UGDCMS-PostgreSQL</depend>
+  <onfailure action="restart" delay="3 sec" />
   <onfailure action="restart" delay="10 sec" />
-  <onfailure action="restart" delay="30 sec" />
   <resetfailure>1 hour</resetfailure>
   <logpath>$InstallDir\logs</logpath>
   <log mode="roll-by-size"><sizeThreshold>10240</sizeThreshold><keepFiles>8</keepFiles></log>
@@ -550,7 +550,7 @@ if(Test-Path $legacyVenv){
 # 安装状态
 $status=@"
 InstalledAt=$(Get-Date -Format o)
-Version=1.0.0-rc2.26
+Version=1.0.0-rc2.27
 AppPort=$AppPort
 DatabasePort=$PgPort
 AppService=UGDCMS-App

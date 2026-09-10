@@ -35,8 +35,8 @@ purge_migration = (ROOT/'db'/'migrations'/'0017_purge_business_data_keep_account
 checks = {
     'versioned runtime pointer': 'CURRENT-RUNTIME.txt' in ps and 'CURRENT-RUNTIME.txt' in start,
     'versioned release pointer': 'CURRENT-RELEASE.txt' in ps and 'CURRENT-RELEASE.txt' in start,
-    'versioned runtime name': 'venv-1.0.0-rc2.26-' in ps,
-    'versioned release name': 'app-1.0.0-rc2.26-' in ps,
+    'versioned runtime name': 'venv-1.0.0-rc2.27-' in ps,
+    'versioned release name': 'app-1.0.0-rc2.27-' in ps,
     'stale app process cleanup': 'Stop-StaleAppProcesses' in ps,
     'application port owner check': 'Get-PortOwner $AppPort' in ps,
     'service failure log tail': 'UGDCMS-App.err.log' in ps and 'Get-Content $path -Tail 30' in ps,
@@ -57,13 +57,13 @@ checks = {
     'restore numeric progress UI': 'restore-progress-line' in extras and "percent.textContent=value+'%'" in extras,
     'restore completion UI': "title.textContent='恢复完成'" in extras and '恢复完成（100%）' in extras,
     'restore status probe': '@router.get("/system/restore/status")' in system_api,
-    'restore survives service stop': "Register-ScheduledTask -TaskName 'UGDCMS-Restore'" in system_api
-        and 'restore-restart.ps1' in system_api and "Stop-Service -Name 'UGDCMS-App'" in system_api
-        and "Start-Service -Name 'UGDCMS-App'" in system_api,
+    'restore uses service supervisor': 'os._exit(75)' in system_api
+        and 'UGDCMS-Restore-Restart' in system_api
+        and 'Register-ScheduledTask' not in system_api,
     'restore archive is collision-safe': 'applied-pending-restore-{suffix}.zip' in backup_service
         and 'os.replace(pending,applied)' in backup_service,
     'frontend upgrade invalidates cache': 'FreshStaticFiles' in main_api
-        and 'no-store, max-age=0' in main_api and '?v=rc2.26' in index_html,
+        and 'no-store, max-age=0' in main_api and '?v=rc2.27' in index_html,
     'business purge preserves accounts': 'TRUNCATE TABLE' in purge_migration
         and 'app_user' not in purge_migration.split('TRUNCATE TABLE', 1)[1].split('RESTART IDENTITY', 1)[0]
         and '账户保护校验失败' in purge_migration,

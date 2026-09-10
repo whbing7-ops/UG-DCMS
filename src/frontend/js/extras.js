@@ -62,21 +62,40 @@ export async function backupPage(ctx) {
       dialog=el('div',{class:'restore-dialog'}), box=el('div',{class:'restore-mask'},dialog);
     dialog.append(title,bar,el('div',{class:'restore-progress-line'},percent,elapsed),message,
       el('p',{class:'muted'},'服务重启期间显示预计进度；服务恢复后自动读取实际结果。'));
-    document.body.append(box); let done=false;
+    const retry=async()=>{
+      box.remove();
+      try{const r=await api.post('/system/restore/apply');await monitorRestore({message:r.message});}
+      catch(e){toast(e.message,'error');}
+    };
+    document.body.append(box); let done=false, unreachableSince=null;
     while(!done){
       const seconds=Math.floor((Date.now()-started)/1000); elapsed.textContent=`已耗时 ${seconds} 秒`;
       const estimated=Math.min(95,seconds<4?2:seconds<10?15:seconds<20?30:seconds<45?45:80);
       bar.value=estimated; percent.textContent=estimated+'%';
       try{
         const s=await api.get('/system/restore/status');
+        unreachableSince=null;
         const value=Number(s.progress||0); bar.value=value; percent.textContent=value+'%'; message.textContent=s.message||'正在恢复';
         if(s.state==='COMPLETED'){
           done=true; title.textContent='恢复完成'; bar.value=100; percent.textContent='100%';
           dialog.append(el('button',{class:'btn primary',onclick:()=>{box.remove();location.hash='#/login';location.reload();}},'重新登录系统'));
         }else if(s.state==='FAILED'){
-          done=true; title.textContent='恢复失败'; dialog.append(el('button',{class:'btn',onclick:()=>box.remove()},'关闭'));
+          done=true; title.textContent='恢复失败';
+          dialog.append(el('div',{class:'actions'},
+            el('button',{class:'btn danger',onclick:retry},'重试恢复'),
+            el('button',{class:'btn',onclick:()=>box.remove()},'关闭'));
         }
-      }catch(e){ message.textContent='应用服务正在重启并恢复数据，请勿关闭此页面…'; }
+      }catch(e){
+        unreachableSince??=Date.now();
+        message.textContent='应用服务正在重启并恢复数据，请勿关闭此页面…';
+        if(Date.now()-unreachableSince>10*60*1000){
+          done=true; title.textContent='恢复状态读取超时';
+          message.textContent='应用服务超过10分钟没有恢复连接。请检查 UGDCMS-App 服务和安装日志后重试。';
+          dialog.append(el('div',{class:'actions'},
+            el('button',{class:'btn danger',onclick:retry},'重试恢复'),
+            el('button',{class:'btn',onclick:()=>box.remove()},'关闭'));
+        }
+      }
       if(!done) await new Promise(resolve=>setTimeout(resolve,2000));
     }
   };

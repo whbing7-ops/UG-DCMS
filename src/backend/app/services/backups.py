@@ -50,7 +50,18 @@ def _restore_status(state: str, progress: int, message: str, **extra) -> dict:
 def restore_status() -> dict:
     path=_root()/"restore-status.json"
     if not path.exists(): return {"state":"IDLE","progress":0,"message":"当前没有恢复任务"}
-    try: return json.loads(path.read_text(encoding="utf-8"))
+    try:
+        data=json.loads(path.read_text(encoding="utf-8"))
+        # 如果 API 仍能响应而“正在重启”超过一分钟，说明服务退出机制没有生效。
+        # 将其转为明确失败，避免客户端永远停留在 2%。真正重启期间 API 不可达；
+        # 新进程启动后会立刻把状态推进为 RUNNING。
+        if data.get("state")=="RESTARTING":
+            updated=datetime.fromisoformat(str(data.get("updated_at","")))
+            if (datetime.now(timezone.utc)-updated).total_seconds()>60:
+                return _restore_status("FAILED",100,
+                    "应用服务未在60秒内重启。请确认 UGDCMS-App 服务的故障恢复设置后重试。",
+                    **{k:v for k,v in data.items() if k not in {"state","progress","message","updated_at"}})
+        return data
     except Exception: return {"state":"UNKNOWN","progress":0,"message":"恢复状态文件不可读"}
 
 

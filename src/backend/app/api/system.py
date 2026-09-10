@@ -4,6 +4,8 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import threading
+import time
 from pathlib import Path
 from fastapi import APIRouter, Depends, File, Form, UploadFile
 from fastapi.responses import FileResponse
@@ -17,6 +19,12 @@ from .. import audit, errors
 from ..services import backups
 
 router = APIRouter(tags=["系统"], route_class=TransactionalRoute)
+
+
+def _exit_for_managed_restore() -> None:
+    """让 WinSW 以非零退出码接管重启；延迟保证 HTTP 响应和审计事务已提交。"""
+    time.sleep(3)
+    os._exit(75)
 
 
 class BackupScheduleRequest(BaseModel):
@@ -159,29 +167,16 @@ def apply_restore(conn: Conn, actor: dict=Depends(require(Perm.SYSTEM_SETTING)))
       reason="管理员确认立即重启并恢复",session_id=str(actor.get("session_id")),client_ip=actor.get("client_ip"))
     marker=json.loads((root/"pending-restore.json").read_text(encoding="utf-8"))
     backups._restore_status("RESTARTING",2,"正在重启应用服务，准备执行恢复",**marker)
-    # 不能从 WinSW 服务的普通子进程执行 Restart-Service：WinSW 停止时会杀死整个
-    # 子进程树，命令只能执行到“停止”而永远到不了“启动”。交给 Task Scheduler 后，
-    # 恢复控制进程属于独立的 SYSTEM 任务，不受应用服务作业对象影响。
-    restart_script=root/"restore-restart.ps1"
-    restart_script.write_text(
-        "$ErrorActionPreference = 'Stop'\n"
-        "Start-Sleep -Seconds 3\n"
-        "Stop-Service -Name 'UGDCMS-App' -Force\n"
-        "Start-Sleep -Seconds 2\n"
-        "Start-Service -Name 'UGDCMS-App'\n"
-        "Unregister-ScheduledTask -TaskName 'UGDCMS-Restore' -Confirm:$false\n",
-        encoding="utf-8-sig",
-    )
-    script_arg=str(restart_script).replace("'","''")
-    setup=("$a=New-ScheduledTaskAction -Execute 'powershell.exe' "
-           f"-Argument '-NoProfile -ExecutionPolicy Bypass -File \"{script_arg}\"'; "
-           "$p=New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest; "
-           "Register-ScheduledTask -TaskName 'UGDCMS-Restore' -Action $a -Principal $p -Force | Out-Null; "
-           "Start-ScheduledTask -TaskName 'UGDCMS-Restore'")
+    # 恢复必须发生在数据库连接池建立之前。当前进程以专用非零代码退出后，
+    # WinSW 的 onfailure 负责重新拉起服务；新进程的 lifespan 会先执行待恢复任务。
+    # 这条链路不依赖任务计划程序，也不会出现“任务已登记但从未运行”的假成功。
     try:
-        subprocess.run(["powershell.exe","-NoProfile","-ExecutionPolicy","Bypass","-Command",setup],
-                       check=True,timeout=15,capture_output=True,text=True)
+        probe=subprocess.run(["sc.exe","query","UGDCMS-App"],check=False,timeout=10,
+                             capture_output=True,text=True)
+        if probe.returncode != 0:
+            raise RuntimeError("未检测到正在托管本应用的 Windows 服务")
     except Exception as exc:
-        backups._restore_status("FAILED",100,f"无法创建独立恢复任务：{exc}",**marker)
-        raise errors.bad_request("无法启动系统恢复任务，请检查 Windows 任务计划程序服务")
-    return {"message":"独立恢复任务已启动；应用服务即将重启"}
+        backups._restore_status("FAILED",100,f"无法启动恢复：{exc}",**marker)
+        raise errors.bad_request("无法启动系统恢复，请确认 UGDCMS-App Windows 服务已安装并正在运行")
+    threading.Thread(target=_exit_for_managed_restore,name="UGDCMS-Restore-Restart",daemon=True).start()
+    return {"message":"恢复命令已接受；应用服务将在3秒内重启并自动执行恢复"}
