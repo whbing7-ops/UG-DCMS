@@ -274,9 +274,9 @@ export async function software(ctx, params) {
       field("软件编号", numIn), field("名称", nameIn), field("类型", typeSel),
       el("div", { style: "flex:0 0 auto" }, el("button", { class: "btn primary",
         onclick: async () => {
-          try { await api.post("/software", { json: { software_number: numIn.value,
+          try { const created = await api.post("/software", { json: { software_number: numIn.value,
                   name_cn: nameIn.value, software_type: typeSel.value } });
-                toast("已登记"); reload(); }
+                toast("已登记"); location.hash = "#/software/" + encodeURIComponent(created.software_number); }
           catch (e) { toastError(e); } } }, "登记")))) : null,
     rows.length ? tablePanel("全部软件对象",
       table([{ label: "软件编号", mono: 1 }, { label: "名称" }, { label: "类型" },

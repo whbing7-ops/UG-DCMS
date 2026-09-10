@@ -213,7 +213,7 @@ with sync_playwright() as pw:
         page.get_by_label('文件号',exact=True).fill(file_number)
         page.get_by_label('名称',exact=True).fill('UI 文件验证')
         page.get_by_role('button',name='建立',exact=True).click()
-        page.get_by_role('link',name=file_number,exact=True).click()
+        expect(page.locator('.tb-code')).to_have_text(file_number)
         page.once('dialog',lambda d:d.accept('UI upload test'))
         page.get_by_role('button',name='新建版次').click()
         page.get_by_role('link',name='打开',exact=True).click()

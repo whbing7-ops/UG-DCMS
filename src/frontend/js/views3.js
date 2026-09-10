@@ -227,9 +227,9 @@ export async function files(ctx, params) {
     ctx.can("draft_write") ? panel("新建文件", el("div", { class: "inline-form" },
       field("文件号", numIn), field("文件类型", typeSel), field("名称", titleIn),
       el("div", { style: "flex:0 0 auto" }, el("button", { class: "btn primary", onclick: async () => {
-        try { await api.post("/files", { json: { file_number: numIn.value,
+        try { const created = await api.post("/files", { json: { file_number: numIn.value,
                 file_type_code: typeSel.value, title_cn: titleIn.value } });
-              toast("文件已建立"); reload(); }
+              toast("文件已建立"); location.hash = "#/file/" + encodeURIComponent(created.file_number); }
         catch (e) { toastError(e); } } }, "建立")))) : null,
     rows.length ? tablePanel("全部文件",
       table([{ label: "文件号", mono: 1 }, { label: "名称" }, { label: "类型" },
