@@ -75,6 +75,22 @@ def list_files(conn: psycopg.Connection, file_type_code: str | None = None,
           f"%{q}%" if q else None, f"%{q}%" if q else None))
 
 
+def page_files(conn: psycopg.Connection, file_type_code: str | None, q: str | None,
+               page: int, page_size: int) -> dict:
+    like = f"%{q}%" if q else None
+    args = (file_type_code, file_type_code, q, like, like)
+    where = """WHERE (%s::text IS NULL OR df.file_type_code=%s)
+      AND (%s::text IS NULL OR df.file_number ILIKE %s OR df.title_cn ILIKE %s)"""
+    total = scalar(conn, f"SELECT count(*) FROM design_file df {where}", args) or 0
+    items = fetch_all(conn, f"""SELECT df.id,df.file_number,df.file_type_code,df.title_cn,df.status,
+      fr.revision_number AS current_released_revision,
+      (SELECT count(*) FROM file_revision x WHERE x.design_file_id=df.id) AS revision_count
+      FROM design_file df LEFT JOIN file_revision fr ON fr.id=df.current_released_revision_id
+      {where} ORDER BY df.file_number LIMIT %s OFFSET %s""",
+      args + (page_size, (page - 1) * page_size))
+    return {"items": items, "total": total, "page": page, "page_size": page_size}
+
+
 # ---------------------------------------------------------------------
 # 版次
 # ---------------------------------------------------------------------

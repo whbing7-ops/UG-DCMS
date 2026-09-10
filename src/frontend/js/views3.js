@@ -4,7 +4,7 @@ import { editLine, rulePanel, snapshotTools, createApplicability } from "./bom-t
 import { reasonAction, approvalSubmitButton } from "./extras.js";
 import {
   el, table, tablePanel, panel, empty, status, statusText, codeText, field, input, select,
-  toast, toastError, fmtDate, link, askReason,
+  toast, toastError, fmtDate, link, askReason, pageControls,
 } from "./ui.js";
 
 const reload = () => window.dispatchEvent(new HashChangeEvent("hashchange"));
@@ -209,8 +209,11 @@ export async function whereUsed(ctx, params, code) {
 }
 
 /* ==================== 设计文件 ==================== */
-export async function files(ctx) {
-  const rows = await api.get("/files");
+export async function files(ctx, params) {
+  const page = Number(params.get("page") || 1), q = params.get("q") || "";
+  const result = await api.get("/files", { query: { page, page_size: 100, q } });
+  const rows = result.items;
+  const searchIn = input({ value: q, placeholder: "搜索文件号或名称" });
   const numIn = input({ class: "mono", placeholder: "UG-A10001M001" });
   const typeSel = select((await api.get("/dictionary/file-type"))
     .map(t => ({ value: t.code, label: `${t.code} ${t.name_cn}` })));
@@ -219,6 +222,8 @@ export async function files(ctx) {
   return el("div", {},
     el("h1", {}, "设计文件"),
     el("p", { class: "sub" }, "文件身份与版次分离。图号不变、内容改了，是新版次而不是新文件。"),
+    panel("查询", el("div", { class: "inline-form" }, field("关键词", searchIn),
+      el("button", { class: "btn", onclick: () => { location.hash = "#/files?" + new URLSearchParams({ q: searchIn.value.trim(), page: 1 }); } }, "查询"))),
     ctx.can("draft_write") ? panel("新建文件", el("div", { class: "inline-form" },
       field("文件号", numIn), field("文件类型", typeSel), field("名称", titleIn),
       el("div", { style: "flex:0 0 auto" }, el("button", { class: "btn primary", onclick: async () => {
@@ -234,7 +239,7 @@ export async function files(ctx) {
           el("td", {}, f.title_cn),
           el("td", { class: "muted" }, codeText(f.file_type_code)),
           el("td", { class: "mono" }, f.current_released_revision || "—"),
-          el("td", { class: "num" }, f.revision_count)]))
+          el("td", { class: "num" }, f.revision_count)]), pageControls(result, "/files", { q }))
       : empty("还没有设计文件"));
 }
 

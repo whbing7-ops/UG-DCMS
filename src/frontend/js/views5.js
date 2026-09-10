@@ -2,7 +2,7 @@
 import { api } from "./api.js";
 import { approvalSubmitButton } from "./extras.js";
 import {
-  el, table, tablePanel, panel, empty, status, statusText, codeText, field, input, select,
+  el, table, tablePanel, panel, empty, status, statusText, codeText, field, input, select, pageControls,
   toast, toastError, fmtDate, link, askReason,
 } from "./ui.js";
 
@@ -119,13 +119,16 @@ export async function approvalDetail(ctx, params, id) {
 }
 
 /* ==================== 外部件 ==================== */
-export async function externalParts(ctx) {
-  const [rows, namespaces, manufacturers, classes] = await Promise.all([
-    api.get("/external-parts"),
+export async function externalParts(ctx, params) {
+  const page = Number(params.get("page") || 1), q = params.get("q") || "";
+  const [result, namespaces, manufacturers, classes] = await Promise.all([
+    api.get("/external-parts", { query: { page, page_size: 100, q } }),
     api.get("/dictionary/namespace"),
     api.get("/dictionary/manufacturer"),
     api.get("/external-part-classes"),
   ]);
+  const rows = result.items;
+  const searchIn = input({ value: q, placeholder: "搜索对象编码、外部件号或名称" });
   const nsSel = select(namespaces.map(n => ({ value: n.code, label: `${n.code} ${n.name_cn}` })));
   const pnIn = input({ class: "mono", placeholder: "43025-0400" });
   const nameIn = input({ placeholder: "Micro-Fit 连接器壳体" });
@@ -139,6 +142,8 @@ export async function externalParts(ctx) {
     el("h1", {}, "外部件"),
     el("p", { class: "sub" },
       "同一件号在不同来源下是不同对象。供应商改版不改件号——改版登记为新的技术状态。"),
+    panel("查询", el("div", { class: "inline-form" }, field("关键词", searchIn),
+      el("button", { class: "btn", onclick: () => { location.hash = "#/external-parts?" + new URLSearchParams({ q: searchIn.value.trim(), page: 1 }); } }, "查询"))),
     ctx.can("draft_write") ? panel("登记外部件", el("div", {},
       el("div", { class: "inline-form" },
         field("来源", nsSel), field("外部件号", pnIn), field("名称", nameIn),
@@ -156,7 +161,7 @@ export async function externalParts(ctx) {
                   toast("已登记：" + r.object_code);
                   location.hash = "#/external/" + encodeURIComponent(r.object_code); }
             catch (e) { toastError(e); } } }, "登记"))))) : null,
-    rows.length ? tablePanel("全部外部件",
+    rows.length ? tablePanel("外部件列表",
       table([{ label: "对象编码", mono: 1 }, { label: "外部件号", mono: 1 },
              { label: "名称" }, { label: "分类" }, { label: "来源" }, { label: "技术状态数" },
              { label: "已接受版" }, { label: "状态" }],
@@ -168,7 +173,7 @@ export async function externalParts(ctx) {
           el("td", { class: "muted" }, r.namespace_code),
           el("td", { class: "num" }, r.state_count),
           el("td", { class: "num" }, r.accepted_state ?? "—"),
-          el("td", {}, status(r.lifecycle_status))]))
+          el("td", {}, status(r.lifecycle_status))]), pageControls(result, "/external-parts", { q }))
       : empty("还没有登记外部件"));
 }
 
@@ -249,8 +254,11 @@ export async function externalDetail(ctx, params, code) {
 }
 
 /* ==================== 软件对象 ==================== */
-export async function software(ctx) {
-  const rows = await api.get("/software");
+export async function software(ctx, params) {
+  const page = Number(params.get("page") || 1), q = params.get("q") || "";
+  const result = await api.get("/software", { query: { page, page_size: 100, q } });
+  const rows = result.items;
+  const searchIn = input({ value: q, placeholder: "搜索软件编号或名称" });
   const numIn = input({ class: "mono", placeholder: "UG-SW0001" });
   const nameIn = input({ placeholder: "照明控制固件" });
   const typeSel = select([
@@ -260,6 +268,8 @@ export async function software(ctx) {
   return el("div", {},
     el("h1", {}, "软件对象"),
     el("p", { class: "sub" }, "软件编号是身份，版本是技术状态。改版不改编号。"),
+    panel("查询", el("div", { class: "inline-form" }, field("关键词", searchIn),
+      el("button", { class: "btn", onclick: () => { location.hash = "#/software?" + new URLSearchParams({ q: searchIn.value.trim(), page: 1 }); } }, "查询"))),
     ctx.can("draft_write") ? panel("登记软件对象", el("div", { class: "inline-form" },
       field("软件编号", numIn), field("名称", nameIn), field("类型", typeSel),
       el("div", { style: "flex:0 0 auto" }, el("button", { class: "btn primary",
@@ -277,7 +287,7 @@ export async function software(ctx) {
           el("td", { class: "muted" }, r.software_type),
           el("td", { class: "mono" }, r.current_version || "—"),
           el("td", { class: "num" }, r.version_count),
-          el("td", {}, status(r.lifecycle_status))]))
+          el("td", {}, status(r.lifecycle_status))]), pageControls(result, "/software", { q }))
       : empty("还没有软件对象"));
 }
 

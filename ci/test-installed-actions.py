@@ -129,6 +129,15 @@ with sync_playwright() as pw:
         page.get_by_role('button',name='修改口令',exact=True).click()
         expect(page.locator('.nav')).to_be_visible()
 
+        nav(page,'/external-parts')
+        expect(page.get_by_role('heading',name='外部件',exact=True)).to_be_visible()
+        expect(page.get_by_text('第 1 /',exact=False)).to_be_visible()
+        assert page.locator('tbody tr').count() <= 100
+        page.get_by_label('关键词').fill('SUP-0000063')
+        page.get_by_role('button',name='查询',exact=True).click()
+        expect(page.locator('tbody tr')).to_have_count(1)
+        mark('large-list/external-parts-paged-filtered-responsive')
+
         nav(admin,'/dictionary')
         admin.get_by_label('字典',exact=True).select_option('manufacturer')
         dictionary_row=admin.locator('tbody tr').first

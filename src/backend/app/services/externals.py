@@ -50,6 +50,30 @@ def list_external(conn: psycopg.Connection, namespace_code: str | None = None,
           f"%{q}%" if q else None, f"%{q}%" if q else None))
 
 
+def page_external(conn: psycopg.Connection, namespace_code: str | None = None,
+                  q: str | None = None, page: int = 1, page_size: int = 100) -> dict:
+    where = """WHERE (%s::text IS NULL OR n.code = %s)
+           AND (%s::text IS NULL OR ep.external_part_number ILIKE %s
+                OR ep.name_cn ILIKE %s OR d.object_code ILIKE %s)"""
+    like = f"%{q}%" if q else None
+    args = (namespace_code, namespace_code, q, like, like, like)
+    total = scalar(conn, f"""SELECT count(*) FROM external_part ep
+          JOIN design_object d ON d.id=ep.design_object_id
+          JOIN namespace n ON n.id=ep.namespace_id {where}""", args) or 0
+    items = fetch_all(conn, f"""SELECT ep.id,d.object_code,ep.external_part_number,ep.name_cn,
+          n.code AS namespace_code,n.name_cn AS namespace_name,m.code AS manufacturer_code,
+          ep.lifecycle_status,ep.external_class_code,ec.name_cn AS external_class_name,
+          (SELECT count(*) FROM external_technical_state x WHERE x.external_part_id=ep.id) AS state_count,
+          (SELECT max(state_sequence) FROM external_technical_state x
+            WHERE x.external_part_id=ep.id AND x.status='ACCEPTED') AS accepted_state
+          FROM external_part ep JOIN design_object d ON d.id=ep.design_object_id
+          JOIN namespace n ON n.id=ep.namespace_id LEFT JOIN manufacturer m ON m.id=ep.manufacturer_id
+          JOIN external_part_class ec ON ec.code=ep.external_class_code {where}
+          ORDER BY n.code,ep.external_part_number LIMIT %s OFFSET %s""",
+          args + (page_size, (page - 1) * page_size))
+    return {"items": items, "total": total, "page": page, "page_size": page_size}
+
+
 def create_external(conn: psycopg.Connection, *, namespace_code: str,
                     external_part_number: str, name_cn: str, name_en: str | None,
                     manufacturer_code: str | None, external_class_code: str,
@@ -371,6 +395,22 @@ def list_software(conn: psycopg.Connection, q: str | None = None) -> list[dict]:
          WHERE (%s::text IS NULL OR so.software_number ILIKE %s OR so.name_cn ILIKE %s)
          ORDER BY so.software_number
     """, (q, f"%{q}%" if q else None, f"%{q}%" if q else None))
+
+
+def page_software(conn: psycopg.Connection, q: str | None, page: int, page_size: int) -> dict:
+    like = f"%{q}%" if q else None
+    args = (q, like, like)
+    total = scalar(conn, """SELECT count(*) FROM software_object so
+      WHERE (%s::text IS NULL OR so.software_number ILIKE %s OR so.name_cn ILIKE %s)""", args) or 0
+    items = fetch_all(conn, """SELECT so.id,d.object_code,so.software_number,so.name_cn,
+      so.software_type,so.lifecycle_status,sv.version AS current_version,
+      (SELECT count(*) FROM software_version x WHERE x.software_object_id=so.id) AS version_count
+      FROM software_object so JOIN design_object d ON d.id=so.design_object_id
+      LEFT JOIN software_version sv ON sv.id=so.current_version_id
+      WHERE (%s::text IS NULL OR so.software_number ILIKE %s OR so.name_cn ILIKE %s)
+      ORDER BY so.software_number LIMIT %s OFFSET %s""",
+      args + (page_size, (page - 1) * page_size))
+    return {"items": items, "total": total, "page": page, "page_size": page_size}
 
 
 def create_software(conn: psycopg.Connection, *, software_number: str, name_cn: str,

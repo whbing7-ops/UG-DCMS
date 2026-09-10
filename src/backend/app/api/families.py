@@ -87,7 +87,10 @@ def similar_search(payload: SimilarSearchRequest, conn: Conn, user: CurrentUser)
 @router.get("/families")
 def list_families(conn: Conn, user: CurrentUser,
                   primary_class_code: str | None = None,
-                  status: str | None = None, q: str | None = None):
+                  status: str | None = None, q: str | None = None,
+                  page: int | None = Query(None, ge=1), page_size: int = Query(100, ge=20, le=200)):
+    if page is not None:
+        return fam_svc.page_families(conn, primary_class_code, status, q, page, page_size)
     return fam_svc.list_families(conn, primary_class_code, status, q)
 
 

@@ -68,7 +68,10 @@ def external_part_classes(conn: Conn, user: CurrentUser):
 
 @router.get("/external-parts")
 def list_external(conn: Conn, user: CurrentUser,
-                  namespace_code: str | None = None, q: str | None = None):
+                  namespace_code: str | None = None, q: str | None = None,
+                  page: int | None = Query(None, ge=1), page_size: int = Query(100, ge=20, le=200)):
+    if page is not None:
+        return ext_svc.page_external(conn, namespace_code, q, page, page_size)
     return ext_svc.list_external(conn, namespace_code, q)
 
 
@@ -175,7 +178,10 @@ def approve_project_control(control_id:str,conn:Conn,comments:str=Query("同意�
 
 # ---------------- 软件对象 ----------------
 @router.get("/software")
-def list_software(conn: Conn, user: CurrentUser, q: str | None = None):
+def list_software(conn: Conn, user: CurrentUser, q: str | None = None,
+                  page: int | None = Query(None, ge=1), page_size: int = Query(100, ge=20, le=200)):
+    if page is not None:
+        return ext_svc.page_software(conn, q, page, page_size)
     return ext_svc.list_software(conn, q)
 
 

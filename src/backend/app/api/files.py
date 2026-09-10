@@ -43,7 +43,10 @@ class DefinitionLinkRequest(BaseModel):
 # ---------------- 文件 ----------------
 @router.get("/files")
 def list_files(conn: Conn, user: CurrentUser,
-               file_type_code: str | None = None, q: str | None = None):
+               file_type_code: str | None = None, q: str | None = None,
+               page: int | None = Query(None, ge=1), page_size: int = Query(100, ge=20, le=200)):
+    if page is not None:
+        return file_svc.page_files(conn, file_type_code, q, page, page_size)
     return file_svc.list_files(conn, file_type_code, q)
 
 

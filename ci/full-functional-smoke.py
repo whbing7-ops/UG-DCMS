@@ -125,6 +125,14 @@ def main() -> None:
     admin.get("/admin/sessions")
     admin.get("/admin/license")
     admin.get("/admin/audit?limit=10")
+    for path in ("/external-parts?page=1&page_size=100", "/software?page=1&page_size=100",
+                 "/files?page=1&page_size=100", "/families?page=1&page_size=100"):
+        paged = engineer.get(path)
+        check(set(("items", "total", "page", "page_size")).issubset(paged),
+              f"paged list contract incomplete: {path}")
+        check(len(paged["items"]) <= 100 and paged["page"] == 1,
+              f"paged list is not bounded: {path}")
+    results.append("large-lists/server-pagination-bounded")
     backup_state = admin.get("/system/backups")
     check("schedule" in backup_state and "backups" in backup_state and "restore_pending" in backup_state,
           "backup management contract incomplete")

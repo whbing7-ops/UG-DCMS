@@ -125,6 +125,15 @@ export function tablePanel(title, node, headActions) {
     el("div", { class: "table-scroll" }, node || empty("暂无数据")));
 }
 
+export function pageControls(data, route, query = {}) {
+  const pages = Math.max(1, Math.ceil(data.total / data.page_size));
+  const go = p => "#" + route + "?" + new URLSearchParams({ ...query, page: p });
+  return el("div", { class: "actions" },
+    data.page > 1 ? link("上一页", go(data.page - 1), "btn small") : null,
+    el("span", { class: "muted" }, `第 ${data.page} / ${pages} 页，共 ${data.total} 条`),
+    data.page < pages ? link("下一页", go(data.page + 1), "btn small") : null);
+}
+
 let fieldId = 0;
 export function field(label, control) {
   if (!control.id) control.id = "field-" + (++fieldId);

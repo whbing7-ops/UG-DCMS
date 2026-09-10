@@ -4,15 +4,20 @@ import { editor } from "./manage.js";
 import { approvalSubmitButton } from "./extras.js";
 import {
   el, table, tablePanel, panel, empty, status, statusText, field, input, select,
-  toast, toastError, fmtDate, link, askReason,
+  toast, toastError, fmtDate, link, askReason, pageControls,
 } from "./ui.js";
 
 /* ==================== 设计族列表与向导 ==================== */
-export async function families() {
-  const rows = await api.get("/families");
+export async function families(ctx, params) {
+  const page = Number(params.get("page") || 1), q = params.get("q") || "";
+  const result = await api.get("/families", { query: { page, page_size: 100, q } });
+  const rows = result.items;
+  const searchIn = input({ value: q, placeholder: "搜索基本图号或名称" });
   return el("div", {},
     el("h1", {}, "设计族"),
     el("p", { class: "sub" }, "基本图号对应一个设计族。族内用 Dash 号区分具体规格。"),
+    panel("查询", el("div", { class: "inline-form" }, field("关键词", searchIn),
+      el("button", { class: "btn", onclick: () => { location.hash = "#/families?" + new URLSearchParams({ q: searchIn.value.trim(), page: 1 }); } }, "查询"))),
     el("div", { class: "actions" },
       el("a", { class: "btn primary", href: "#/family-new" }, "新建设计族")),
     rows.length ? tablePanel("全部设计族",
@@ -25,7 +30,7 @@ export async function families() {
           el("td", { class: "mono" }, r.primary_class_code),
           el("td", { class: "mono muted" }, r.physical_class_code),
           el("td", { class: "num" }, r.dash_count),
-          el("td", {}, status(r.status))]))
+          el("td", {}, status(r.status))]), pageControls(result, "/families", { q }))
       : empty("还没有设计族", "新建设计族前，系统会先带你检索是否已有可复用的族。"));
 }
 
