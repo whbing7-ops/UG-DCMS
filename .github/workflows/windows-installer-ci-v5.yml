@@ -9,7 +9,7 @@ on:
       - '.github/workflows/windows-installer-ci-v5.yml'
 
 concurrency:
-  group: ug-dcms-rc226
+  group: ug-dcms-rc227
   cancel-in-progress: true
 
 jobs:
