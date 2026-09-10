@@ -3,8 +3,9 @@ on:
   workflow_dispatch:
   push:
     paths:
-      - 'ci/frontend/**'
-      - 'ci/backend/**'
+      - 'src/frontend/**'
+      - 'src/backend/**'
+      - 'src/db/migrations/**'
       - 'ci/test-installed-actions.py'
       - 'ci/test-ui-interactions.cjs'
       - 'ci/full-functional-smoke.py'
@@ -32,8 +33,10 @@ jobs:
       DCMS_PG_DATABASE: dcms
       DCMS_FRONTEND_ROOT: ${{ github.workspace }}/src/frontend
       DCMS_STORAGE_ROOT: ${{ github.workspace }}/ui-evidence/uploads
+      DCMS_BACKUP_ROOT: ${{ github.workspace }}/ui-evidence/backups
       DCMS_BROWSER_PATH: /usr/bin/google-chrome
       PGPASSWORD: ci-only-pg
+      DCMS_BCRYPT_ROUNDS: '4'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -41,16 +44,6 @@ jobs:
           python-version: '3.12'
       - name: Prepare the same application sources used by the installer
         run: |
-          mkdir src
-          unzip -q ci/rc210_ci_payload.zip -d src
-          cp -R ci/frontend/. src/frontend/
-          cp -R ci/backend/. src/backend/
-          python - <<'PY'
-          from pathlib import Path
-          patch=Path('ci/patch-auth-compat.ps1').read_text()
-          sql=patch.split("$sql = @'",1)[1].split("\n'@",1)[0]
-          Path('src/db/migrations/0013_auth_runtime_compat.sql').write_text(sql)
-          PY
           for f in src/db/migrations/*.sql; do
             psql -h 127.0.0.1 -U dcms -d dcms -v ON_ERROR_STOP=1 -f "$f" > /dev/null
           done
