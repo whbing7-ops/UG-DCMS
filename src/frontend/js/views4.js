@@ -180,7 +180,7 @@ export async function baselineCompare(ctx, params, a, b) {
 /* ==================== 数据质量 ==================== */
 export async function quality(ctx) {
   const [issues, rules, integrity] = await Promise.all([
-    api.get("/quality/issues", { query: { limit: 500 } }),
+    api.get("/quality/issues", { query: { limit: 200 } }),
     api.get("/quality/rules"),
     ctx.can('read_audit') ? api.get('/integrity/issues') : [],
   ]);
@@ -199,7 +199,7 @@ export async function quality(ctx) {
               reload(); }
         catch (e) { toastError(e); } } }, "重新扫描") : null),
 
-    issues.length ? tablePanel(`待处置 ${issues.length} 项`,
+    issues.length ? tablePanel(`待处置（当前显示 ${issues.length} 项，最多 200 项）`,
       table([{ label: "级别" }, { label: "规则" }, { label: "说明" },
              { label: "发现时间" }, { label: "" }],
         issues, i => [
@@ -250,6 +250,8 @@ export async function reports() {
     el("h1", {}, "统计"),
     el("p", { class: "sub" }, "用于判断号码空间是否吃紧、分类词典是否需要复查。"),
     panel("最近 90 天发布活动", recordView(activity)),
+    numbers.occupied_total > numbers.display_limit ? el("div", { class: "note warn" },
+      `基本图号已占用 ${numbers.occupied_total} 个，当前仅展示前 ${numbers.display_limit} 个。请按分类查询明细。`) : null,
     panel("基本图号占用", recordView(numbers)),
     fallback.length ? el("div", { class: "note warn" },
       "有设计族选用了“其他”类分类：",

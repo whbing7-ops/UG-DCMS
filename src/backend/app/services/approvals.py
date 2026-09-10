@@ -124,6 +124,7 @@ def inbox(conn: psycopg.Connection, user: dict) -> list[dict]:
                 OR (s.assignee_user_id IS NULL AND s.required_role_code = ANY(%s)))
            AND ar.requester_id <> %s
          ORDER BY ar.requested_at
+         LIMIT 200
     """, (user["user_id"], roles, user["user_id"]))
 
 
@@ -139,7 +140,7 @@ def my_requests(conn: psycopg.Connection, user: dict, include_closed: bool = Fal
 
 def all_pending(conn: psycopg.Connection) -> list[dict]:
     return fetch_all(conn, _base_query() + """
-         WHERE ar.status = 'PENDING' ORDER BY ar.requested_at
+         WHERE ar.status = 'PENDING' ORDER BY ar.requested_at LIMIT 500
     """)
 
 

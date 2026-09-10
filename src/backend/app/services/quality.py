@@ -425,6 +425,7 @@ def number_utilization(conn: psycopg.Connection) -> list[dict]:
          GROUP BY f.id, f.basic_drawing_number, f.family_name_cn, f.status
         HAVING count(na.id) > 0
          ORDER BY occupied DESC
+         LIMIT 500
     """)
 
 

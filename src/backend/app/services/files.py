@@ -466,6 +466,7 @@ def open_integrity_issues(conn: psycopg.Connection) -> list[dict]:
           FROM data_quality_issue
          WHERE rule_code = 'DQ-FILE-001' AND status = 'OPEN'
          ORDER BY detected_at DESC
+         LIMIT 200
     """)
 
 

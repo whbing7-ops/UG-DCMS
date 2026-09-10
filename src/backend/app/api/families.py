@@ -219,6 +219,6 @@ def basic_drawing_numbers(conn: Conn, user: CurrentUser,
     if primary_class_code:
         prefix = numbering.CLASS_PREFIX.get(primary_class_code, "")
         rows = [r for r in rows if r["allocated_number"].startswith(prefix)]
-    return {"occupied": rows,
+    return {"occupied": rows[:500], "occupied_total": len(rows), "display_limit": 500,
             "next_sequence": numbering.next_available(
                 conn, "BASIC_DRAWING", None, numbering.BASIC_MIN, numbering.BASIC_MAX)}
