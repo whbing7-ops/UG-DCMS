@@ -17,6 +17,16 @@ from .guards import RequestGuardMiddleware
 from .db import close_pool, init_pool
 
 
+class FreshStaticFiles(StaticFiles):
+    """交付升级后禁止浏览器继续使用旧版离线前端资源。"""
+    async def get_response(self, path, scope):
+        response = await super().get_response(path, scope)
+        if path.endswith((".html", ".js", ".css")) or "." not in Path(path).name:
+            response.headers["Cache-Control"] = "no-store, max-age=0"
+            response.headers["Pragma"] = "no-cache"
+        return response
+
+
 @contextlib.asynccontextmanager
 async def lifespan(app: FastAPI):
     from .services import backups
@@ -61,7 +71,7 @@ def create_app() -> FastAPI:
     # Docker 部署仍由 Nginx 托管，不受影响。
     frontend = Path(s.frontend_root) if s.frontend_root else Path(__file__).resolve().parents[2] / "frontend"
     if frontend.is_dir():
-        app.mount("/", StaticFiles(directory=str(frontend), html=True), name="frontend")
+        app.mount("/", FreshStaticFiles(directory=str(frontend), html=True), name="frontend")
     return app
 
 

@@ -27,12 +27,15 @@ build = (ROOT/'installer'/'Build-Setup.ps1').read_text(encoding='utf-8-sig')
 extras = (ROOT/'frontend'/'js'/'extras.js').read_text(encoding='utf-8-sig')
 ui = (ROOT/'frontend'/'js'/'ui.js').read_text(encoding='utf-8-sig')
 system_api = (ROOT/'backend'/'app'/'api'/'system.py').read_text(encoding='utf-8-sig')
+backup_service = (ROOT/'backend'/'app'/'services'/'backups.py').read_text(encoding='utf-8-sig')
+main_api = (ROOT/'backend'/'app'/'main.py').read_text(encoding='utf-8-sig')
+index_html = (ROOT/'frontend'/'index.html').read_text(encoding='utf-8-sig')
 
 checks = {
     'versioned runtime pointer': 'CURRENT-RUNTIME.txt' in ps and 'CURRENT-RUNTIME.txt' in start,
     'versioned release pointer': 'CURRENT-RELEASE.txt' in ps and 'CURRENT-RELEASE.txt' in start,
-    'versioned runtime name': 'venv-1.0.0-rc2.23-' in ps,
-    'versioned release name': 'app-1.0.0-rc2.23-' in ps,
+    'versioned runtime name': 'venv-1.0.0-rc2.24-' in ps,
+    'versioned release name': 'app-1.0.0-rc2.24-' in ps,
     'stale app process cleanup': 'Stop-StaleAppProcesses' in ps,
     'application port owner check': 'Get-PortOwner $AppPort' in ps,
     'service failure log tail': 'UGDCMS-App.err.log' in ps and 'Get-Content $path -Tail 30' in ps,
@@ -56,6 +59,10 @@ checks = {
     'restore survives service stop': "Register-ScheduledTask -TaskName 'UGDCMS-Restore'" in system_api
         and 'restore-restart.ps1' in system_api and "Stop-Service -Name 'UGDCMS-App'" in system_api
         and "Start-Service -Name 'UGDCMS-App'" in system_api,
+    'restore archive is collision-safe': 'applied-pending-restore-{suffix}.zip' in backup_service
+        and 'os.replace(pending,applied)' in backup_service,
+    'frontend upgrade invalidates cache': 'FreshStaticFiles' in main_api
+        and 'no-store, max-age=0' in main_api and '?v=rc2.24' in index_html,
     'upgrade pointer rollback': '已恢复上一版本 Release/Runtime 指针' in ps,
     'legacy start script rollback': '$previousStartNativeContent' in ps,
     'runtime import checks app': 'verify-runtime.py' in ps and 'RUNTIME-VERIFIED.txt' in ps,

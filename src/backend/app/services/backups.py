@@ -138,7 +138,14 @@ def apply_pending_restore() -> None:
                 if live.exists(): shutil.rmtree(live)
                 if old.exists(): os.replace(old,live)
                 raise
-        pending.rename(root/("applied-"+pending.name)); marker.unlink(missing_ok=True)
+        # Windows 的 Path.rename 在目标存在时会报 WinError 183。每次恢复使用
+        # 排队时间生成唯一归档名，并以 os.replace 完成原子移动；重复执行同一任务
+        # 也不会因为上一次留下的固定文件名而失败。
+        queued=str(meta.get("queued_at") or datetime.now(timezone.utc).isoformat())
+        suffix="".join(c for c in queued if c.isdigit())[:20] or datetime.now().strftime("%Y%m%d%H%M%S")
+        applied=root/f"applied-pending-restore-{suffix}.zip"
+        applied.unlink(missing_ok=True)
+        os.replace(pending,applied); marker.unlink(missing_ok=True)
         _restore_status("COMPLETED",100,"恢复完成，可以重新登录系统",
                         completed_at=datetime.now(timezone.utc).isoformat(),**meta)
     except Exception as exc:
