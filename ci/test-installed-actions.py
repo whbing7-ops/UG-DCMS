@@ -133,7 +133,9 @@ with sync_playwright() as pw:
         expect(page.get_by_role('heading',name='外部件',exact=True)).to_be_visible()
         expect(page.get_by_text('第 1 /',exact=False)).to_be_visible()
         assert page.locator('tbody tr').count() <= 100
-        page.get_by_label('关键词').fill('SUP-0000063')
+        # 业务库清空后不再依赖 0015 的固定演示件；使用前序功能冒烟
+        # 自建的唯一外部件验证分页筛选。
+        page.get_by_label('关键词').fill('CI-EXT-')
         page.get_by_role('button',name='查询',exact=True).click()
         expect(page.locator('tbody tr')).to_have_count(1)
         mark('large-list/external-parts-paged-filtered-responsive')
