@@ -4,7 +4,7 @@ import { editor } from "./manage.js";
 import { reasonAction, approvalSubmitButton } from "./extras.js";
 import { recordView } from "./bom-tools.js";
 import {
-  el, table, tablePanel, panel, empty, status, field, input, select,
+  el, table, tablePanel, panel, empty, status, statusText, field, input, select,
   toast, toastError, fmtDate, link, askReason,
 } from "./ui.js";
 
@@ -13,6 +13,8 @@ const ITEM_CN = { FILE_REVISION: "文件版次", BOM_SNAPSHOT: "BOM 快照",
                   EXTERNAL_TECHNICAL_STATE: "外部件技术状态", SOFTWARE_VERSION: "软件版本" };
 const ROLE_CN = { PRIMARY_DEFINITION: "主设计定义", SUPPORTING_DEFINITION: "支持性定义",
                   INTERFACE_DEFINITION: "接口定义", QUALIFICATION_EVIDENCE: "鉴定证据" };
+const BASELINE_CN = { FUNCTIONAL:'功能基线', ALLOCATED:'分配基线', DESIGN:'设计基线',
+                      PRODUCT:'产品基线', AS_BUILT:'实造基线' };
 
 /* ==================== 基线列表 ==================== */
 export async function baselines(ctx, params, pn) {
@@ -87,10 +89,10 @@ export async function baselineDetail(ctx, params, id) {
         el("span", { class: "tb-code" }, bl.baseline_code),
         el("span", { class: "tb-name" }, `${bl.full_part_number} · ${bl.formal_name_cn}`)),
       el("div", { class: "tb-grid" },
-        cell("状态", bl.status),
+        cell("状态", statusText(bl.status)),
         cell("是否当前", bl.is_current ? "是" : "否"),
         cell("原因", bl.reason),
-        cell("基线类型", bl.baseline_type),
+        cell("基线类型", BASELINE_CN[bl.baseline_type] || bl.baseline_type),
         cell("项目编号", bl.project_code, true),
         cell("范围说明", bl.scope_note),
         cell("变更依据", bl.change_reference),

@@ -125,6 +125,12 @@ def main() -> None:
     admin.get("/admin/sessions")
     admin.get("/admin/license")
     admin.get("/admin/audit?limit=10")
+    backup_state = admin.get("/system/backups")
+    check("schedule" in backup_state and "backups" in backup_state and "restore_pending" in backup_state,
+          "backup management contract incomplete")
+    admin.put("/system/backup-schedule", {
+        "enabled": False, "frequency": "DAILY", "hour": 2, "weekday": 6, "retention": 14,
+    })
     results.append("navigation/all-top-level-data-contracts")
 
     pcs = engineer.get("/dictionary/physical-class")

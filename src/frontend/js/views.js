@@ -2,7 +2,7 @@
 import { api, ApiError } from "./api.js";
 import { definitionButton } from "./extras.js";
 import {
-  el, table, tablePanel, panel, empty, status, field, input, select,
+  el, table, tablePanel, panel, empty, status, statusText, codeText, field, input, select,
   toast, toastError, fmtDate, link, askReason, clear,
 } from "./ui.js";
 
@@ -96,7 +96,7 @@ export async function search(ctx, params) {
               el("td", {}, status(x.lifecycle_status)),
               el("td", { class: "muted nowrap" },
                  MATCH_CN[x.match_type] || x.match_type,
-                 x.matched_via ? el("div", { class: "mono muted" }, x.matched_via) : null)])));
+                 x.matched_via ? el("div", { class: "mono muted" }, codeText(x.matched_via)) : null)])));
   } else {
     results.append(empty("输入内容开始查找",
       "支持完整编号、名称片段、历史件号、附件文件名，以及可提取的附件正文。"));
@@ -145,13 +145,13 @@ export async function objectDetail(ctx, params, code) {
         el("span", { class: "tb-code" }, obj.object_code),
         el("span", { class: "tb-name" }, obj.display_name)),
       el("div", { class: "tb-grid" },
-        cell("生命周期状态", obj.lifecycle_status),
+        cell("生命周期状态", statusText(obj.lifecycle_status)),
         cell("对象类型", KIND_CN[obj.object_type] || obj.object_type),
         cell("基本图号", obj.basic_drawing_number, true),
         cell("设计族名称", obj.family_name_cn),
         cell("当前基线", obj.current_baseline_code, true),
         cell("数据来源", obj.data_origin === "LEGACY" ? "历史迁移" : "系统内建立"),
-        cell("数据成熟度", obj.data_maturity),
+        cell("数据成熟度", codeText(obj.data_maturity)),
         cell("建立时间", fmtDate(obj.created_at)))),
 
     obj.quality_issues.length ? el("div", { class: "note error" },
@@ -168,7 +168,7 @@ export async function objectDetail(ctx, params, code) {
       tablePanel("交叉引用",
         table([{ label: "类型" }, { label: "编号", mono: 1 }],
           obj.cross_references, c => [
-            el("td", { class: "nowrap" }, c.reference_type),
+            el("td", { class: "nowrap" }, codeText(c.reference_type)),
             el("td", { class: "mono" }, c.reference_value)]))),
 
     tablePanel('关联设计文件', table([{label:'文件号'},{label:'名称'},{label:'关联角色'}], definitions, d => [

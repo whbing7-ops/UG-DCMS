@@ -3,7 +3,7 @@ import { api } from "./api.js";
 import { editLine, rulePanel, snapshotTools, createApplicability } from "./bom-tools.js";
 import { reasonAction, approvalSubmitButton } from "./extras.js";
 import {
-  el, table, tablePanel, panel, empty, status, field, input, select,
+  el, table, tablePanel, panel, empty, status, statusText, codeText, field, input, select,
   toast, toastError, fmtDate, link, askReason,
 } from "./ui.js";
 
@@ -232,7 +232,7 @@ export async function files(ctx) {
         rows, f => [
           el("td", { class: "mono" }, link(f.file_number, "#/file/" + encodeURIComponent(f.file_number))),
           el("td", {}, f.title_cn),
-          el("td", { class: "mono muted" }, f.file_type_code),
+          el("td", { class: "muted" }, codeText(f.file_type_code)),
           el("td", { class: "mono" }, f.current_released_revision || "—"),
           el("td", { class: "num" }, f.revision_count)]))
       : empty("还没有设计文件"));
@@ -260,8 +260,8 @@ export async function fileDetail(ctx, params, num) {
         el("span", { class: "tb-code" }, f.file_number),
         el("span", { class: "tb-name" }, f.title_cn)),
       el("div", { class: "tb-grid" },
-        cell("文件类型", f.file_type_code, true),
-        cell("状态", f.status),
+        cell("文件类型", codeText(f.file_type_code)),
+        cell("状态", statusText(f.status)),
         cell("当前发布版次", f.current_released_revision, true),
         cell("建立时间", fmtDate(f.created_at)))),
     acts,
@@ -329,7 +329,7 @@ export async function revisionDetail(ctx, params, id) {
       table([{ label: "用途" }, { label: "文件名" }, { label: "大小" },
              { label: "SHA-256", mono: 1 }, { label: "完整性" }, { label: "" }],
         r.attachments, a => [
-          el("td", { class: "nowrap" }, a.attachment_role),
+          el("td", { class: "nowrap" }, codeText(a.attachment_role)),
           el("td", {}, a.filename),
           el("td", { class: "num" }, (a.size_bytes / 1024).toFixed(1) + " KB"),
           el("td", { class: "mono muted" }, a.sha256.slice(0, 16) + "…"),

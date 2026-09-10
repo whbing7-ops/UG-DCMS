@@ -1,6 +1,9 @@
 """健康检查与系统自证端点。"""
 from __future__ import annotations
 
+import json
+import os
+import subprocess
 from pathlib import Path
 from fastapi import APIRouter, Depends, File, Form, UploadFile
 from fastapi.responses import FileResponse
@@ -79,8 +82,10 @@ def dictionary_status(conn: Conn, user: CurrentUser):
 
 @router.get("/system/backups")
 def backup_list(conn: Conn, actor: dict = Depends(require(Perm.SYSTEM_SETTING))):
+    marker=Path(backups._root())/"pending-restore.json"
+    pending=json.loads(marker.read_text(encoding="utf-8")) if marker.exists() else None
     return {"schedule": backups.schedule(), "backups": backups.list_backups(),
-            "restore_pending": (Path(backups._root())/"pending-restore.json").exists()}
+            "restore_pending": pending}
 
 
 @router.post("/system/backups", status_code=201)
@@ -122,3 +127,31 @@ async def restore(conn: Conn, file: UploadFile=File(...), confirmation: str=Form
       username=actor["username"],object_type="SYSTEM_BACKUP",object_code=file.filename,
       new_value=info,reason="管理员确认恢复",session_id=str(actor.get("session_id")),client_ip=actor.get("client_ip"))
     return {"message":"恢复任务已校验并排队；重启UG-DCMS服务后自动执行，执行前会先生成恢复前备份",**info}
+
+
+@router.delete("/system/restore")
+def cancel_restore(conn: Conn, actor: dict=Depends(require(Perm.SYSTEM_SETTING))):
+    root=Path(backups._root()); removed=False
+    for name in ("pending-restore.zip","pending-restore.json"):
+        p=root/name
+        if p.exists(): p.unlink(); removed=True
+    audit.write(conn,action="SYSTEM_RESTORE_CANCEL",user_id=str(actor["user_id"]),
+      username=actor["username"],object_type="SYSTEM_BACKUP",object_code="pending-restore",
+      new_value={"removed":removed},session_id=str(actor.get("session_id")),client_ip=actor.get("client_ip"))
+    return {"message":"待执行的恢复任务已取消"}
+
+
+@router.post("/system/restore/apply", status_code=202)
+def apply_restore(conn: Conn, actor: dict=Depends(require(Perm.SYSTEM_SETTING))):
+    root=Path(backups._root())
+    if not (root/"pending-restore.zip").exists() or not (root/"pending-restore.json").exists():
+        raise errors.bad_request("没有等待执行的恢复任务")
+    if os.name != "nt": raise errors.bad_request("立即执行恢复仅适用于Windows服务部署")
+    audit.write(conn,action="SYSTEM_RESTORE_APPLY",user_id=str(actor["user_id"]),
+      username=actor["username"],object_type="SYSTEM_BACKUP",object_code="pending-restore",
+      reason="管理员确认立即重启并恢复",session_id=str(actor.get("session_id")),client_ip=actor.get("client_ip"))
+    command="Start-Sleep -Seconds 3; Restart-Service -Name 'UGDCMS-App' -Force"
+    flags=getattr(subprocess,"DETACHED_PROCESS",0) | getattr(subprocess,"CREATE_NEW_PROCESS_GROUP",0)
+    subprocess.Popen(["powershell.exe","-NoProfile","-ExecutionPolicy","Bypass","-Command",command],
+                     creationflags=flags,close_fds=True)
+    return {"message":"服务将在3秒后重启并执行恢复，请约1分钟后刷新页面"}

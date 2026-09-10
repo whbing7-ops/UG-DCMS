@@ -35,8 +35,47 @@ export function toastError(e) {
   toast(e.message || "操作失败", "error", e.rule ? `规则 ${e.rule}` : null);
 }
 
+const STATUS_CN = Object.freeze({
+  ACTIVE:'有效', INACTIVE:'停用', DEPRECATED:'已废止', HISTORICAL:'历史',
+  DRAFT:'草稿', WORKING:'编制中', PENDING:'待处理', IN_REVIEW:'审核中',
+  APPROVED:'已批准', REJECTED:'已拒绝', RELEASED:'已发布',
+  SUPERSEDED:'已被取代', OBSOLETE:'已作废', CANCELLED:'已取消', SUSPENDED:'已暂停',
+  RESERVED:'已预留', ALLOCATED:'已分配', ACCEPTED:'已接受',
+  OPEN:'待处置', CLOSED:'已关闭', WAIVED:'已豁免',
+  OK:'正常', WARNING:'警告', ERROR:'错误', MISSING:'缺失', INFO:'信息',
+  UNKNOWN:'未校验', MISMATCH:'不一致', CURRENT:'当前', PASS:'通过', FAIL:'失败',
+  FUNCTIONAL:'功能基线', ALLOCATED_BASELINE:'分配基线', DESIGN:'设计基线',
+  PRODUCT:'产品基线', AS_BUILT:'实造基线',
+  INTERNAL_PART:'内部件', EXTERNAL_PART:'外部件', SOFTWARE:'软件对象',
+  BASIC_DRAWING_FAMILY:'设计族', DESIGN_FILE:'设计文件', REVISION_ATTACHMENT:'附件',
+  PRIMARY:'主功能', AUXILIARY:'辅助功能',
+  PRIMARY_NATIVE:'主源文件', RELEASED_PDF:'发布版PDF', DERIVED_STEP:'派生STEP文件',
+  DERIVED_DXF:'派生DXF文件', REFERENCE:'参考附件',
+  PRIMARY_DEFINITION:'主设计定义', SUPPORTING_DEFINITION:'支持性定义',
+  INTERFACE_DEFINITION:'接口定义', QUALIFICATION_EVIDENCE:'鉴定证据',
+  FILE_REVISION:'文件版次', BOM_SNAPSHOT:'BOM快照',
+  EXTERNAL_TECHNICAL_STATE:'外部件技术状态', SOFTWARE_VERSION:'软件版本',
+  OEM_PN:'原制造商件号', CUSTOMER_PN:'客户件号', LEGACY_PN:'历史件号',
+  SUPPLIER_PN:'供应商件号', ALTERNATE_IDENTIFIER:'替代标识',
+  NATIVE:'系统内建立', LEGACY:'历史迁移',
+  L0:'待整理', L1:'已识别', L2:'已校验', L3:'已批准', L4:'已纳入基线',
+  MANUAL:'手动备份', SCHEDULED:'定时备份', PRE_RESTORE:'恢复前备份',
+  FIRMWARE:'固件', CONFIG_DATA:'配置数据', LOADABLE:'可加载软件',
+  DWG:'零件图／装配图', PSCD:'产品规范与构型定义', SPEC:'技术规范',
+  WD:'电气原理图', BOMDOC:'BOM文件', ICD:'接口控制文件',
+  QTP:'试验大纲', QTR:'试验报告', ANLS:'分析报告', SWRD:'软件版本说明', REF:'参考资料'
+});
+
+export function statusText(v) { return v ? (STATUS_CN[v] || v) : '—'; }
+export function codeText(v) {
+  if (v === null || v === undefined || v === '') return '—';
+  const raw=String(v);
+  if (STATUS_CN[raw]) return STATUS_CN[raw];
+  return raw.replace(/[A-Z][A-Z0-9_]{2,}/g, token => STATUS_CN[token] || token);
+}
+
 export function status(v) {
-  return v ? el("span", { class: "st st-" + v }, v) : el("span", { class: "muted" }, "—");
+  return v ? el("span", { class: "st st-" + v, title: v }, statusText(v)) : el("span", { class: "muted" }, "—");
 }
 
 export function table(cols, rows, render) {

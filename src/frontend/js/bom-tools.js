@@ -1,5 +1,5 @@
 import { api } from './api.js';
-import { el, input, field, select, panel, table, empty, toast } from './ui.js';
+import { el, input, field, select, panel, table, empty, toast, codeText } from './ui.js';
 import { editor } from './manage.js';
 const refresh = () => window.dispatchEvent(new HashChangeEvent('hashchange'));
 
@@ -108,8 +108,8 @@ export function recordView(value) {
   const title = key => labels[key] || key;
   if (Array.isArray(value)) {
     const cols = [...new Set(value.flatMap(v => v && typeof v === 'object' ? Object.keys(v) : []))];
-    return cols.length ? el('div', { class: 'table-scroll' }, table(cols.map(key => ({ label:title(key) })), value, row => cols.map(c => el('td', {}, typeof row[c] === 'object' && row[c] !== null ? el('details',{},el('summary',{},'查看'),recordView(row[c])) : String(row[c] ?? '—'))))) : value.length ? el('ul',{},value.map(v=>el('li',{},String(v)))) : empty('暂无记录');
+    return cols.length ? el('div', { class: 'table-scroll' }, table(cols.map(key => ({ label:title(key) })), value, row => cols.map(c => el('td', {}, typeof row[c] === 'object' && row[c] !== null ? el('details',{},el('summary',{},'查看'),recordView(row[c])) : codeText(row[c]))))) : value.length ? el('ul',{},value.map(v=>el('li',{},codeText(v)))) : empty('暂无记录');
   }
-  if (value && typeof value === 'object') return el('div', {}, Object.entries(value).map(([k, v]) => panel(title(k), typeof v === 'object' ? recordView(v) : el('p', {}, typeof v === 'boolean' ? (v?'是':'否') : String(v ?? '—')))));
-  return el('p', {}, String(value ?? '—'));
+  if (value && typeof value === 'object') return el('div', {}, Object.entries(value).map(([k, v]) => panel(title(k), typeof v === 'object' ? recordView(v) : el('p', {}, typeof v === 'boolean' ? (v?'是':'否') : codeText(v)))));
+  return el('p', {}, codeText(value));
 }

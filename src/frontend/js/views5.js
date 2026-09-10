@@ -2,7 +2,7 @@
 import { api } from "./api.js";
 import { approvalSubmitButton } from "./extras.js";
 import {
-  el, table, tablePanel, panel, empty, status, field, input, select,
+  el, table, tablePanel, panel, empty, status, statusText, codeText, field, input, select,
   toast, toastError, fmtDate, link, askReason,
 } from "./ui.js";
 
@@ -96,7 +96,7 @@ export async function approvalDetail(ctx, params, id) {
         el("span", { class: "tb-name" }, r.title)),
       el("div", { class: "tb-grid" },
         cell("类型", REQ_CN[r.request_type] || r.request_type),
-        cell("状态", r.status),
+        cell("状态", statusText(r.status)),
         cell("对象", r.object_code, true),
         cell("申请人", r.requester_name),
         cell("提交时间", fmtDate(r.requested_at)),
@@ -194,7 +194,7 @@ export async function externalDetail(ctx, params, code) {
         cell("外部件号", ep.external_part_number, true),
         cell("分类", `${ep.external_class_code} ${ep.external_class_name}`),
         cell("制造商", ep.manufacturer_name),
-        cell("状态", ep.object_status))),
+        cell("状态", statusText(ep.object_status)))),
     el("div", { class: "note" },
       "只有已接受的技术状态才能进入设计基线。收到供应商文件不等于认可它——中间需要一次明确确认。"),
     ctx.can('draft_write') ? panel('新增项目级准入',el('div',{class:'inline-form'},field('项目',projectIn),field('适用范围',applicabilityIn),field('评价依据',basisIn),
@@ -295,8 +295,8 @@ export async function softwareDetail(ctx, params, num) {
         el("span", { class: "tb-code" }, so.software_number),
         el("span", { class: "tb-name" }, so.name_cn)),
       el("div", { class: "tb-grid" },
-        cell("类型", so.software_type),
-        cell("状态", so.lifecycle_status),
+        cell("类型", codeText(so.software_type)),
+        cell("状态", statusText(so.lifecycle_status)),
         cell("版本数", so.versions.length),
         cell("建立时间", fmtDate(so.created_at)))),
     el("div", { class: "note" },

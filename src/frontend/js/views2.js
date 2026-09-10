@@ -3,7 +3,7 @@ import { api } from "./api.js";
 import { editor } from "./manage.js";
 import { approvalSubmitButton } from "./extras.js";
 import {
-  el, table, tablePanel, panel, empty, status, field, input, select,
+  el, table, tablePanel, panel, empty, status, statusText, field, input, select,
   toast, toastError, fmtDate, link, askReason,
 } from "./ui.js";
 
@@ -220,7 +220,7 @@ export async function familyDetail(ctx, params, id) {
           ? "（待发号）" : fam.basic_drawing_number),
         el("span", { class: "tb-name" }, fam.family_name_cn)),
       el("div", { class: "tb-grid" },
-        cell("状态", fam.status),
+        cell("状态", statusText(fam.status)),
         cell("英文名称", fam.family_name_en, true),
         cell("一级类别", fam.primary_class_code, true),
         cell("二级分类", fam.physical_class_code, true),

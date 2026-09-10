@@ -1,5 +1,5 @@
 import { api } from './api.js';
-import { el, field, input, select, panel, table, tablePanel, toast, empty } from './ui.js';
+import { el, field, input, select, panel, table, tablePanel, toast, empty, fmtDate, codeText } from './ui.js';
 import { editor } from './manage.js';
 import { recordView } from './bom-tools.js';
 
@@ -70,11 +70,19 @@ export async function backupPage(ctx) {
       panel('定时备份',el('div',{class:'inline-form'},field('启用',enabled),field('频率',freq),field('执行小时',hour),field('星期',weekday),field('保留份数',retention),
         el('button',{class:'btn',onclick:async()=>{try{await api.put('/system/backup-schedule',{json:{enabled:enabled.checked,frequency:freq.value,hour:Number(hour.value),weekday:Number(weekday.value),retention:Number(retention.value)}});toast('定时任务已保存');await draw();}catch(e){toast(e.message,'error')}}},'保存设置'))),
       tablePanel('备份清单',table([{label:'文件'},{label:'时间'},{label:'原因'},{label:'附件数'},{label:'大小'},{label:''}],data.backups,b=>[
-        el('td',{class:'mono'},b.filename),el('td',{},b.created_at||'—'),el('td',{},b.reason||'—'),el('td',{class:'num'},b.file_count??'—'),el('td',{class:'num'},((b.size_bytes||0)/1048576).toFixed(1)+' MB'),
+        el('td',{class:'mono'},b.filename),el('td',{},fmtDate(b.created_at)),el('td',{},codeText(b.reason)),el('td',{class:'num'},b.file_count??'—'),el('td',{class:'num'},((b.size_bytes||0)/1048576).toFixed(1)+' MB'),
         el('td',{},el('button',{class:'btn small',onclick:()=>api.download('/system/backups/'+encodeURIComponent(b.filename)+'/download',b.filename)},'下载'))])||empty('暂无备份')),
-      panel('恢复系统',el('div',{},el('p',{class:'note warn'},'恢复将替换当前数据库和附件。任务排队后需重启UG-DCMS服务；系统会先自动备份当前状态。'),
-        el('div',{class:'inline-form'},field('备份文件',restoreFile),field('确认文字',confirm),el('button',{class:'btn danger',onclick:async()=>{if(!restoreFile.files[0])return toast('请选择备份文件','error');try{const r=await api.upload('/system/restore',{confirmation:confirm.value},restoreFile.files[0]);toast(r.message);await draw();}catch(e){toast(e.message,'error')}}},'校验并排队恢复')))),
-      data.restore_pending?el('div',{class:'note warn'},'已有恢复任务等待重启执行。'):null);
+      panel('恢复系统',el('div',{},
+        el('p',{class:'note warn'},'恢复将替换当前数据库和附件；执行前系统会自动备份当前状态。'),
+        el('h4',{},'第1步：上传并校验备份包'),
+        el('div',{class:'inline-form'},field('备份文件',restoreFile),field('确认文字',confirm),el('button',{class:'btn danger',onclick:async()=>{if(!restoreFile.files[0])return toast('请选择备份文件','error');try{const r=await api.upload('/system/restore',{confirmation:confirm.value},restoreFile.files[0]);toast('备份包校验通过，已进入待恢复状态');await draw();}catch(e){toast(e.message,'error')}}},'上传并校验')),
+        data.restore_pending ? el('div',{class:'note warn'},
+          el('h4',{},'第2步：执行恢复'),
+          el('p',{},`待恢复文件：${data.restore_pending.filename||'备份包'}；排队时间：${fmtDate(data.restore_pending.queued_at)}`),
+          el('div',{class:'actions'},
+            el('button',{class:'btn danger',onclick:async()=>{if(!window.confirm('确认立即重启UG-DCMS并恢复数据库和全部附件？'))return;try{const r=await api.post('/system/restore/apply');toast(r.message);setTimeout(()=>location.reload(),65000);}catch(e){toast(e.message,'error')}}},'立即重启并执行恢复'),
+            el('button',{class:'btn',onclick:async()=>{try{const r=await api.del('/system/restore');toast(r.message);await draw();}catch(e){toast(e.message,'error')}}},'取消待恢复任务'))) :
+          el('p',{class:'muted'},'备份包校验通过后，此处将出现“立即重启并执行恢复”按钮。'))));
   }; await draw(); return root;
 }
 
