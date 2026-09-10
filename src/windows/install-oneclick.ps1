@@ -146,6 +146,25 @@ function Wait-Port([string]$HostName,[int]$Port,[int]$Seconds=45){
   } while((Get-Date) -lt $until)
   return $false
 }
+function Stop-StaleAppProcesses {
+  # WinSW 的服务状态可能已经是 Stopped，但旧 powershell/python 子进程仍存活。
+  # 只终止命令行明确指向本安装目录的 UG-DCMS 进程，绝不清理其他 Python 服务。
+  $escaped=[regex]::Escape($InstallDir)
+  $stale=Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
+    $_.CommandLine -and $_.CommandLine -match $escaped -and
+    ($_.CommandLine -match 'start-native\.ps1' -or $_.CommandLine -match '-m\s+uvicorn\s+app\.main:app')
+  }
+  foreach($p in $stale){
+    Write-Status "清理旧 UG-DCMS 应用进程 PID=$($p.ProcessId)"
+    Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue
+  }
+  if($stale){ Start-Sleep -Seconds 2 }
+}
+function Get-PortOwner([int]$Port){
+  $c=Get-NetTCPConnection -State Listen -LocalPort $Port -ErrorAction SilentlyContinue | Select-Object -First 1
+  if(-not $c){ return $null }
+  return Get-CimInstance Win32_Process -Filter "ProcessId=$($c.OwningProcess)" -ErrorAction SilentlyContinue
+}
 
 trap {
   $failedText = "[FAILED] $($_.Exception.Message)`r`n$($_.Exception.ToString())"
@@ -197,6 +216,11 @@ if($existingAppService){
   } while((Get-Date) -lt $waitUntil)
   $svc=Get-Service 'UGDCMS-App' -ErrorAction SilentlyContinue
   if($svc -and $svc.Status -ne 'Stopped'){ Fail '旧 UGDCMS-App 服务在 30 秒内未停止。请重启 Windows 后重新运行安装程序。' }
+  Stop-StaleAppProcesses
+  $portOwner=Get-PortOwner $AppPort
+  if($portOwner){
+    Fail "端口 $AppPort 已被其他程序占用（PID=$($portOwner.ProcessId)，$($portOwner.Name)）。请关闭该程序或释放端口后重试。"
+  }
 }
 # Application payload is staged by Inno Setup under {app}\payload. When the script is
 # run directly from source, use the repository root instead. Never overwrite the currently
@@ -214,7 +238,7 @@ if(Test-Path $currentReleaseFile){
   if($previousRelease -and -not [IO.Path]::IsPathRooted($previousRelease)){ $previousRelease = Join-Path $releaseRoot $previousRelease }
   if($previousRelease -and -not (Test-Path $previousRelease)){ $previousRelease = $null }
 }
-$releaseName = 'app-1.0.0-rc2.20-' + (Get-Date -Format 'yyyyMMddHHmmss')
+$releaseName = 'app-1.0.0-rc2.21-' + (Get-Date -Format 'yyyyMMddHHmmss')
 $newRelease = Join-Path $releaseRoot $releaseName
 if(Test-Path $newRelease){ Fail "目标 Release 已存在：$newRelease" }
 New-Item -ItemType Directory -Force -Path $newRelease | Out-Null
@@ -242,7 +266,7 @@ if(Test-Path $currentRuntimeFile){
   }
   if($previousRuntime -and -not (Test-Path $previousRuntime)){ $previousRuntime = $null }
 }
-$runtimeName = 'venv-1.0.0-rc2.20-' + (Get-Date -Format 'yyyyMMddHHmmss')
+$runtimeName = 'venv-1.0.0-rc2.21-' + (Get-Date -Format 'yyyyMMddHHmmss')
 $newRuntime = Join-Path $runtimeRoot $runtimeName
 if(Test-Path $newRuntime){ Fail "目标 Runtime 已存在：$newRuntime" }
 Invoke-ProcessWithTimeout -FilePath $python -ArgumentList @('-m','venv',$newRuntime) -TimeoutSeconds 180 -Step '创建 Python 虚拟环境'
@@ -444,6 +468,7 @@ Write-Step '注册 UG-DCMS 应用 Windows 服务...'
 & $serviceExe install
 if($LASTEXITCODE -ne 0){ Fail 'UGDCMS-App 服务注册失败' }
 & $serviceExe start
+if($LASTEXITCODE -ne 0){ Fail 'UGDCMS-App 服务启动命令失败' }
 
 # 防火墙：仅 Domain/Private 网络开放局域网访问。
 Write-Step "配置 Windows 防火墙 TCP/$AppPort..."
@@ -483,7 +508,16 @@ while((Get-Date) -lt $deadline){
   } catch { Start-Sleep 1 }
 }
 if(-not $healthy){
-  Fail 'UGDCMS-App 未通过 HTTP 健康检查 /api/v1/health；安装不会被标记为完成。请检查 logs 目录。'
+  $svc=Get-Service 'UGDCMS-App' -ErrorAction SilentlyContinue
+  $details="服务状态=$($svc.Status)"
+  foreach($name in @('UGDCMS-App.err.log','UGDCMS-App.out.log','UGDCMS-App.wrapper.log')){
+    $path=Join-Path $LogDir $name
+    if(Test-Path $path){
+      $tail=(Get-Content $path -Tail 30 -ErrorAction SilentlyContinue) -join ' | '
+      if($tail){ $details += "；$name：$tail" }
+    }
+  }
+  Fail "UGDCMS-App 未通过 HTTP 健康检查 /api/v1/health（$details）。安装不会被标记为完成。"
 }
 Write-Step 'HTTP 健康检查通过'
 
@@ -516,7 +550,7 @@ if(Test-Path $legacyVenv){
 # 安装状态
 $status=@"
 InstalledAt=$(Get-Date -Format o)
-Version=1.0.0-rc2.20
+Version=1.0.0-rc2.21
 AppPort=$AppPort
 DatabasePort=$PgPort
 AppService=UGDCMS-App
