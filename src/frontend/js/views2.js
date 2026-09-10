@@ -18,8 +18,9 @@ export async function families(ctx, params) {
     el("p", { class: "sub" }, "基本图号对应一个设计族。族内用 Dash 号区分具体规格。"),
     panel("查询", el("div", { class: "inline-form" }, field("关键词", searchIn),
       el("button", { class: "btn", onclick: () => { location.hash = "#/families?" + new URLSearchParams({ q: searchIn.value.trim(), page: 1 }); } }, "查询"))),
-    el("div", { class: "actions" },
-      el("a", { class: "btn primary", href: "#/family-new" }, "新建设计族")),
+    ctx.can("draft_write") ? el("div", { class: "actions" },
+      el("a", { class: "btn primary", href: "#/family-new" }, "新建设计族"))
+      : el("div", { class: "note warn" }, "当前账户可查看设计族；新建和编辑需要“设计工程师”或“构型管理员”角色。"),
     rows.length ? tablePanel("全部设计族",
       table([{ label: "基本图号", mono: 1 }, { label: "名称" }, { label: "一级类别" },
              { label: "二级分类" }, { label: "Dash 数" }, { label: "状态" }],

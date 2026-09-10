@@ -11,7 +11,7 @@ New-Item -ItemType Directory -Force -Path $pre | Out-Null
 
 
 function Validate-InstallerSource {
-  $expected = '1.0.0-rc2.22'
+  $expected = '1.0.0-rc2.23'
   $issPath = Join-Path $PSScriptRoot 'UG-DCMS-Setup.iss'
   $cmdPath = Join-Path $PSScriptRoot 'BUILD-SETUP.cmd'
   $provisionPath = Join-Path $root 'windows\install-oneclick.ps1'
@@ -39,7 +39,7 @@ function Validate-InstallerSource {
   if($provisionText -notmatch 'verify-runtime\.py' -or $provisionText -notmatch 'RUNTIME-VERIFIED\.txt'){
     throw 'New runtime import self-check is missing.'
   }
-  if($provisionText -notmatch '数据库迁移完整性检查通过：15/15'){ throw 'Database migration completeness check is missing.' }
+  if($provisionText -notmatch '数据库迁移完整性检查通过：16/16'){ throw 'Database migration completeness check is missing.' }
   if($provisionText -match '兼容 health 路径差异'){ throw 'Weak TCP-only health fallback must not be present.' }
   if($provisionText -notmatch 'HTTP 健康检查通过'){ throw 'Strict HTTP health check is missing.' }
   if($provisionText -notmatch '/api/v1/health' -or $provisionText -match '/api/v1/system/health'){
@@ -49,7 +49,7 @@ function Validate-InstallerSource {
     throw 'Upgrade-safe .env ACL repair is missing.'
   }
   $migrations = @(Get-ChildItem (Join-Path $root 'db\migrations\*.sql') -File | Sort-Object Name)
-  if($migrations.Count -ne 15){ throw "Expected 15 DB migrations, found $($migrations.Count)." }
+  if($migrations.Count -ne 16){ throw "Expected 16 DB migrations, found $($migrations.Count)." }
   for($i=1; $i -le 15; $i++){
     $prefix = ('{0:D4}_' -f $i)
     if(-not $migrations[$i-1].Name.StartsWith($prefix)){ throw "Migration sequence broken at $prefix" }
@@ -199,5 +199,5 @@ Push-Location $PSScriptRoot
 try {
   & $iscc 'UG-DCMS-Setup.iss'
   if($LASTEXITCODE -ne 0){ throw "ISCC compile failed: $LASTEXITCODE" }
-  Write-Host "Setup.exe created: installer\output\UG-DCMS-Setup-1.0.0-rc2.22.exe" -ForegroundColor Green
+  Write-Host "Setup.exe created: installer\output\UG-DCMS-Setup-1.0.0-rc2.23.exe" -ForegroundColor Green
 } finally { Pop-Location }

@@ -166,7 +166,7 @@ with sync_playwright() as pw:
         page.get_by_label('子件号',exact=True).fill(child)
         page.get_by_label('数量',exact=True).fill('2')
         page.get_by_label('适用性',exact=True).select_option(rule)
-        page.get_by_role('button',name='添加',exact=True).click()
+        page.get_by_role('button',name='新增子件',exact=True).click()
         bom_row=page.get_by_role('row').filter(has_text='990').first
         expect(bom_row).to_be_visible()
         bom_row.get_by_role('button',name='编辑',exact=True).click()

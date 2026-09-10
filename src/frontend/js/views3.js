@@ -27,7 +27,7 @@ export async function bom(ctx, params, code) {
   const ruleSel = select([{ value: "", label: "ALL（全部构型）" }].concat(
     appRules.map(r => ({ value: r.rule_code, label: `${r.rule_code} ${r.name_cn}` }))));
 
-  const addRow = ctx.can("draft_write") ? panel("添加子项", el("div", {},
+  const addRow = ctx.can("draft_write") ? panel("新增 BOM 子件", el("div", {},
     el("div", { class: "inline-form" },
       field("项号", itemIn), field("子件号", childIn), field("数量", qtyIn),
       field("单位", unitIn), field("位号", desigIn), field("适用性", ruleSel),
@@ -41,9 +41,10 @@ export async function bom(ctx, params, code) {
           if (r.warnings && r.warnings.length) r.warnings.forEach(w => toast(w, "error"));
           else toast("已添加");
           reload();
-        } catch (e) { toastError(e); } } }, "添加"))),
+        } catch (e) { toastError(e); } } }, "新增子件"))),
     el("p", { class: "muted", style: "margin:8px 0 0" },
-      "自引用和任意层级的循环会被系统拒绝——数量、项号、位号属于装配关系，不属于零件本身。"))) : null;
+      "自引用和任意层级的循环会被系统拒绝——数量、项号、位号属于装配关系，不属于零件本身。"))) :
+    el("div",{class:"note warn"},"当前账户只有查看权限，不能新增、编辑或删除 BOM 子件。请由系统管理员分配“设计工程师”或“构型管理员”角色。");
 
   const issues = validation.errors.length || validation.warnings.length
     ? el("div", { class: validation.errors.length ? "note error" : "note warn" },
@@ -54,6 +55,8 @@ export async function bom(ctx, params, code) {
   return el("div", {},
     el("h1", {}, "BOM"),
     el("p", { class: "sub" }, el("span", { class: "mono" }, code)),
+    el("div", { class: "note" },
+      "BOM 中的删除只移除父子装配关系，不会删除或重新使用子件号主数据；件号停用需在对象状态流程中办理。"),
     el("div", { class: "actions" },
       link("BOM 管理", "#/bom", "btn"),
       link("返回对象", "#/object/" + encodeURIComponent(code), "btn"),
@@ -230,7 +233,8 @@ export async function files(ctx, params) {
         try { const created = await api.post("/files", { json: { file_number: numIn.value,
                 file_type_code: typeSel.value, title_cn: titleIn.value } });
               toast("文件已建立"); location.hash = "#/file/" + encodeURIComponent(created.file_number); }
-        catch (e) { toastError(e); } } }, "建立")))) : null,
+        catch (e) { toastError(e); } } }, "建立"))))
+      : el("div", { class: "note warn" }, "当前账户可查看设计文件；新建文件、版次和附件维护需要“设计工程师”或“构型管理员”角色。"),
     rows.length ? tablePanel("全部文件",
       table([{ label: "文件号", mono: 1 }, { label: "名称" }, { label: "类型" },
              { label: "当前发布版次" }, { label: "版次数" }],

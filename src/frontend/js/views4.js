@@ -44,6 +44,8 @@ export async function baselines(ctx, params, pn) {
     el("h1", {}, "基线"),
     el("p", { class: "sub" }, el("span", { class: "mono" }, pn),
       " 的全部技术状态记录。已发布的基线内容冻结，改动只能通过新建基线。"),
+    !ctx.can("draft_write") ? el("div", { class: "note warn" },
+      "当前账户可查看基线；建立、编辑和移除明细需要“设计工程师”或“构型管理员”角色。") : null,
     acts,
     rows.length ? tablePanel("基线",
       table([{ label: "编号", mono: 1 }, { label: "状态" }, { label: "当前" },

@@ -1,5 +1,5 @@
 ﻿#define MyAppName "UG-DCMS"
-#define MyAppVersion "1.0.0-rc2.22"
+#define MyAppVersion "1.0.0-rc2.23"
 #define MyAppPublisher "UG"
 #define MyAppURL "http://localhost:8080"
 
@@ -16,7 +16,7 @@ PrivilegesRequired=admin
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 OutputDir=output
-OutputBaseFilename=UG-DCMS-Setup-1.0.0-rc2.22
+OutputBaseFilename=UG-DCMS-Setup-1.0.0-rc2.23
 Compression=lzma2/ultra64
 SolidCompression=yes
 WizardStyle=modern

@@ -160,7 +160,8 @@ export async function externalParts(ctx, params) {
                     project_evaluation_basis: basisIn.value.trim() || null } });
                   toast("已登记：" + r.object_code);
                   location.hash = "#/external/" + encodeURIComponent(r.object_code); }
-            catch (e) { toastError(e); } } }, "登记"))))) : null,
+            catch (e) { toastError(e); } } }, "登记")))))
+      : el("div", { class: "note warn" }, "当前账户可查看外部件；登记和维护技术状态需要“设计工程师”或“构型管理员”角色。"),
     rows.length ? tablePanel("外部件列表",
       table([{ label: "对象编码", mono: 1 }, { label: "外部件号", mono: 1 },
              { label: "名称" }, { label: "分类" }, { label: "来源" }, { label: "技术状态数" },
@@ -220,7 +221,8 @@ export async function externalDetail(ctx, params, code) {
                           supplier_document: docIn.value || null,
                           supplier_document_date: dateIn.value || null } });
                 toast("已登记，状态为草稿，需经接受后方可用于基线"); reload(); }
-          catch (e) { toastError(e); } } }, "登记")))) : null,
+          catch (e) { toastError(e); } } }, "登记"))))
+      : el("div", { class: "note warn" }, "当前账户可查看软件对象；登记对象和版本需要“设计工程师”或“构型管理员”角色。"),
     tablePanel("技术状态",
       table([{ label: "序号" }, { label: "供应商版本", mono: 1 }, { label: "供应商文件" },
              { label: "文件日期" }, { label: "状态" }, { label: "接受人" },

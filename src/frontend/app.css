@@ -202,16 +202,22 @@ input:disabled, select:disabled { background: #f2f4f6; color: var(--ink-3); }
 
 /* Unified desktop workspace; all assets remain available offline. */
 :root { --paper:#f3f6fb; --ink:#17263b; --ink-2:#475970; --ink-3:#63748b; --rule:#dce4ee; --accent:#2563b5; --accent-bg:#eaf2ff; }
-.shell { grid-template-columns:232px minmax(0,1fr); }
-.rail { background:#14253d; color:#fff; position:sticky; top:0; height:100vh; border:0; }
-.brand { padding:25px 22px; font-size:21px; letter-spacing:.04em; border-color:#304158; }
+.shell { grid-template-columns:216px minmax(0,1fr); }
+.rail { background:linear-gradient(180deg,#132945 0%,#102138 100%); color:#fff; position:sticky; top:0; height:100vh; border:0; box-shadow:4px 0 18px #10233a1f; }
+.brand { padding:20px 18px 18px; font-size:20px; letter-spacing:.04em; border-color:#304158; background:linear-gradient(135deg,#1a3659,#132945); }
 .brand small { color:#b7c8df; font-size:12px; margin-top:5px; letter-spacing:.12em; }
-.nav { padding:8px 12px; }
-.nav h4 { color:#91a7c2; margin:20px 12px 7px; letter-spacing:.09em; }
-.nav a { margin:3px 0; padding:10px 13px; color:#dae4f1; border-radius:7px; border-left:0; }
+.nav { padding:8px 9px 14px; scrollbar-width:thin; scrollbar-color:#506781 transparent; }
+.nav::-webkit-scrollbar { width:5px; }
+.nav::-webkit-scrollbar-track { background:transparent; }
+.nav::-webkit-scrollbar-thumb { background:#506781; border-radius:9px; }
+.nav h4 { color:#8ea5c0; margin:17px 10px 6px; padding-top:10px; border-top:1px solid #ffffff12; letter-spacing:.09em; }
+.nav h4:first-child { border-top:0; padding-top:0; }
+.nav a { display:flex; align-items:center; gap:9px; margin:2px 0; padding:7px 9px; color:#dae4f1; border-radius:8px; border-left:0; }
+.nav-icon { width:25px; height:25px; flex:0 0 25px; display:grid; place-items:center; border:1px solid #68809d55; border-radius:7px; color:#9fb9d8; font-size:14px; }
 .nav a:hover { background:#223c5d; color:white; }
-.nav a.on { background:#2a62a5; color:white; box-shadow:inset 3px 0 #80bbff; }
-.whoami { padding:17px 22px; border-color:#304158; color:#e2eaf4; line-height:1.9; }
+.nav a.on { background:linear-gradient(90deg,#2b67ad,#285b98); color:white; box-shadow:0 5px 14px #07182b4d; }
+.nav a.on .nav-icon { color:#fff; border-color:#91c4ff; background:#ffffff14; }
+.whoami { margin:8px; padding:12px 13px; border:1px solid #405671; border-radius:9px; background:#0d1d31aa; color:#e2eaf4; line-height:1.65; }
 .whoami .muted { color:#a5b9d1; }
 .whoami a { color:#b8d9ff; display:inline-block; margin:7px 14px 0 0; }
 .main { min-width:0; width:100%; max-width:1680px; padding:30px 32px 60px; }

@@ -11,7 +11,7 @@ def ok(cond: bool, msg: str):
 
 # UTF-8 readability and migration order
 migs = sorted((ROOT / 'db' / 'migrations').glob('*.sql'))
-ok(len(migs) == 15, f'expected 15 migrations, found {len(migs)}')
+ok(len(migs) == 16, f'expected 16 migrations, found {len(migs)}')
 for i, f in enumerate(migs, 1):
     ok(f.name.startswith(f'{i:04d}_'), f'migration order broken: {f.name}')
     try:
@@ -31,8 +31,8 @@ system_api = (ROOT/'backend'/'app'/'api'/'system.py').read_text(encoding='utf-8-
 checks = {
     'versioned runtime pointer': 'CURRENT-RUNTIME.txt' in ps and 'CURRENT-RUNTIME.txt' in start,
     'versioned release pointer': 'CURRENT-RELEASE.txt' in ps and 'CURRENT-RELEASE.txt' in start,
-    'versioned runtime name': 'venv-1.0.0-rc2.22-' in ps,
-    'versioned release name': 'app-1.0.0-rc2.22-' in ps,
+    'versioned runtime name': 'venv-1.0.0-rc2.23-' in ps,
+    'versioned release name': 'app-1.0.0-rc2.23-' in ps,
     'stale app process cleanup': 'Stop-StaleAppProcesses' in ps,
     'application port owner check': 'Get-PortOwner $AppPort' in ps,
     'service failure log tail': 'UGDCMS-App.err.log' in ps and 'Get-Content $path -Tail 30' in ps,
@@ -42,7 +42,7 @@ checks = {
     'frontend root points at new release': 'DCMS_FRONTEND_ROOT=$newRelease\\frontend' in ps,
     'UTF8 psql client': "PGCLIENTENCODING='UTF8'" in ps and "PGCLIENTENCODING='UTF8'" in migrate,
     'migration stops on error': 'ON_ERROR_STOP=1' in migrate,
-    'migration count gate': '数据库迁移完整性检查通过：15/15' in ps,
+    'migration count gate': '数据库迁移完整性检查通过：16/16' in ps,
     'strict HTTP health': 'HTTP 健康检查通过' in ps,
     'health route matches backend': '/api/v1/health' in ps and '/api/v1/system/health' not in ps,
     'upgrade-safe env permissions': "'*S-1-5-32-544:(F)'" in ps and 'attrib.exe -R' in ps,
@@ -53,6 +53,9 @@ checks = {
     'restore numeric progress UI': 'restore-progress-line' in extras and "percent.textContent=value+'%'" in extras,
     'restore completion UI': "title.textContent='恢复完成'" in extras and '恢复完成（100%）' in extras,
     'restore status probe': '@router.get("/system/restore/status")' in system_api,
+    'restore survives service stop': "Register-ScheduledTask -TaskName 'UGDCMS-Restore'" in system_api
+        and 'restore-restart.ps1' in system_api and "Stop-Service -Name 'UGDCMS-App'" in system_api
+        and "Start-Service -Name 'UGDCMS-App'" in system_api,
     'upgrade pointer rollback': '已恢复上一版本 Release/Runtime 指针' in ps,
     'legacy start script rollback': '$previousStartNativeContent' in ps,
     'runtime import checks app': 'verify-runtime.py' in ps and 'RUNTIME-VERIFIED.txt' in ps,
@@ -68,7 +71,7 @@ for name, cond in checks.items(): ok(cond, name)
 
 # Ordering invariants
 try:
-    mig_done = ps.index("Write-Step '数据库迁移完整性检查通过：15/15（含 50,000 条综合业务数据）'")
+    mig_done = ps.index("Write-Step '数据库迁移完整性检查通过：16/16（含 50,000 条综合业务数据）'")
     switch_runtime = ps.index('Move-Item -Path $tmpRuntimeFile')
     switch_release = ps.index('Move-Item -Path $tmpReleaseFile')
     service = ps.index("Write-Step '注册 UG-DCMS 应用 Windows 服务...'")
@@ -86,4 +89,4 @@ if errors:
     sys.exit(1)
 print('INSTALLER SOURCE AUDIT: PASS')
 for name in checks: print(' [PASS]', name)
-print(f' [PASS] migrations UTF-8/order: {len(migs)}/15')
+print(f' [PASS] migrations UTF-8/order: {len(migs)}/16')

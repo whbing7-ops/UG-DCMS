@@ -159,8 +159,29 @@ def apply_restore(conn: Conn, actor: dict=Depends(require(Perm.SYSTEM_SETTING)))
       reason="管理员确认立即重启并恢复",session_id=str(actor.get("session_id")),client_ip=actor.get("client_ip"))
     marker=json.loads((root/"pending-restore.json").read_text(encoding="utf-8"))
     backups._restore_status("RESTARTING",2,"正在重启应用服务，准备执行恢复",**marker)
-    command="Start-Sleep -Seconds 3; Restart-Service -Name 'UGDCMS-App' -Force"
-    flags=getattr(subprocess,"DETACHED_PROCESS",0) | getattr(subprocess,"CREATE_NEW_PROCESS_GROUP",0)
-    subprocess.Popen(["powershell.exe","-NoProfile","-ExecutionPolicy","Bypass","-Command",command],
-                     creationflags=flags,close_fds=True)
-    return {"message":"服务将在3秒后重启并执行恢复，请约1分钟后刷新页面"}
+    # 不能从 WinSW 服务的普通子进程执行 Restart-Service：WinSW 停止时会杀死整个
+    # 子进程树，命令只能执行到“停止”而永远到不了“启动”。交给 Task Scheduler 后，
+    # 恢复控制进程属于独立的 SYSTEM 任务，不受应用服务作业对象影响。
+    restart_script=root/"restore-restart.ps1"
+    restart_script.write_text(
+        "$ErrorActionPreference = 'Stop'\n"
+        "Start-Sleep -Seconds 3\n"
+        "Stop-Service -Name 'UGDCMS-App' -Force\n"
+        "Start-Sleep -Seconds 2\n"
+        "Start-Service -Name 'UGDCMS-App'\n"
+        "Unregister-ScheduledTask -TaskName 'UGDCMS-Restore' -Confirm:$false\n",
+        encoding="utf-8-sig",
+    )
+    script_arg=str(restart_script).replace("'","''")
+    setup=("$a=New-ScheduledTaskAction -Execute 'powershell.exe' "
+           f"-Argument '-NoProfile -ExecutionPolicy Bypass -File \"{script_arg}\"'; "
+           "$p=New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest; "
+           "Register-ScheduledTask -TaskName 'UGDCMS-Restore' -Action $a -Principal $p -Force | Out-Null; "
+           "Start-ScheduledTask -TaskName 'UGDCMS-Restore'")
+    try:
+        subprocess.run(["powershell.exe","-NoProfile","-ExecutionPolicy","Bypass","-Command",setup],
+                       check=True,timeout=15,capture_output=True,text=True)
+    except Exception as exc:
+        backups._restore_status("FAILED",100,f"无法创建独立恢复任务：{exc}",**marker)
+        raise errors.bad_request("无法启动系统恢复任务，请检查 Windows 任务计划程序服务")
+    return {"message":"独立恢复任务已启动；应用服务即将重启"}

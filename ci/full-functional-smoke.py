@@ -89,6 +89,8 @@ def main() -> None:
     admin = change_initial("admin", *PASSWORDS["admin"])
     me = admin.get("/auth/me")
     check("user_manage" in me["permissions"], "admin user management permission missing")
+    check("draft_write" in me["permissions"], "preloaded admin business write permission missing")
+    check("baseline_release" in me["permissions"], "preloaded admin configuration permission missing")
     results.append("authentication/admin-password-change")
 
     accounts = {

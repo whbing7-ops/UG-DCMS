@@ -50,17 +50,17 @@ const ROUTES = [
 
 const NAV = [
   { group: "设计数据", items: [
-    ["#/", "概览"], ["#/search", "查找"], ["#/bom", "BOM 管理"], ["#/families", "设计族"], ["#/files", "设计文件"],
-    ["#/external-parts", "外部件"], ["#/software", "软件对象"],
+    ["#/", "概览", "⌂"], ["#/search", "查找", "⌕"], ["#/bom", "BOM 管理", "≡"], ["#/families", "设计族", "◫"], ["#/files", "设计文件", "▤"],
+    ["#/external-parts", "外部件", "◇"], ["#/software", "软件对象", "⬡"],
   ]},
   { group: "流程", items: [
-    ["#/approvals", "审批"],
+    ["#/approvals", "审批", "✓"],
   ]},
   { group: "质量与统计", items: [
-    ["#/quality", "数据质量"], ["#/reports", "统计"],
+    ["#/quality", "数据质量", "◉"], ["#/reports", "统计", "▥"],
   ]},
   { group: "系统", items: [
-    ["#/system-check", "系统自检"], ["#/dictionary", "受控字典"], ["#/audit", "审计记录"], ["#/backup", "备份恢复"], ["#/admin", "系统管理"],
+    ["#/system-check", "系统自检", "⌁"], ["#/dictionary", "受控字典", "▦"], ["#/audit", "审计记录", "◷"], ["#/backup", "备份恢复", "↻"], ["#/admin", "系统管理", "⚙"],
   ]},
 ];
 
@@ -158,8 +158,9 @@ function shell(content) {
     el("div", { class: "brand" }, "UG-DCMS", el("small", {}, "设计构型管理")),
     el("nav", { class: "nav" }, NAV.map(g => [
       el("h4", {}, g.group),
-      g.items.map(([href, label]) =>
-        el("a", { href, class: (href.slice(1) === path || (href === "#/bom" && path.startsWith("/bom/"))) ? "on" : null }, label)),
+      g.items.map(([href, label, icon]) =>
+        el("a", { href, class: (href.slice(1) === path || (href === "#/bom" && path.startsWith("/bom/"))) ? "on" : null },
+          el("span",{class:"nav-icon","aria-hidden":"true"},icon),el("span",{},label))),
     ])),
     el("div", { class: "whoami" },
       el("div", {}, ctx.user.full_name),
