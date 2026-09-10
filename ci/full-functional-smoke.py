@@ -7,8 +7,10 @@ business contract; no critical operation is silently skipped.
 from __future__ import annotations
 
 import json
+import io
 import sys
 import time
+import zipfile
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -52,11 +54,26 @@ class Client:
     def patch(self, path, body=None): return self.call("PATCH", path, body)
     def delete(self, path): return self.call("DELETE", path)
 
+    def download(self, path: str) -> bytes:
+        req=urllib.request.Request(BASE+path,headers={"Authorization":"Bearer "+self.token})
+        with urllib.request.urlopen(req,timeout=20) as response: return response.read()
+
     def upload(self, path: str, filename: str, content: bytes, role="REFERENCE"):
         boundary = "----UGDCMS" + STAMP
         body = (f"--{boundary}\r\nContent-Disposition: form-data; name=\"role\"\r\n\r\n{role}\r\n"
                 f"--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"{filename}\"\r\n"
                 "Content-Type: text/plain; charset=utf-8\r\n\r\n").encode() + content + f"\r\n--{boundary}--\r\n".encode()
+        headers={"Content-Type":f"multipart/form-data; boundary={boundary}","Authorization":"Bearer "+self.token}
+        req=urllib.request.Request(BASE+path,data=body,headers=headers,method="POST")
+        with urllib.request.urlopen(req,timeout=20) as response:
+            return json.loads(response.read().decode())
+
+    def upload_software(self, path: str, filename: str, content: bytes, version: str, build: str):
+        boundary = "----UGDCMSSW" + STAMP
+        fields = "".join(f"--{boundary}\r\nContent-Disposition: form-data; name=\"{k}\"\r\n\r\n{v}\r\n"
+                         for k,v in (("version",version),("build",build)))
+        body = fields.encode() + (f"--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"{filename}\"\r\n"
+          "Content-Type: application/zip\r\n\r\n").encode() + content + f"\r\n--{boundary}--\r\n".encode()
         headers={"Content-Type":f"multipart/form-data; boundary={boundary}","Authorization":"Bearer "+self.token}
         req=urllib.request.Request(BASE+path,data=body,headers=headers,method="POST")
         with urllib.request.urlopen(req,timeout=20) as response:
@@ -207,6 +224,14 @@ def main() -> None:
     check(where["working"], "where-used did not find shared master BOM")
     results.append("bom/shared-parent-pn-applicability-resolve-snapshot-where-used")
 
+    parent_code = parent["full_part_number"]
+    child_code = child_b["full_part_number"]
+    candidates=engineer.get(q(
+        f"/bom-candidates/{urllib.parse.quote(parent_code, safe='')}",
+        q=child_code[-8:],limit=30))
+    check(any(x["object_code"]==child_code for x in candidates),
+          "BOM internal child candidate search failed")
+
     exact = engineer.get(q("/search", q=parent["full_part_number"], limit=100))
     check(exact["results"] and exact["results"][0]["match_type"] == "EXACT", "exact P/N search failed")
     fragment = engineer.get(q("/search", q="CI演示", limit=100))
@@ -227,7 +252,13 @@ def main() -> None:
 
     sw_num = "UG-SW-CI-" + STAMP
     software = engineer.post("/software", {"software_number": sw_num, "name_cn": "CI测试软件", "software_type": "SOFTWARE"})
-    version = engineer.post(f"/software/{sw_num}/versions", {"version": "1.0.0", "build": "ci", "hash_sha256": "a" * 64})
+    package_io=io.BytesIO()
+    with zipfile.ZipFile(package_io,"w") as z: z.writestr("firmware.bin",b"UG-DCMS-CI-SOFTWARE-PACKAGE")
+    package=package_io.getvalue()
+    version = engineer.upload_software(f"/software/{sw_num}/versions/package","ci-software.zip",package,"1.0.0","ci")
+    check(version["hash_sha256"]==__import__("hashlib").sha256(package).hexdigest(),"software package SHA-256 not calculated")
+    check(engineer.download(f"/software-versions/{version['id']}/package/download")==package,
+          "software package authenticated download mismatch")
     engineer.post(f"/software-versions/{version['id']}/submit",{"approver_user_id":target["id"]})
     approver.post(q(f"/software-versions/{version['id']}/release", comments="CI release"))
     results.append("software/create-version-release")
@@ -238,6 +269,11 @@ def main() -> None:
         "external_class_code": "E08", "project_code": "CI-PROJECT-" + STAMP,
         "project_applicability": "CI 项目级准入测试",
         "project_evaluation_basis": "CI供应商规格及符合性资料"})
+    external_candidates=engineer.get(q(
+        f"/bom-candidates/{urllib.parse.quote(parent_code, safe='')}",
+        q="CI-EXT-"+STAMP,limit=30))
+    check(any(x["object_kind"]=="EXTERNAL_PART" and x["object_code"]==ext["object_code"]
+              for x in external_candidates),"BOM external part candidate search failed")
     state = engineer.post(f"/external-parts/{urllib.parse.quote(ext['object_code'])}/states", {"supplier_revision": "A"})
     engineer.post(f"/external-states/{state['id']}/submit",{"approver_user_id":target["id"]})
     approver.post(q(f"/external-states/{state['id']}/accept", comments="CI accept"))

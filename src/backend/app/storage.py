@@ -65,6 +65,13 @@ def make_key(file_number: str, revision_number: str, role: str, filename: str) -
     return f"files/{safe_num}/R{safe_rev}/{role}/{safe_name}"
 
 
+def make_software_key(software_number: str, version_id: str, filename: str) -> str:
+    safe_num = _SAFE.sub("_", software_number)
+    safe_id = _SAFE.sub("_", version_id)
+    safe_name = _SAFE.sub("_", filename)[-120:] or "software-package.zip"
+    return f"software/{safe_num}/{safe_id}/{safe_name}"
+
+
 def save(storage_key: str, content: bytes) -> StoredFile:
     """原子写入并返回摘要。目标已存在时拒绝覆盖 — INV-007。"""
     target = _resolve(storage_key)
@@ -96,6 +103,10 @@ def read(storage_key: str) -> bytes:
 
 def exists(storage_key: str) -> bool:
     return _resolve(storage_key).exists()
+
+
+def delete(storage_key: str) -> None:
+    _resolve(storage_key).unlink(missing_ok=True)
 
 
 def compute_sha256(storage_key: str) -> str | None:

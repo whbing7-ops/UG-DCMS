@@ -279,6 +279,14 @@ label { font-size:13px; margin-bottom:6px; }
 .condition-row input { flex:1 1 130px; width:130px; }
 .condition-row select { flex:0 1 110px; width:110px; }
 details > summary { cursor:pointer; color:var(--accent); }
+.part-picker { position:relative; min-width:300px; }
+.part-picker-results { position:absolute; z-index:30; left:0; right:0; top:42px; max-height:280px; overflow:auto; background:#fff; border:1px solid #b9cbe0; border-radius:8px; box-shadow:0 12px 28px #10243d2e; }
+.part-picker-results:empty { display:none; }
+.part-picker-option { width:100%; display:grid; grid-template-columns:minmax(120px,.8fr) minmax(130px,1fr); gap:4px 12px; padding:10px 12px; text-align:left; border:0; border-bottom:1px solid #e5ebf3; background:#fff; color:var(--ink); cursor:pointer; }
+.part-picker-option:hover { background:#edf5ff; }
+.part-picker-option:disabled { color:#9b6262; background:#faf5f5; cursor:not-allowed; }
+.part-picker-option small { grid-column:1/-1; color:var(--ink-3); }
+.part-picker-selected { padding-top:5px; font-size:12px; }
 @media (min-width:1500px) { .main > div > .grid4 { grid-template-columns:repeat(4,minmax(0,1fr)); } }
 @media (max-width:900px) {
   .shell { grid-template-columns:minmax(0,1fr); }

@@ -1,7 +1,11 @@
 """外部件、软件对象、审批中心端点。"""
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Query
+import io
+import zipfile
+from fastapi import APIRouter, Depends, File, Form, Query, UploadFile
+from fastapi.responses import Response
+from urllib.parse import quote
 from pydantic import BaseModel, Field
 
 from .. import errors
@@ -9,6 +13,7 @@ from ..txroute import TransactionalRoute
 from ..deps import Conn, CurrentUser, require
 from ..rbac import Perm
 from ..services import approvals as ap_svc, externals as ext_svc
+from .. import storage
 
 router = APIRouter(tags=["外部件与软件"], route_class=TransactionalRoute)
 
@@ -54,6 +59,19 @@ class VersionRequest(BaseModel):
     build: str = Field(default="", max_length=32)
     hash_sha256: str | None = Field(default=None, min_length=64, max_length=64)
     notes: str | None = Field(default=None, max_length=500)
+
+
+SOFTWARE_PACKAGE_EXTENSIONS = {".zip", ".7z", ".rar", ".tar", ".gz", ".tgz"}
+MAX_SOFTWARE_PACKAGE_BYTES = 200 * 1024 * 1024
+
+
+def _valid_archive(content: bytes, suffix: str) -> bool:
+    if suffix == ".zip": return zipfile.is_zipfile(io.BytesIO(content))
+    if suffix == ".7z": return content.startswith(b"7z\xbc\xaf\x27\x1c")
+    if suffix == ".rar": return content.startswith((b"Rar!\x1a\x07\x00",b"Rar!\x1a\x07\x01\x00"))
+    if suffix in {".gz",".tgz"}: return content.startswith(b"\x1f\x8b")
+    if suffix == ".tar": return len(content)>262 and content[257:262]==b"ustar"
+    return False
 
 
 # ---------------- 外部件 ----------------
@@ -210,6 +228,41 @@ def add_version(software_number: str, payload: VersionRequest, conn: Conn,
             hash_sha256=payload.hash_sha256, notes=payload.notes, actor=actor)
     except LookupError as e:
         raise errors.not_found(str(e))
+
+
+@router.post("/software/{software_number}/versions/package", status_code=201)
+async def add_version_package(software_number: str, conn: Conn,
+                              version: str = Form(..., min_length=1, max_length=32),
+                              build: str = Form("", max_length=32),
+                              file: UploadFile = File(...),
+                              actor: dict = Depends(require(Perm.DRAFT_WRITE))):
+    filename=file.filename or "software-package.zip"
+    suffix="." + filename.lower().rsplit(".",1)[-1] if "." in filename else ""
+    if suffix not in SOFTWARE_PACKAGE_EXTENSIONS:
+        raise errors.bad_request("软件内容必须上传 ZIP、7Z、RAR、TAR、GZ 或 TGZ 压缩包")
+    content=await file.read()
+    if not content: raise errors.bad_request("软件压缩包不能为空")
+    if len(content)>MAX_SOFTWARE_PACKAGE_BYTES:
+        raise errors.bad_request("软件压缩包超过200MB上限")
+    if not _valid_archive(content,suffix):
+        raise errors.bad_request("文件扩展名与压缩包实际格式不一致，或压缩包已损坏")
+    try:
+        return ext_svc.add_version_package(conn,software_number,version=version,build=build,
+            filename=filename,mime_type=file.content_type or "application/octet-stream",
+            content=content,actor=actor)
+    except LookupError as e: raise errors.not_found(str(e))
+    except FileExistsError as e: raise errors.conflict(str(e),rule="INV-SW-PKG")
+
+
+@router.get("/software-versions/{version_id}/package/download")
+def download_version_package(version_id: str, conn: Conn, user: CurrentUser):
+    row=ext_svc.get_version_package(conn,version_id)
+    if row is None: raise errors.not_found("软件版本或软件压缩包不存在")
+    if not storage.exists(row["package_storage_key"]):
+        raise errors.not_found("软件压缩包物理文件缺失，请联系系统管理员")
+    return Response(content=storage.read(row["package_storage_key"]),
+        media_type=row["package_mime_type"],headers={"Content-Disposition":
+        "attachment; filename*=UTF-8''"+quote(row["package_filename"],safe="")})
 
 
 @router.post("/software-versions/{version_id}/release")

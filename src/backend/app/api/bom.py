@@ -44,6 +44,26 @@ def _object_id(conn, object_code: str) -> str:
 
 
 # ---------------- 工作 BOM ----------------
+@router.get("/bom-candidates/{parent_object_code}")
+def bom_candidates(parent_object_code: str, conn: Conn, user: CurrentUser,
+                   q: str | None = Query(None, max_length=128), limit: int = Query(30, ge=1, le=100)):
+    pattern=f"%{(q or '').strip()}%"
+    return fetch_all(conn,"""SELECT d.object_code,d.display_name,d.object_kind,d.lifecycle_status,
+      ep.external_part_number,ep.namespace_code
+      FROM design_object d
+      LEFT JOIN external_part ep ON ep.design_object_id=d.id
+      WHERE d.object_code<>%s AND d.object_kind IN ('PART_NUMBER','EXTERNAL_PART')
+        AND (%s='' OR d.object_code ILIKE %s OR d.display_name ILIKE %s
+             OR ep.external_part_number ILIKE %s)
+      ORDER BY CASE
+        WHEN lower(d.object_code)=lower(%s) OR lower(COALESCE(ep.external_part_number,''))=lower(%s) THEN 0
+        WHEN d.object_code ILIKE %s OR ep.external_part_number ILIKE %s THEN 1
+        ELSE 2 END,d.object_code
+      LIMIT %s""",(parent_object_code,(q or '').strip(),pattern,pattern,pattern,
+                    (q or '').strip(),(q or '').strip(),f"{(q or '').strip()}%",
+                    f"{(q or '').strip()}%",limit))
+
+
 @router.get("/bom/{object_code}")
 def get_bom(object_code: str, conn: Conn, user: CurrentUser):
     oid = _object_id(conn, object_code)

@@ -19,7 +19,25 @@ export async function bom(ctx, params, code) {
     api.get("/configuration/contexts"),
   ]);
 
-  const childIn = input({ placeholder: "子件号", class: "mono" });
+  const childIn = input({ placeholder: "输入内部件号、外部件号或名称后选择", class: "mono", autocomplete:"off", "aria-label":"子件号搜索" });
+  const childResults=el("div",{class:"part-picker-results"});
+  const childSelected=el("div",{class:"muted part-picker-selected"},"尚未选择子件");
+  let selectedChild="",searchTimer;
+  const searchChildren=async()=>{
+    const rows=await api.get(`/bom-candidates/${encodeURIComponent(code)}`,{query:{q:childIn.value.trim(),limit:30}});
+    childResults.replaceChildren(...rows.map(x=>{
+      const external=x.object_kind==="EXTERNAL_PART";
+      const shown=external?(x.external_part_number||x.object_code):x.object_code;
+      const disabled=x.lifecycle_status==="OBSOLETE";
+      return el("button",{type:"button",class:"part-picker-option",disabled,onclick:()=>{
+        selectedChild=x.object_code;childIn.value=shown;childResults.replaceChildren();
+        childSelected.textContent=`已选择：${shown} · ${x.display_name} · ${external?`外部件（${x.namespace_code}）`:"内部件"}`;
+      }},el("b",{class:"mono"},shown),el("span",{},x.display_name),
+        el("small",{},`${external?`外部件 · ${x.namespace_code}`:"内部件"} · ${statusText(x.lifecycle_status)}${disabled?" · 不可选":""}`));
+    }),rows.length?null:el("div",{class:"muted",style:"padding:10px"},"没有匹配的可用件号"));
+  };
+  childIn.addEventListener("input",()=>{selectedChild="";childSelected.textContent="请从搜索结果中选择子件";clearTimeout(searchTimer);searchTimer=setTimeout(()=>searchChildren().catch(toastError),250);});
+  childIn.addEventListener("focus",()=>searchChildren().catch(toastError));
   const itemIn = input({ placeholder: "项号，例如 010" });
   const qtyIn = input({ type: "number", step: "0.001", min: "0.001", value: "1" });
   const unitIn = input({ value: "EA", class: "mono" });
@@ -29,12 +47,13 @@ export async function bom(ctx, params, code) {
 
   const addRow = ctx.can("draft_write") ? panel("新增 BOM 子件", el("div", {},
     el("div", { class: "inline-form" },
-      field("项号", itemIn), field("子件号", childIn), field("数量", qtyIn),
+      field("项号", itemIn), field("子件号", el("div",{class:"part-picker"},childIn,childResults,childSelected)), field("数量", qtyIn),
       field("单位", unitIn), field("位号", desigIn), field("适用性", ruleSel),
       el("div", { style: "flex:0 0 auto" }, el("button", { class: "btn primary", onclick: async () => {
         try {
+          if(!selectedChild) throw Error("请搜索并从列表中选择子件号");
           const r = await api.post(`/bom/${encodeURIComponent(code)}/lines`, {
-            json: { item_number: itemIn.value, child_object_code: childIn.value,
+            json: { item_number: itemIn.value, child_object_code: selectedChild,
                     quantity: Number(qtyIn.value), unit_code: unitIn.value || null,
                     reference_designator: desigIn.value || null, applicability_rule_code: ruleSel.value || null },
           });

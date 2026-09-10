@@ -297,7 +297,7 @@ export async function softwareDetail(ctx, params, num) {
   const so = await api.get("/software/" + encodeURIComponent(num));
   const vIn = input({ class: "mono", placeholder: "1.0.0" });
   const bIn = input({ class: "mono", placeholder: "build 号，可空" });
-  const hIn = input({ class: "mono", placeholder: "软件包 SHA-256（64 位十六进制）" });
+  const packageIn = input({ type: "file", accept: ".zip,.7z,.rar,.tar,.gz,.tgz" });
   const cell = (l, v, mono) => el("div", { class: "tb-cell" },
     el("b", {}, l), el("span", { class: mono ? "mono" : null }, v ?? "—"));
 
@@ -312,23 +312,24 @@ export async function softwareDetail(ctx, params, num) {
         cell("版本数", so.versions.length),
         cell("建立时间", fmtDate(so.created_at)))),
     el("div", { class: "note" },
-      "发布前必须登记软件包的 SHA-256，否则日后无法核对交付物是否被替换。"),
+      "上传软件内容压缩包后，系统自动计算 SHA-256；审批和发布后交付包不可替换。"),
     ctx.can("draft_write") ? panel("登记新版本", el("div", { class: "inline-form" },
-      field("版本号", vIn), field("Build", bIn), field("SHA-256", hIn),
+      field("版本号", vIn), field("Build", bIn), field("软件内容压缩包", packageIn),
       el("div", { style: "flex:0 0 auto" }, el("button", { class: "btn primary",
         onclick: async () => {
-          try { await api.post(`/software/${encodeURIComponent(num)}/versions`, {
-                  json: { version: vIn.value, build: bIn.value || "",
-                          hash_sha256: hIn.value || null } });
-                toast("已登记"); reload(); }
+          try { if(!packageIn.files[0]) throw Error("请选择软件内容压缩包");
+                await api.upload(`/software/${encodeURIComponent(num)}/versions/package`,
+                  {version:vIn.value,build:bIn.value||""},packageIn.files[0]);
+                toast("软件版本和交付包已登记，SHA-256 已自动计算"); reload(); }
           catch (e) { toastError(e); } } }, "登记")))) : null,
     tablePanel("版本",
       table([{ label: "版本", mono: 1 }, { label: "Build", mono: 1 },
-             { label: "SHA-256", mono: 1 }, { label: "状态" },
+             { label: "软件包" }, { label: "SHA-256", mono: 1 }, { label: "状态" },
              { label: "发布时间" }, { label: "基线引用" }, { label: "" }],
         so.versions, v => [
           el("td", { class: "mono" }, v.version),
           el("td", { class: "mono muted" }, v.build || "—"),
+          el("td", {}, v.package_filename ? el("button",{class:"btn small",onclick:()=>api.download(`/software-versions/${v.id}/package/download`,v.package_filename)},`${v.package_filename} · ${((v.package_size_bytes||0)/1048576).toFixed(1)} MB`) : "未上传"),
           el("td", { class: "mono muted" }, v.hash_sha256 ? v.hash_sha256.slice(0, 16) + "…" : "未登记"),
           el("td", {}, status(v.status)),
           el("td", { class: "muted nowrap" }, fmtDate(v.released_at)),
