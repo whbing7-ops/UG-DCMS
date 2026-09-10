@@ -97,7 +97,7 @@ export async function auditPage(ctx) {
     try {
       const rows = await api.get('/admin/audit', { query: { action: action.value.trim(), object_type: type.value.trim(), object_id: id.value.trim(), limit: 1000 } });
       out.replaceChildren(panel(`审计记录 · ${rows.length}（最多 1000 条）`, table(['时间', '账户', '动作', '对象', '原因', '详情'].map(label => ({ label })), rows, r => [
-        el('td', {}, new Date(r.occurred_at).toLocaleString()), el('td', {}, r.username), el('td', {}, r.action), el('td', {}, r.object_code || r.object_id), el('td', {}, r.reason || '—'),
+        el('td', {}, new Date(r.occurred_at).toLocaleString()), el('td', {}, r.username), el('td', {}, codeText(r.action)), el('td', {}, r.object_code || r.object_id), el('td', {}, r.reason || '—'),
         el('td', {}, el('details', {}, el('summary', {}, '查看变更'), recordView({ old_value: r.old_value, new_value: r.new_value, result: r.result }))),
       ]) || empty('暂无匹配记录')));
     } catch (e) { out.replaceChildren(el('div', { class: 'note error' }, e.message)); }

@@ -63,7 +63,29 @@ const STATUS_CN = Object.freeze({
   FIRMWARE:'固件', CONFIG_DATA:'配置数据', LOADABLE:'可加载软件',
   DWG:'零件图／装配图', PSCD:'产品规范与构型定义', SPEC:'技术规范',
   WD:'电气原理图', BOMDOC:'BOM文件', ICD:'接口控制文件',
-  QTP:'试验大纲', QTR:'试验报告', ANLS:'分析报告', SWRD:'软件版本说明', REF:'参考资料'
+  QTP:'试验大纲', QTR:'试验报告', ANLS:'分析报告', SWRD:'软件版本说明', REF:'参考资料',
+  LOGIN:'登录', LOGOUT:'退出登录', PASSWORD_CHANGE:'修改密码', PASSWORD_RESET:'重置密码',
+  USER_CREATE:'新建账户', USER_UPDATE:'更新账户', USER_UNLOCK:'解除账户锁定',
+  SESSION_REVOKE:'撤销会话', SESSION_REVOKE_ALL:'撤销全部会话',
+  FAMILY_CREATE:'新建设计族', FAMILY_SUBMIT:'提交设计族审批', FAMILY_APPROVE:'批准设计族',
+  PART_NUMBER_CREATE:'新建件号', NUMBER_ALLOCATE:'分配号码', NUMBER_CANCEL:'作废号码', NUMBER_SKIP:'跳号',
+  BOM_LINE_ADD:'新增BOM子项', BOM_LINE_UPDATE:'修改BOM子项', BOM_LINE_DELETE:'删除BOM子项',
+  BOM_SNAPSHOT_CREATE:'生成BOM快照', BOM_APPLICABILITY_ASSIGN:'设置BOM适用性',
+  APPLICABILITY_RULE_CREATE:'新建适用性规则', CONFIG_CONTEXT_CREATE:'新建构型',
+  RESOLVED_BOM_SNAPSHOT_CREATE:'生成构型BOM快照', FILE_CREATE:'新建设计文件',
+  REVISION_CREATE:'新建文件版次', REVISION_SUBMIT:'提交版次审批', REVISION_RELEASE:'发布版次',
+  REVISION_CANCEL:'取消版次', ATTACHMENT_UPLOAD:'上传附件', ATTACHMENT_DELETE:'删除附件',
+  DEFINITION_LINK:'关联设计定义', INTEGRITY_CHECK:'附件完整性检查',
+  BASELINE_CREATE:'建立基线', BASELINE_ITEM_ADD:'添加基线项', BASELINE_ITEM_REMOVE:'移除基线项',
+  BASELINE_SUBMIT:'提交基线审批', BASELINE_RELEASE:'发布基线', BASELINE_CANCEL:'取消基线',
+  EXTERNAL_PART_CREATE:'登记外部件', EXTERNAL_STATE_ADD:'登记外部件技术状态',
+  EXTERNAL_STATE_ACCEPT:'接受外部件技术状态', EXTERNAL_STATE_REJECT:'拒绝外部件技术状态',
+  SOFTWARE_CREATE:'登记软件对象', SOFTWARE_VERSION_ADD:'登记软件版本', SOFTWARE_VERSION_RELEASE:'发布软件版本',
+  APPROVAL_WITHDRAW:'撤回审批', QUALITY_SCAN:'数据质量扫描', QUALITY_RESOLVE:'关闭质量问题',
+  QUALITY_WAIVE:'豁免质量问题', IMPORT_PREVIEW:'预览导入', IMPORT_COMMIT:'提交导入', IMPORT_ABORT:'取消导入',
+  DICTIONARY_DEPRECATE:'废止字典项', DICTIONARY_REACTIVATE:'启用字典项',
+  SYSTEM_BACKUP_CREATE:'创建系统备份', BACKUP_SCHEDULE_UPDATE:'更新备份计划',
+  SYSTEM_RESTORE_QUEUED:'备份恢复排队', SYSTEM_RESTORE_APPLY:'执行系统恢复', SYSTEM_RESTORE_CANCEL:'取消系统恢复'
 });
 
 export function statusText(v) { return v ? (STATUS_CN[v] || v) : '—'; }
