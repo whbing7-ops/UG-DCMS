@@ -11,7 +11,7 @@ New-Item -ItemType Directory -Force -Path $pre | Out-Null
 
 
 function Validate-InstallerSource {
-  $expected = '1.0.0-rc2.27'
+  $expected = '1.0.0-rc2.28'
   $issPath = Join-Path $PSScriptRoot 'UG-DCMS-Setup.iss'
   $cmdPath = Join-Path $PSScriptRoot 'BUILD-SETUP.cmd'
   $provisionPath = Join-Path $root 'windows\install-oneclick.ps1'
@@ -31,11 +31,11 @@ function Validate-InstallerSource {
   if($provisionText -match 'if\(Test-Path \"\$InstallDir\\venv\"\)\{ Remove-Item'){ throw 'Unsafe pre-install deletion of the legacy runtime detected.' }
   if($provisionText -notmatch 'CURRENT-RUNTIME\.txt'){ throw 'Versioned runtime pointer logic is missing.' }
   if($provisionText -notmatch 'CURRENT-RELEASE\.txt'){ throw 'Versioned release pointer logic is missing.' }
-  if($provisionText -notmatch 'app-1\.0\.0-rc2\.27-'){ throw 'Versioned release naming is missing.' }
+  if($provisionText -notmatch 'app-1\.0\.0-rc2\.28-'){ throw 'Versioned release naming is missing.' }
   if($issText -match 'DestDir: "\{app\}\\backend"'){ throw 'Unsafe in-place backend deployment detected. Payload must be staged.' }
   if($issText -notmatch 'DestDir: "\{app\}\\payload\\backend"'){ throw 'Expected staged backend payload is missing.' }
   if($provisionText -notmatch '已恢复上一版本 Release/Runtime 指针'){ throw 'Upgrade rollback pointer logic is missing.' }
-  if($provisionText -notmatch 'venv-1\.0\.0-rc2\.27-'){ throw 'Versioned runtime naming is missing.' }
+  if($provisionText -notmatch 'venv-1\.0\.0-rc2\.28-'){ throw 'Versioned runtime naming is missing.' }
   if($provisionText -notmatch 'verify-runtime\.py' -or $provisionText -notmatch 'RUNTIME-VERIFIED\.txt'){
     throw 'New runtime import self-check is missing.'
   }
@@ -199,5 +199,5 @@ Push-Location $PSScriptRoot
 try {
   & $iscc 'UG-DCMS-Setup.iss'
   if($LASTEXITCODE -ne 0){ throw "ISCC compile failed: $LASTEXITCODE" }
-  Write-Host "Setup.exe created: installer\output\UG-DCMS-Setup-1.0.0-rc2.27.exe" -ForegroundColor Green
+  Write-Host "Setup.exe created: installer\output\UG-DCMS-Setup-1.0.0-rc2.28.exe" -ForegroundColor Green
 } finally { Pop-Location }

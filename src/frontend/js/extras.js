@@ -83,7 +83,7 @@ export async function backupPage(ctx) {
           done=true; title.textContent='恢复失败';
           dialog.append(el('div',{class:'actions'},
             el('button',{class:'btn danger',onclick:retry},'重试恢复'),
-            el('button',{class:'btn',onclick:()=>box.remove()},'关闭'));
+            el('button',{class:'btn',onclick:()=>box.remove()},'关闭')));
         }
       }catch(e){
         unreachableSince??=Date.now();
@@ -93,7 +93,7 @@ export async function backupPage(ctx) {
           message.textContent='应用服务超过10分钟没有恢复连接。请检查 UGDCMS-App 服务和安装日志后重试。';
           dialog.append(el('div',{class:'actions'},
             el('button',{class:'btn danger',onclick:retry},'重试恢复'),
-            el('button',{class:'btn',onclick:()=>box.remove()},'关闭'));
+            el('button',{class:'btn',onclick:()=>box.remove()},'关闭')));
         }
       }
       if(!done) await new Promise(resolve=>setTimeout(resolve,2000));

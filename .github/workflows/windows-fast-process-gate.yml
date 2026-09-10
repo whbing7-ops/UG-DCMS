@@ -35,6 +35,6 @@ jobs:
       - name: Validate current frontend modules and installer contracts
         shell: powershell
         run: |
-          Get-ChildItem src\frontend\js\*.js | ForEach-Object { node --check $_.FullName; if($LASTEXITCODE -ne 0){ throw "JavaScript parse failure: $($_.Name)" } }
+          Get-ChildItem src\frontend\js\*.js | ForEach-Object { Get-Content $_.FullName -Raw | node --input-type=module --check; if($LASTEXITCODE -ne 0){ throw "JavaScript ES module parse failure: $($_.Name)" } }
           python src\installer\verify_installer_source.py
           python -m py_compile ci\full-functional-smoke.py
