@@ -6,6 +6,7 @@ import asyncio
 
 import psycopg
 from fastapi import FastAPI
+from fastapi.exceptions import RequestValidationError
 from fastapi.staticfiles import StaticFiles
 from pathlib import Path
 
@@ -51,6 +52,7 @@ def create_app() -> FastAPI:
     app.add_middleware(RequestGuardMiddleware)
 
     app.add_exception_handler(errors.DcmsError, errors.dcms_error_handler)
+    app.add_exception_handler(RequestValidationError, errors.validation_error_handler)
     # 兜底: 万一仍有递归超限的路径, 也要落到 400 而不是 500
     app.add_exception_handler(RecursionError, errors.recursion_handler)
     app.add_exception_handler(psycopg.Error, errors.db_error_handler)

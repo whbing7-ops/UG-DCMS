@@ -10,6 +10,7 @@ import re
 
 import psycopg
 from fastapi import HTTPException, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 # 触发器消息形如: DCMS-INV-009: BOM 形成循环: ...
@@ -18,6 +19,79 @@ logger = logging.getLogger("dcms.errors")
 # 触发器消息形如: DCMS-INV-009: BOM 形成循环: ...
 _RULE_RE_UNUSED = None
 _RULE_RE = re.compile(r"(DCMS-[A-Z0-9§\-]+):\s*(.*)", re.S)
+
+FIELD_CN = {
+    "username":"账户名", "password":"密码", "old_password":"当前密码", "new_password":"新密码",
+    "full_name":"姓名", "email":"邮箱", "employee_no":"员工编号", "roles":"角色",
+    "external_part_number":"外部件号", "name_cn":"中文名称", "name_en":"英文名称",
+    "namespace_code":"来源", "manufacturer_code":"制造商", "external_class_code":"外部件分类",
+    "project_code":"项目编号", "project_applicability":"项目适用范围",
+    "project_evaluation_basis":"项目评价依据", "evaluation_basis":"评价依据",
+    "software_number":"软件编号", "software_type":"软件类型", "version":"版本号",
+    "build":"构建号", "hash_sha256":"SHA-256 摘要", "supplier_revision":"供应商版本",
+    "supplier_document":"供应商文件", "supplier_document_date":"供应商文件日期",
+    "file_number":"文件编号", "file_type_code":"文件类型", "title_cn":"中文名称",
+    "title_en":"英文名称", "change_summary":"变更摘要", "approver_user_id":"审批人",
+    "item_number":"项号", "child_object_code":"子件号", "quantity":"数量", "unit_code":"单位",
+    "reference_designator":"位号", "applicability_rule_code":"适用性规则", "applicability":"适用范围",
+    "rule_code":"规则编号", "context_code":"构型编号", "expression":"适用性表达式",
+    "attributes":"属性", "baseline_type":"基线类型", "scope_note":"范围说明",
+    "change_reference":"变更依据", "item_type":"明细类型", "item_role":"明细角色",
+    "target":"内容标识", "reason":"原因", "description":"说明", "notes":"备注",
+    "primary_class_code":"一级类别", "physical_class_id":"二级分类", "object_level_code":"对象层级",
+    "core_term_id":"核心词", "qualifier_1_id":"限定词一", "qualifier_2_id":"限定词二",
+    "primary_function_id":"主功能", "family_definition":"设计族定义",
+    "allowed_variation":"允许变化", "excluded_variation":"排除变化", "new_family_reason":"新建原因",
+    "formal_name_cn":"中文正式名称", "formal_name_en":"英文正式名称", "requested_dash":"申请 Dash 号",
+    "frequency":"频率", "hour":"执行小时", "weekday":"星期", "retention":"保留份数",
+    "enabled":"启用状态", "confirmation":"确认文字", "file":"文件", "max_depth":"最大展开层级",
+}
+
+STATUS_CN = {"PENDING":"待处理", "ACTIVE":"有效", "DRAFT":"草稿", "WORKING":"工作中",
+             "IN_REVIEW":"审核中", "APPROVED":"已批准", "REJECTED":"已拒绝", "RETURNED":"已退回",
+             "RELEASED":"已发布", "CANCELLED":"已取消", "PREVIEW":"预览", "ACCEPTED":"已接受",
+             "OBSOLETE":"已作废", "DEPRECATED":"已停用", "SUPERSEDED":"已取代", "OPEN":"未关闭"}
+
+
+def localize_message(message: str) -> str:
+    """翻译可能进入界面的状态词；编号、件号和规则代码保持原样。"""
+    result = str(message)
+    for token, label in STATUS_CN.items():
+        result = re.sub(rf"(?<![A-Z0-9_]){token}(?![A-Z0-9_])", label, result)
+    return result.replace("Applicability", "适用性").replace("StorageKey", "存储键")
+
+
+def _validation_message(err: dict) -> str:
+    kind = err.get("type", "")
+    ctx = err.get("ctx") or {}
+    if kind == "missing": return "为必填项"
+    if kind == "string_too_short":
+        n = ctx.get("min_length", 1)
+        return "不能为空" if n == 1 else f"不得少于 {n} 个字符"
+    if kind == "string_too_long": return f"不得超过 {ctx.get('max_length')} 个字符"
+    if kind in {"greater_than", "greater_than_equal"}: return f"不得小于 {ctx.get('ge', ctx.get('gt'))}"
+    if kind in {"less_than", "less_than_equal"}: return f"不得大于 {ctx.get('le', ctx.get('lt'))}"
+    if kind in {"int_parsing", "int_type"}: return "必须是整数"
+    if kind in {"float_parsing", "float_type", "decimal_parsing"}: return "必须是数字"
+    if kind in {"bool_parsing", "bool_type"}: return "必须选择是或否"
+    if kind in {"date_from_datetime_parsing", "date_parsing", "datetime_parsing"}: return "日期格式不正确"
+    if kind in {"uuid_parsing", "uuid_type"}: return "标识格式不正确"
+    if kind == "json_invalid": return "JSON 格式不正确"
+    if kind in {"literal_error", "enum"}: return "请选择有效选项"
+    if kind == "extra_forbidden": return "不是允许提交的字段"
+    if kind.startswith("list_"): return "列表内容不符合要求"
+    return "输入内容不符合要求"
+
+
+async def validation_error_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
+    messages = []
+    for err in exc.errors():
+        loc = [x for x in err.get("loc", ()) if x not in {"body", "query", "path", "header"}]
+        key = next((x for x in reversed(loc) if isinstance(x, str)), "input")
+        field = FIELD_CN.get(key, "输入内容")
+        messages.append(f"{field}：{_validation_message(err)}")
+    return JSONResponse(status_code=422, content={"error": {
+        "code":"VALIDATION_ERROR", "message":"；".join(dict.fromkeys(messages)), "rule":None}})
 
 
 class DcmsError(HTTPException):
@@ -57,7 +131,7 @@ def license_exhausted(message: str) -> DcmsError:
 async def dcms_error_handler(request: Request, exc: DcmsError) -> JSONResponse:
     return JSONResponse(
         status_code=exc.status_code,
-        content={"error": {"code": exc.code, "message": exc.message, "rule": exc.rule}},
+        content={"error": {"code": exc.code, "message": localize_message(exc.message), "rule": exc.rule}},
     )
 
 
@@ -71,7 +145,7 @@ async def db_error_handler(request: Request, exc: psycopg.Error) -> JSONResponse
     if m:
         return JSONResponse(
             status_code=409,
-            content={"error": {"code": "RULE_VIOLATION", "message": m.group(2).strip(),
+            content={"error": {"code": "RULE_VIOLATION", "message": localize_message(m.group(2).strip()),
                                "rule": m.group(1)}},
         )
     # 输入格式错误(如把 "compare" 当 uuid 传入)是客户端问题, 不是服务器故障。

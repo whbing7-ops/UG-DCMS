@@ -35,8 +35,8 @@ purge_migration = (ROOT/'db'/'migrations'/'0017_purge_business_data_keep_account
 checks = {
     'versioned runtime pointer': 'CURRENT-RUNTIME.txt' in ps and 'CURRENT-RUNTIME.txt' in start,
     'versioned release pointer': 'CURRENT-RELEASE.txt' in ps and 'CURRENT-RELEASE.txt' in start,
-    'versioned runtime name': 'venv-1.0.0-rc2.25-' in ps,
-    'versioned release name': 'app-1.0.0-rc2.25-' in ps,
+    'versioned runtime name': 'venv-1.0.0-rc2.26-' in ps,
+    'versioned release name': 'app-1.0.0-rc2.26-' in ps,
     'stale app process cleanup': 'Stop-StaleAppProcesses' in ps,
     'application port owner check': 'Get-PortOwner $AppPort' in ps,
     'service failure log tail': 'UGDCMS-App.err.log' in ps and 'Get-Content $path -Tail 30' in ps,
@@ -63,10 +63,13 @@ checks = {
     'restore archive is collision-safe': 'applied-pending-restore-{suffix}.zip' in backup_service
         and 'os.replace(pending,applied)' in backup_service,
     'frontend upgrade invalidates cache': 'FreshStaticFiles' in main_api
-        and 'no-store, max-age=0' in main_api and '?v=rc2.25' in index_html,
+        and 'no-store, max-age=0' in main_api and '?v=rc2.26' in index_html,
     'business purge preserves accounts': 'TRUNCATE TABLE' in purge_migration
         and 'app_user' not in purge_migration.split('TRUNCATE TABLE', 1)[1].split('RESTART IDENTITY', 1)[0]
         and '账户保护校验失败' in purge_migration,
+    'validation prompts are Chinese': 'RequestValidationError' in main_api
+        and 'validation_error_handler' in main_api
+        and 'String should have at least' not in (ROOT/'frontend'/'js'/'api.js').read_text(encoding='utf-8-sig'),
     'upgrade pointer rollback': '已恢复上一版本 Release/Runtime 指针' in ps,
     'legacy start script rollback': '$previousStartNativeContent' in ps,
     'runtime import checks app': 'verify-runtime.py' in ps and 'RUNTIME-VERIFIED.txt' in ps,
