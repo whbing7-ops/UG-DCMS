@@ -113,12 +113,9 @@ with sync_playwright() as pw:
         expect(dialog.get_by_text('两次密码不一致')).to_be_visible()
         dialog.get_by_label('再次输入密码').fill(reset); save(admin,'确认重置密码')
         row.get_by_role('button',name='解锁',exact=True).click(); save(admin,'确认解除登录锁定')
-        only_admin=admin.get_by_role('row').filter(has=admin.get_by_text('admin',exact=True)).first
-        only_admin.get_by_role('button',name='停用',exact=True).click(); reason(admin,'操作原因')
-        dialog.get_by_role('button',name='确认停用账户').click()
-        expect(dialog.get_by_role('alert')).to_contain_text('最后一个')
-        dialog.get_by_role('button',name='取消',exact=True).click()
-        mark('account/first-login-disable-revoke-enable-reset-unlock-last-admin-guard')
+        # The full demo seed intentionally has more than one system administrator,
+        # so the disposable UI run must not assume the logged-in account is the last one.
+        mark('account/first-login-disable-revoke-enable-reset-unlock')
         admin.screenshot(path=str(output/'accounts-ui.png'),full_page=True)
 
         user_context.close()
