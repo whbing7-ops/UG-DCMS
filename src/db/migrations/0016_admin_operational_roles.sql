@@ -3,7 +3,7 @@
 INSERT INTO user_role(user_id,role_code)
 SELECT u.id,r.code
   FROM app_user u
- CROSS JOIN app_role r
+ CROSS JOIN role r
  WHERE u.username IN ('admin','demo_sysadmin')
    AND r.code IN ('ENGINEER','CONFIGURATION_MANAGER','APPROVER')
 ON CONFLICT DO NOTHING;
