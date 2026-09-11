@@ -327,4 +327,4 @@ def abort_batch(conn: psycopg.Connection, batch_id: str, reason: str, actor: dic
 def bom_template_csv() -> str:
     """导入模板。给出可直接另存为 Excel 的表头与一行示例。"""
     return ("项号,子件号,数量,单位,位号,适用性规则,有效性,备注\r\n"
-            "010,UGT10001-001,2,EA,C1;C2,,全部,示例行——请删除后填写实际数据\r\n")
+            "010,UG100001-001,2,EA,C1;C2,,全部,示例行——请删除后填写实际数据\r\n")

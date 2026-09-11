@@ -96,7 +96,12 @@ def create_external(conn: psycopg.Connection, *, namespace_code: str,
     if project_code and (not project_applicability or not project_evaluation_basis):
         raise ValueError("创建项目准入记录时，必须同时填写项目适用范围和评价依据")
 
-    # 对象编码取 NAMESPACE::EXT_PN —— 同一件号在不同来源下是不同对象(INV-016)
+    external_part_number = external_part_number.strip()
+    if not external_part_number:
+        raise ValueError('外部件号不能为空')
+    if scalar(conn, 'SELECT EXISTS(SELECT 1 FROM external_part_number_registry WHERE normalized_number=upper(%s))', (external_part_number,)):
+        raise ValueError(f'外部件号 {external_part_number} 已存在，即使名称或来源不同也不能重复创建')
+    # 保留既有对象编码架构；新登记的外部件号跨来源防重。
     object_code = f"{ns['code']}::{external_part_number.strip()}"
     obj = fetch_one(conn, """
         INSERT INTO design_object (object_type, object_code, display_name, created_by, updated_by)

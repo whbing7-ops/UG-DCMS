@@ -94,6 +94,11 @@ def list_families(conn: Conn, user: CurrentUser,
     return fam_svc.list_families(conn, primary_class_code, status, q)
 
 
+@router.get("/families/class-options")
+def family_class_options(conn: Conn, user: CurrentUser):
+    return fam_svc.class_options(conn)
+
+
 @router.get("/families/{family_id}")
 def get_family(family_id: str, conn: Conn, user: CurrentUser):
     fam = fam_svc.get_family(conn, family_id)
@@ -217,8 +222,10 @@ def basic_drawing_numbers(conn: Conn, user: CurrentUser,
                           primary_class_code: str | None = None):
     rows = numbering.occupied_numbers(conn, "BASIC_DRAWING", None)
     if primary_class_code:
-        prefix = numbering.CLASS_PREFIX.get(primary_class_code, "")
-        rows = [r for r in rows if r["allocated_number"].startswith(prefix)]
+        if primary_class_code not in numbering.CLASS_PREFIX:
+            raise errors.bad_request("请选择 T1、T2 或 T3 类别")
+        prefix = numbering.CLASS_PREFIX[primary_class_code]
+        rows = [r for r in rows if r["allocated_number"].startswith((prefix, 'UG' + primary_class_code))]
     return {"occupied": rows[:500], "occupied_total": len(rows), "display_limit": 500,
-            "next_sequence": numbering.next_available(
-                conn, "BASIC_DRAWING", None, numbering.BASIC_MIN, numbering.BASIC_MAX)}
+            "next_sequence": numbering.next_basic(conn, primary_class_code) if primary_class_code else None,
+            "next_by_class": {c: numbering.next_basic(conn, c) for c in numbering.CLASS_PREFIX}}

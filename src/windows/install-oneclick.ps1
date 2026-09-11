@@ -238,7 +238,7 @@ if(Test-Path $currentReleaseFile){
   if($previousRelease -and -not [IO.Path]::IsPathRooted($previousRelease)){ $previousRelease = Join-Path $releaseRoot $previousRelease }
   if($previousRelease -and -not (Test-Path $previousRelease)){ $previousRelease = $null }
 }
-$releaseName = 'app-1.0.0-rc2.33-' + (Get-Date -Format 'yyyyMMddHHmmss')
+$releaseName = 'app-1.0.0-rc2.34-' + (Get-Date -Format 'yyyyMMddHHmmss')
 $newRelease = Join-Path $releaseRoot $releaseName
 if(Test-Path $newRelease){ Fail "目标 Release 已存在：$newRelease" }
 New-Item -ItemType Directory -Force -Path $newRelease | Out-Null
@@ -266,7 +266,7 @@ if(Test-Path $currentRuntimeFile){
   }
   if($previousRuntime -and -not (Test-Path $previousRuntime)){ $previousRuntime = $null }
 }
-$runtimeName = 'venv-1.0.0-rc2.33-' + (Get-Date -Format 'yyyyMMddHHmmss')
+$runtimeName = 'venv-1.0.0-rc2.34-' + (Get-Date -Format 'yyyyMMddHHmmss')
 $newRuntime = Join-Path $runtimeRoot $runtimeName
 if(Test-Path $newRuntime){ Fail "目标 Runtime 已存在：$newRuntime" }
 Invoke-ProcessWithTimeout -FilePath $python -ArgumentList @('-m','venv',$newRuntime) -TimeoutSeconds 180 -Step '创建 Python 虚拟环境'
@@ -391,8 +391,8 @@ if($migrateExit -ne 0){ Fail "数据库迁移失败（退出码 $migrateExit）�
 $env:PGPASSWORD=$appDbPassword
 $migrationCount = (& $psql -X -h 127.0.0.1 -p $PgPort -U dcms -d dcms -qtAX -v ON_ERROR_STOP=1 -c 'SELECT count(*) FROM schema_migration;').Trim()
 if($LASTEXITCODE -ne 0){ Fail '无法验证数据库迁移状态' }
-if([int]$migrationCount -ne 19){ Fail "数据库迁移数量异常：期望 19，实际 $migrationCount" }
-Write-Step '数据库迁移完整性检查通过：19/19（综合演示业务数据已清理，仅保留账户与基础配置）'
+if([int]$migrationCount -ne 20){ Fail "数据库迁移数量异常：期望 20，实际 $migrationCount" }
+Write-Step '数据库迁移完整性检查通过：20/20（综合演示业务数据已清理，仅保留账户与基础配置）'
 
 # 应用配置。密码只允许 SYSTEM/Administrators 读取。
 $envText=@"
@@ -550,7 +550,7 @@ if(Test-Path $legacyVenv){
 # 安装状态
 $status=@"
 InstalledAt=$(Get-Date -Format o)
-Version=1.0.0-rc2.33
+Version=1.0.0-rc2.34
 AppPort=$AppPort
 DatabasePort=$PgPort
 AppService=UGDCMS-App

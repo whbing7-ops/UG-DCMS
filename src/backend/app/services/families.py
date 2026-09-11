@@ -62,6 +62,25 @@ def similar_search(conn: psycopg.Connection, primary_class_code: str,
 # ---------------------------------------------------------------------
 # 设计族
 # ---------------------------------------------------------------------
+def class_options(conn: psycopg.Connection) -> list[dict]:
+    rows = fetch_all(conn, """SELECT c.code,c.name_cn,c.status,
+        EXISTS(SELECT 1 FROM physical_class p WHERE p.primary_class_code=c.code AND p.status='ACTIVE') AS has_physical,
+        EXISTS(SELECT 1 FROM naming_core_term t WHERE t.primary_class_code=c.code AND t.status='ACTIVE') AS has_term
+        FROM primary_class c WHERE c.code ~ '^T[1-9]$' ORDER BY c.code""")
+    for c in rows:
+        reason = ''
+        if c['code'] in ('T4','T5','T6','T7','T8'):
+            reason = '预留类别，尚未批准启用'
+        elif c['code'] == 'T9':
+            reason = '仅用于历史登记及经批准的特殊编号，不适用于普通新建设计族'
+        elif c['status'] != 'ACTIVE':
+            reason = '类别已停用'
+        elif not c['has_physical'] or not c['has_term']:
+            reason = '尚未配置有效的二级分类或核心实体词'
+        c.update(available=not reason, reason=reason)
+    return rows
+
+
 def create_family(conn: psycopg.Connection, *, primary_class_code: str,
                   physical_class_id: str, object_level_code: str,
                   core_term_id: str, qualifier_1_id: str | None,
@@ -74,6 +93,9 @@ def create_family(conn: psycopg.Connection, *, primary_class_code: str,
     此时**不分配基本图号** —— 号码在批准后才发, 否则一个被否决的族会永久占掉一个
     基本图号(INV-004 使其无法回收)。
     """
+    option = next((c for c in class_options(conn) if c['code'] == primary_class_code), None)
+    if option is None or not option['available']:
+        raise ValueError(option['reason'] if option else '该一级类别不允许普通新建设计族')
     similar = similar_search(conn, primary_class_code, physical_class_id,
                              core_term_id, [q for q in (qualifier_1_id, qualifier_2_id) if q])
 

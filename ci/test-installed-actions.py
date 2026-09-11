@@ -129,6 +129,10 @@ with sync_playwright() as pw:
         page.get_by_role('button',name='修改口令',exact=True).click()
         expect(page.locator('.nav')).to_be_visible()
 
+        from test_master_ui import run as test_master_ui
+        test_master_ui(page,admin,call,base,output)
+        nav(admin,'/admin')
+
         nav(page,'/external-parts')
         expect(page.get_by_role('heading',name='外部件',exact=True)).to_be_visible()
         expect(page.get_by_text('第 1 /',exact=False)).to_be_visible()

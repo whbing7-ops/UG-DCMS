@@ -1,5 +1,6 @@
 /* 外部件、软件对象、审批中心。 */
 import { api } from "./api.js";
+import { transferActions } from "./master-transfer.js";
 import { approvalSubmitButton } from "./extras.js";
 import { hardwareSoftwarePanel, softwareHardwarePanel, softwarePackageButton } from "./software-hardware.js";
 import {
@@ -141,8 +142,9 @@ export async function externalParts(ctx, params) {
 
   return el("div", {},
     el("h1", {}, "外部件"),
+    transferActions(ctx, "externals"),
     el("p", { class: "sub" },
-      "同一件号在不同来源下是不同对象。供应商改版不改件号——改版登记为新的技术状态。"),
+      "外部件号不得重复登记，即使名称或来源不同。供应商改版请在原件号下登记新的技术状态。"),
     panel("查询", el("div", { class: "inline-form" }, field("关键词", searchIn),
       el("button", { class: "btn", onclick: () => { location.hash = "#/external-parts?" + new URLSearchParams({ q: searchIn.value.trim(), page: 1 }); } }, "查询"))),
     ctx.can("draft_write") ? panel("登记外部件", el("div", {},

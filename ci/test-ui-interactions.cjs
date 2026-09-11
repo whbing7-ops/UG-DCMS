@@ -4,7 +4,7 @@ const { chromium } = require(process.env.DCMS_PLAYWRIGHT || 'playwright');
 const assert = require('node:assert/strict');
 (async () => {
  const http=require('node:http'),fs=require('node:fs'),path=require('node:path');
- const frontend=path.resolve(__dirname,'frontend');
+ const frontend=path.resolve(__dirname,'../src/frontend');
  const server=http.createServer((req,res)=>{
   const file=path.resolve(frontend,'.'+new URL(req.url,'http://localhost').pathname.replace(/\/$/,'/index.html'));
   if(!file.startsWith(frontend+path.sep)||!fs.existsSync(file)){res.writeHead(404);res.end();return;}

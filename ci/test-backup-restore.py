@@ -115,6 +115,9 @@ def postgres_roundtrip():
         # 构造包含业务记录的旧版备份，再在目标库新增真实的 0019 外键。
         migrations = backups._migration_files()
         conn.execute('DROP TABLE software_hardware_compatibility')
+        conn.execute('DROP TRIGGER trg_external_number_unique ON external_part')
+        conn.execute('DROP FUNCTION dcms_guard_external_number()')
+        conn.execute('DROP TABLE external_part_number_registry')
         conn.execute("DELETE FROM schema_migration WHERE version >= '0017'")
         part = conn.execute("INSERT INTO design_object(object_type,object_code,display_name) VALUES ('INTERNAL_PART','RESTORE-HW-PROBE','备份中的硬件') RETURNING id").fetchone()[0]
         sw = conn.execute("INSERT INTO design_object(object_type,object_code,display_name) VALUES ('SOFTWARE','RESTORE-SW-PROBE','备份中的软件') RETURNING id").fetchone()[0]
@@ -127,7 +130,7 @@ def postgres_roundtrip():
         payload.write_bytes(b'original attachment\x00\xff')
         backup = backups.create_backup('RESTORE_REGRESSION')
         content = (backups._root() / backup['filename']).read_bytes()
-        conn.execute(migrations[-1].read_text(encoding='utf-8-sig'))
+        conn.execute(next(m for m in migrations if m.name.startswith('0019_')).read_text(encoding='utf-8-sig'))
         conn.execute("INSERT INTO software_hardware_compatibility(software_version_id,hardware_design_object_id,hardware_version) VALUES (%s,%s,'R00')", (version, part))
         conn.execute("UPDATE design_object SET display_name='恢复前的硬件' WHERE id=%s", (part,))
         payload.write_bytes(b'before restore')
@@ -176,7 +179,7 @@ def postgres_roundtrip():
         assert conn.execute('SELECT display_name FROM design_object WHERE id=%s', (part,)).fetchone()[0] == '备份中的硬件'
         assert conn.execute('SELECT count(*) FROM software_version WHERE id=%s', (version,)).fetchone()[0] == 1
         assert conn.execute('SELECT count(*) FROM software_hardware_compatibility').fetchone()[0] == 0
-        assert conn.execute('SELECT count(*) FROM schema_migration').fetchone()[0] == 19
+        assert conn.execute('SELECT count(*) FROM schema_migration').fetchone()[0] == len(migrations)
         assert conn.execute('SELECT id,username,password_hash FROM app_user ORDER BY id').fetchall() == accounts
         assert payload.read_bytes() == b'original attachment\x00\xff'
         assert not (backups._root() / 'pending-restore.json').exists()

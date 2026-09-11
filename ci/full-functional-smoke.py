@@ -369,6 +369,9 @@ def main() -> None:
     check(all(x["id"] != line_b["id"] for x in after_delete["lines"]), "BOM delete button contract failed")
     results.append("bom/delete-row")
 
+    from test_master_transfer import run as test_master_transfer
+    test_master_transfer(engineer, approver, cm, admin, target)
+
     print("FULL FUNCTIONAL SMOKE PASS")
     for name in results:
         print("PASS", name)
