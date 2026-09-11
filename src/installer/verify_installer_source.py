@@ -38,6 +38,8 @@ views3 = (ROOT/'frontend'/'js'/'views3.js').read_text(encoding='utf-8-sig')
 views5 = (ROOT/'frontend'/'js'/'views5.js').read_text(encoding='utf-8-sig')
 
 checks = {
+    'builder migration count': 'Count -ne 20' in build and '20/20' in build,
+    'CMD output version': 'rc2.34.exe' in (ROOT/'installer'/'BUILD-SETUP.cmd').read_text(),
     'versioned runtime pointer': 'CURRENT-RUNTIME.txt' in ps and 'CURRENT-RUNTIME.txt' in start,
     'versioned release pointer': 'CURRENT-RELEASE.txt' in ps and 'CURRENT-RELEASE.txt' in start,
     'versioned runtime name': 'venv-1.0.0-rc2.34-' in ps,

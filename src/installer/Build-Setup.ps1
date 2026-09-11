@@ -39,7 +39,7 @@ function Validate-InstallerSource {
   if($provisionText -notmatch 'verify-runtime\.py' -or $provisionText -notmatch 'RUNTIME-VERIFIED\.txt'){
     throw 'New runtime import self-check is missing.'
   }
-  if($provisionText -notmatch '数据库迁移完整性检查通过：19/19'){ throw 'Database migration completeness check is missing.' }
+  if($provisionText -notmatch '数据库迁移完整性检查通过：20/20'){ throw 'Database migration completeness check is missing.' }
   if($provisionText -match '兼容 health 路径差异'){ throw 'Weak TCP-only health fallback must not be present.' }
   if($provisionText -notmatch 'HTTP 健康检查通过'){ throw 'Strict HTTP health check is missing.' }
   if($provisionText -notmatch '/api/v1/health' -or $provisionText -match '/api/v1/system/health'){
@@ -49,8 +49,8 @@ function Validate-InstallerSource {
     throw 'Upgrade-safe .env ACL repair is missing.'
   }
   $migrations = @(Get-ChildItem (Join-Path $root 'db\migrations\*.sql') -File | Sort-Object Name)
-  if($migrations.Count -ne 19){ throw "Expected 19 DB migrations, found $($migrations.Count)." }
-  for($i=1; $i -le 17; $i++){
+  if($migrations.Count -ne 20){ throw "Expected 20 DB migrations, found $($migrations.Count)." }
+  for($i=1; $i -le $migrations.Count; $i++){
     $prefix = ('{0:D4}_' -f $i)
     if(-not $migrations[$i-1].Name.StartsWith($prefix)){ throw "Migration sequence broken at $prefix" }
   }
