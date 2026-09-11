@@ -180,8 +180,8 @@ def submit_revision(conn: psycopg.Connection, revision_id: str, approver_user_id
     execute(conn, """
         INSERT INTO approval_step (approval_request_id, step_order, step_name,
                                    required_role_code, assignee_user_id, is_final)
-        VALUES (%s, 1, '版次批准', 'APPROVER', %s, true)
-    """, (req["id"], approver["id"]))
+        VALUES (%s, 1, '版次批准', %s, %s, true)
+    """, (req["id"], approver["role_code"], approver["id"]))
     execute(conn, """
         UPDATE file_revision SET status='IN_REVIEW', approval_request_id=%s,
                checked_by=%s, updated_by=%s WHERE id=%s

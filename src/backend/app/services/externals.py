@@ -296,8 +296,8 @@ def submit_technical_state(conn: psycopg.Connection, state_id: str,
       'EXTERNAL_TECHNICAL_STATE',%s,%s,%s,%s) RETURNING id,request_number""",
       (number,state_id,st["object_code"],f"接受外部件技术状态 {st['object_code']} TS{st['state_sequence']}",actor["user_id"]))
     execute(conn,"""INSERT INTO approval_step(approval_request_id,step_order,step_name,
-      required_role_code,assignee_user_id,is_final) VALUES(%s,1,'技术状态接受','APPROVER',%s,true)""",
-      (req["id"],approver["id"]))
+      required_role_code,assignee_user_id,is_final) VALUES(%s,1,'技术状态接受',%s,%s,true)""",
+      (req["id"],approver["role_code"],approver["id"]))
     execute(conn,"UPDATE external_technical_state SET status='IN_REVIEW',approval_request_id=%s WHERE id=%s",
             (req["id"],state_id))
     return req
@@ -359,8 +359,8 @@ def submit_project_control(conn: psycopg.Connection, control_id: str,
       json.dumps({"project_code":c["project_code"],"applicability":c["applicability"],
                   "evaluation_basis":c["evaluation_basis"]},ensure_ascii=False)))
     execute(conn,"""INSERT INTO approval_step(approval_request_id,step_order,step_name,
-      required_role_code,assignee_user_id,is_final) VALUES(%s,1,'项目准入批准','APPROVER',%s,true)""",
-      (req["id"],approver["id"]))
+      required_role_code,assignee_user_id,is_final) VALUES(%s,1,'项目准入批准',%s,%s,true)""",
+      (req["id"],approver["role_code"],approver["id"]))
     execute(conn,"UPDATE external_part_project_control SET status='IN_REVIEW',approval_request_id=%s WHERE id=%s",(req["id"],control_id))
     return req
 
@@ -674,8 +674,8 @@ def submit_version(conn: psycopg.Connection, version_id: str,
       %s,%s,%s,%s) RETURNING id,request_number""",(number,version_id,
       f"{sv['software_number']} {sv['version']}",f"发布软件版本 {sv['software_number']} {sv['version']}",actor["user_id"]))
     execute(conn,"""INSERT INTO approval_step(approval_request_id,step_order,step_name,
-      required_role_code,assignee_user_id,is_final) VALUES(%s,1,'软件版本发布','APPROVER',%s,true)""",
-      (req["id"],approver["id"]))
+      required_role_code,assignee_user_id,is_final) VALUES(%s,1,'软件版本发布',%s,%s,true)""",
+      (req["id"],approver["role_code"],approver["id"]))
     execute(conn,"UPDATE software_version SET status='IN_REVIEW',approval_request_id=%s WHERE id=%s",
             (req["id"],version_id))
     return req

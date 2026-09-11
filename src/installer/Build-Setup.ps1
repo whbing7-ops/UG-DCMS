@@ -11,7 +11,7 @@ New-Item -ItemType Directory -Force -Path $pre | Out-Null
 
 
 function Validate-InstallerSource {
-  $expected = '1.0.0-rc2.32'
+  $expected = '1.0.0-rc2.33'
   $issPath = Join-Path $PSScriptRoot 'UG-DCMS-Setup.iss'
   $cmdPath = Join-Path $PSScriptRoot 'BUILD-SETUP.cmd'
   $provisionPath = Join-Path $root 'windows\install-oneclick.ps1'
@@ -199,5 +199,5 @@ Push-Location $PSScriptRoot
 try {
   & $iscc 'UG-DCMS-Setup.iss'
   if($LASTEXITCODE -ne 0){ throw "ISCC compile failed: $LASTEXITCODE" }
-  Write-Host "Setup.exe created: installer\output\UG-DCMS-Setup-1.0.0-rc2.32.exe" -ForegroundColor Green
+  Write-Host "Setup.exe created: installer\output\UG-DCMS-Setup-1.0.0-rc2.33.exe" -ForegroundColor Green
 } finally { Pop-Location }

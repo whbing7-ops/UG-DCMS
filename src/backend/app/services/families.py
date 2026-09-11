@@ -145,8 +145,8 @@ def submit_family(conn: psycopg.Connection, family_id: str, approver_user_id: st
         INSERT INTO approval_step
             (approval_request_id, step_order, step_name, required_role_code,
              assignee_user_id, is_final)
-        VALUES (%s, 1, '设计族批准', 'APPROVER', %s, true)
-    """, (req["id"], approver["id"]))
+        VALUES (%s, 1, '设计族批准', %s, %s, true)
+    """, (req["id"], approver["role_code"], approver["id"]))
 
     execute(conn, "UPDATE basic_drawing_family SET approval_request_id = %s WHERE id = %s",
             (req["id"], family_id))

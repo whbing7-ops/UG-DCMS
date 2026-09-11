@@ -333,7 +333,10 @@ def approval_summary(conn: Conn, user: CurrentUser):
 @router.get("/approvals/candidates")
 def approval_candidates(conn: Conn, user: CurrentUser,
                         required_role: str = Query("APPROVER", max_length=32)):
-    return ap_svc.available_approvers(conn, str(user["user_id"]), required_role)
+    try:
+        return ap_svc.available_approvers(conn, str(user["user_id"]), required_role)
+    except ValueError as exc:
+        raise errors.bad_request(str(exc))
 
 
 @router.get("/approvals/inbox")
