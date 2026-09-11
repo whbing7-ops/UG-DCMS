@@ -48,11 +48,13 @@ def _object_id(conn, object_code: str) -> str:
 def bom_candidates(parent_object_code: str, conn: Conn, user: CurrentUser,
                    q: str | None = Query(None, max_length=128), limit: int = Query(30, ge=1, le=100)):
     pattern=f"%{(q or '').strip()}%"
-    return fetch_all(conn,"""SELECT d.object_code,d.display_name,d.object_kind,d.lifecycle_status,
-      ep.external_part_number,ep.namespace_code
+    return fetch_all(conn,"""SELECT d.object_code,d.display_name,
+      CASE d.object_type WHEN 'INTERNAL_PART' THEN 'PART_NUMBER' ELSE d.object_type END AS object_kind,
+      d.lifecycle_status,ep.external_part_number,ns.code AS namespace_code
       FROM design_object d
       LEFT JOIN external_part ep ON ep.design_object_id=d.id
-      WHERE d.object_code<>%s AND d.object_kind IN ('PART_NUMBER','EXTERNAL_PART')
+      LEFT JOIN namespace ns ON ns.id=ep.namespace_id
+      WHERE d.object_code<>%s AND d.object_type IN ('INTERNAL_PART','EXTERNAL_PART')
         AND (%s='' OR d.object_code ILIKE %s OR d.display_name ILIKE %s
              OR ep.external_part_number ILIKE %s)
       ORDER BY CASE

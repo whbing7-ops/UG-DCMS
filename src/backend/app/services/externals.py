@@ -148,376 +148,534 @@ def get_external(conn: psycopg.Connection, object_code: str) -> dict | None:
     """, (object_code,))
     if ep is None:
         return None
-    ep["technvïŞü¶‰ËkºwµçHˆK‹›Øš™XİØÛÙH¸ %ŠKˆ[
-‹ßK‹œ™\]Y\İ\—Û˜[YJKˆ[
-‹ÈÛ\ÜÎˆ›]]Y›İÜ˜\ˆK›]]J‹œ™\]Y\İYØ]
-JKˆ[
-‹ÈÛ\ÜÎˆœšYÚ›İÜ˜\ˆKˆ\›İ˜[Øš™Xİ[šÊŠKˆ‹ˆ[
-˜]Ûˆ‹ÈÛ\ÜÎˆ˜ˆÛX[‹Û˜ÛXÚÎˆ
+    ep["technical_states"] = technical_states(conn, str(ep["id"]))
+    ep["project_controls"] = fetch_all(conn, """
+        SELECT c.id, c.project_code, c.status, c.applicability, c.evaluation_basis,
+               c.approved_at, u.full_name AS approved_by_name,
+               aps.assignee_user_id AS approval_assignee_user_id
+          FROM external_part_project_control c
+          LEFT JOIN app_user u ON u.id=c.approved_by
+          LEFT JOIN approval_step aps ON aps.approval_request_id=c.approval_request_id
+            AND aps.decision='PENDING'
+         WHERE c.external_part_id=%s ORDER BY project_code
+    """, (ep["id"],))
+    return ep
 
-HO‚ˆXİ
-‹šYœ™]\›ˆ‹º` 9fçº(iyaaH‹ºg :) z(iyaay.à9.b;ï'ùå,ú+íù.®¹¥.yk£9cëùa£y«(y£ä9.©ŠHKº` 9fçˆŠKˆˆ‹ˆ[
-˜]Ûˆ‹ÈÛ\ÜÎˆ˜ˆÛX[[™Ù\ˆ‹Û˜ÛXÚÎˆ
 
-HO‚ˆXİ
-‹šYœ™Z™Xİ‹¹¢ä¹îçH‹¹..¹.à9.b:/æy.í¹.¢ù.#z+éy`f»ï'ù¢ä¹îçyd#ºg 9céº-mù¥¬9å,ú+íÈŠHK¹¢ä¹îçHŠJWJJBˆˆ[\J¹¬¨y§"yo¡y/h9i!9ä!¹æ¡9k¨y¢nHŠK‚ˆX›T[™[
-¹¢$ycäz-mùæ¡9å,ú+íÈ‹ˆX›JŞÈX™[ˆ¹å,ú+íùceH‹[Û›ÎˆHKÈX™[ˆ¹ìnùg¢ÈˆKÈX™[ˆ¹kîz,hH‹[Û›ÎˆHKˆÈX™[ˆ¹â­¹  HˆKÈX™[ˆ¹£ä9.©9¥íºeíˆKÈX™[ˆˆˆWKˆZ[™KˆOˆÂˆ[
-‹ÈÛ\ÜÎˆ›[Û›ÈˆK[šÊ‹œ™\]Y\İÛ[X™\‹ˆËØ\›İ˜[Èˆ
-È‹šY
-JKˆ[
-‹ßK‘TWĞÓ–Ü‹œ™\]Y\İİ\WH‹œ™\]Y\İİ\JKˆ[
-‹ÈÛ\ÜÎˆ›[Û›ÈˆK‹›Øš™XİØÛÙH¸ %ŠKˆ[
-‹ßKİ]\Ê‹œİ]\ÊJKˆ[
-‹ÈÛ\ÜÎˆ›]]Y›İÜ˜\ˆK›]]J‹œ™\]Y\İYØ]
-JKˆ[
-‹ÈÛ\ÜÎˆœšYÚˆK‹œİ]\ÈOOH”S‘S‘È‚ˆÈ[
-˜]Ûˆ‹ÈÛ\ÜÎˆ˜ˆÛX[‹Û˜ÛXÚÎˆ
+def technical_states(conn: psycopg.Connection, external_part_id: str) -> list[dict]:
+    return fetch_all(conn, """
+        SELECT ets.id, ets.state_sequence, ets.supplier_revision, ets.supplier_document,
+               ets.supplier_document_date, ets.hash_sha256, ets.status, ets.notes,
+               ets.accepted_at, u.username AS accepted_by_username,
+               aps.assignee_user_id AS approval_assignee_user_id,
+               (SELECT count(*) FROM baseline_item bi
+                 WHERE bi.external_technical_state_id = ets.id) AS baseline_refs
+          FROM external_technical_state ets
+          LEFT JOIN app_user u ON u.id = ets.accepted_by
+          LEFT JOIN approval_step aps ON aps.approval_request_id=ets.approval_request_id
+            AND aps.decision='PENDING'
+         WHERE ets.external_part_id = %s
+         ORDER BY ets.state_sequence DESC
+    """, (external_part_id,))
 
-HO‚ˆXİ
-‹šYÚ]˜]È‹¹¤©9fçˆ‹¹..¹.à9.b9¤©9fç»ï'ÈŠHK¹¤©9fçˆŠHˆ[
-WJBˆ[\J¹/h:/æ9¬¨y§"ycäz-mú/áùå,ú+íÈŠJJNÂŸB‚™^Ü\Ş[˜È[˜İ[Ûˆ\›İ˜[]Z[
-İ\˜[\ËY
-HÂˆÛÛœİˆH]ØZ]\K™Ù]
-‹Ø\›İ˜[ËÈˆ
-ÈY
-NÂˆÛÛœİÙ[H
-‹[Û›ÊHOˆ[
-™]ˆ‹ÈÛ\ÜÎˆ‹XÙ[ˆKˆ[
-˜ˆ‹ßK
-K[
-œÜ[ˆ‹ÈÛ\ÜÎˆ[Û›ÈÈ›[Û›Èˆˆ[KˆÏÈ¸ %ŠJNÂˆ™]\›ˆ[
-™]ˆ‹ßKˆ[
-™]ˆ‹ÈÛ\ÜÎˆ]X›ØÚÈˆKˆ[
-™]ˆ‹ÈÛ\ÜÎˆ‹ZXYˆKˆ[
-œÜ[ˆ‹ÈÛ\ÜÎˆ‹XÛÙHˆK‹œ™\]Y\İÛ[X™\ŠKˆ[
-œÜ[ˆ‹ÈÛ\ÜÎˆ‹[˜[YHˆK‹]JJKˆ[
-™]ˆ‹ÈÛ\ÜÎˆ‹YÜšYˆKˆÙ[
-¹ìnùg¢È‹‘TWĞÓ–Ü‹œ™\]Y\İİ\WH‹œ™\]Y\İİ\JKˆÙ[
-¹â­¹  H‹İ]\Õ^
-‹œİ]\ÊJKˆÙ[
-¹kîz,hH‹‹›Øš™XİØÛÙKYJKˆÙ[
-¹å,ú+íù.®ˆ‹‹œ™\]Y\İ\—Û˜[YJKˆÙ[
-¹£ä9.©9¥íºeí‹›]]J‹œ™\]Y\İYØ]
-JKˆÙ[
-¹îäù§gù¥íºeí‹›]]J‹˜ÛÜÙYØ]
-JJJKˆX›T[™[
-¹k¨y¢ny«izj©‹ˆX›JŞÈX™[ˆ¹«izj©ˆKÈX™[ˆ¹d#yéìˆKÈX™[ˆ¹£!ùk¦¹k¨y¢ny.®ˆˆKÈX™[ˆº) y¬`º)äº"lˆˆKˆÈX™[ˆ¹§ 9îâ9«izj©ˆKÈX™[ˆ¹îäú+®ˆˆKÈX™[ˆ¹i!9ä!¹.®ˆˆKˆÈX™[ˆ¹¡#ú)àHˆKÈX™[ˆ¹¥íºeíˆWKˆ‹œİ\ËÈOˆÂˆ[
-‹ÈÛ\ÜÎˆ›[HˆKËœİ\ÛÜ™\ŠKˆ[
-‹ßKËœİ\Û˜[YJKˆ[
-‹ßKË˜\ÜÚYÛ™YWÛ˜[YHÈ	ÜË˜\ÜÚYÛ™YWÛ˜[Y_{ï"	ÜË˜\ÜÚYÛ™YWİ\Ù\›˜[Y_{ï"Xˆ¹£"z)äº"lºh¡¹cåˆŠKˆ[
-‹ÈÛ\ÜÎˆ›]]YˆKËœ™\]Z\™YÜ›ÛWØÛÙH¸ %ŠKˆ[
-‹ßKËš\×Ùš[˜[È¹¦+ÈˆˆˆŠKˆ[
-‹ßKİ]\ÊË™XÚ\Ú[ÛŠJKˆ[
-‹ÈÛ\ÜÎˆ›[Û›ÈˆKË™XÚYYØWİ\Ù\›˜[YH¸ %ŠKˆ[
-‹ßKË˜ÛÛ[Y[È¸ %ŠKˆ[
-‹ÈÛ\ÜÎˆ›]]Y›İÜ˜\ˆK›]]JË˜XİYØ]
-JWJJKˆ[
-™]ˆ‹ÈÛ\ÜÎˆ˜Xİ[ÛœÈˆK\›İ˜[Øš™Xİ[šÊŠK[šÊº/å9fç¹k¨y¢ny.+yoàÈ‹ˆËØ\›İ˜[È‹˜ˆŠJJNÂŸB‚‹ÊˆOOOOOOOOOOOOOOOOOOOH9i%º`ê9.íˆOOOOOOOOOOOOOOOOOOOH
-‹Â™^Ü\Ş[˜È[˜İ[Ûˆ^\›˜[\Êİ\˜[\ÊHÂˆÛÛœİYÙHH[X™\Š\˜[\Ë™Ù]
-œYÙHŠHJKHH\˜[\Ë™Ù]
-œHŠHˆÂˆÛÛœİÜ™\İ[˜[Y\ÜXÙ\ËX[Y˜Xİ\™\œËÛ\ÜÙ\×HH]ØZ]›ÛZ\ÙK˜[
-Âˆ\K™Ù]
-‹Ù^\›˜[\\È‹È]Y\NˆÈYÙKYÙWÜÚ^™NˆLHHJKˆ\K™Ù]
-‹ÙXİ[Û˜\KÛ˜[Y\ÜXÙHŠKˆ\K™Ù]
-‹ÙXİ[Û˜\KÛX[Y˜Xİ\™\ˆŠKˆ\K™Ù]
-‹Ù^\›˜[\\XÛ\ÜÙ\ÈŠKˆJNÂˆÛÛœİ›İÜÈH™\İ[š][\ÎÂˆÛÛœİÙX\˜Ú[ˆH[œ]
-È˜[YNˆKXÙZÛ\ˆ¹¤'9í(¹kîz,hyï%¹è xà yi%º`ê9.í¹cíù¢%¹d#yéìˆJNÂˆÛÛœİœÔÙ[HÙ[Xİ
-˜[Y\ÜXÙ\Ë›X\
-ˆOˆ
-È˜[YNˆ‹˜ÛÙKX™[ˆ	Û‹˜ÛÙ_H	Û‹›˜[YWØÛŸXJJJNÂˆÛÛœİ’[ˆH[œ]
-ÈÛ\ÜÎˆ›[Û›È‹XÙZÛ\ˆÌKLˆJNÂˆÛÛœİ˜[YR[ˆH[œ]
-ÈXÙZÛ\ˆ“ZXÜ›ËQš]:/ç¹£©yfj9hìù/dÈˆJNÂˆÛÛœİX[Y˜Xİ\™\”Ù[HÙ[Xİ
-ŞÈ˜[YNˆˆ‹X™[ˆ¹§*¹£!ùk¦ˆˆK‹‹›X[Y˜Xİ\™\œË›X\
-HOˆ
-È˜[YNˆK˜ÛÙKX™[ˆK˜ÛÙH
-Èˆ0­Èˆ
-ÈK›˜[YWØÛˆJJWJNÂˆÛÛœİÛ\ÜÔÙ[HÙ[Xİ
-Û\ÜÙ\Ë›X\
-ÈOˆ
-È˜[YNˆË˜ÛÙKX™[ˆ	ØË˜ÛÙ_H0­È	ØË›˜[YWØÛŸXJJJNÂˆÛÛœİ›Ú™Xİ[ˆH[œ]
-ÈÛ\ÜÎˆ›[Û›È‹XÙZÛ\ˆºhnyæë¹ï%¹cíûï"9cëú`"{ï"HˆJNÂˆÛÛœİ\XØXš[]R[ˆH[œ]
-ÈXÙZÛ\ˆº+ézhnyæë¹.+yæ¡9å*:`%9¢%º` ¹å*:# ùfíˆJNÂˆÛÛœİ˜\Ú\Ò[ˆH[œ]
-ÈXÙZÛ\ˆºhnyæë¹aá¹aiz+á9.íù/§y£kˆˆJNÂ‚ˆ™]\›ˆ[
-™]ˆ‹ßKˆ[
-šH‹ßK¹i%º`ê9.íˆŠKˆ[
-œ‹ÈÛ\ÜÎˆœİXˆˆKˆ¹d#9. 9.í¹cíùg*9.#yd#9§iy®¤9."ù¦+ù.#yd#9kîz,hxà ¹/¦ùn¥9ea¹¥.yâb9.#y¥.y.í¹cíø %8 %9¥.yâb9ænú+¬9..¹¥¬9æ¡9¢ 9§+ùâ­¹  xà ˆŠKˆ[™[
-¹§éz+èˆ‹[
-™]ˆ‹ÈÛ\ÜÎˆš[›[™KY›Ü›HˆKšY[
-¹alúe+º+ãH‹ÙX\˜Ú[ŠKˆ[
-˜]Ûˆ‹ÈÛ\ÜÎˆ˜ˆ‹Û˜ÛXÚÎˆ
 
-HOˆÈØØ][Û‹š\ÚHˆËÙ^\›˜[\\ÏÈˆ
-È™]ÈT“ÙX\˜Ú\˜[\ÊÈNˆÙX\˜Ú[‹˜[YKš[J
-KYÙNˆHJNÈHK¹§éz+èˆŠJJKˆİ˜Ø[Š™˜YİÜš]HŠHÈ[™[
-¹ænú+¬9i%º`ê9.íˆ‹[
-™]ˆ‹ßKˆ[
-™]ˆ‹ÈÛ\ÜÎˆš[›[™KY›Ü›HˆKˆšY[
-¹§iy®¤‹œÔÙ[
-KšY[
-¹i%º`ê9.í¹cíÈ‹’[ŠKšY[
-¹d#yéì‹˜[YR[ŠKˆšY[
-¹b!¹ìnÈ‹Û\ÜÔÙ[
-KšY[
-¹b-º`(9eaˆ‹X[Y˜Xİ\™\”Ù[
-KˆšY[
-ºhnyæëˆ‹›Ú™Xİ[ŠKšY[
-ºhnyæëº` ¹å*:# ùfí‹\XØXš[]R[ŠKšY[
-º+á9.íù/§y£kˆ‹˜\Ú\Ò[ŠKˆ[
-™]ˆ‹Èİ[Nˆ™›^Œ]]ÈˆK[
-˜]Ûˆ‹ÈÛ\ÜÎˆ˜ˆš[X\H‹ˆÛ˜ÛXÚÎˆ\Ş[˜È
+def add_technical_state(conn: psycopg.Connection, object_code: str, *,
+                        supplier_revision: str, supplier_document: str | None,
+                        supplier_document_date: str | None, notes: str | None,
+                        actor: dict) -> dict:
+    """ç™»è®°ä¸€ä¸ªæ–°çš„ä¾›åº”å•†æŠ€æœ¯çŠ¶æ€ã€‚é»˜è®¤ DRAFT â€”â€” æ”¶åˆ°ä¸ç­‰äºæ¥å—ã€‚"""
+    ep = fetch_one(conn, """
+        SELECT ep.id, ep.external_part_number FROM external_part ep
+          JOIN design_object d ON d.id = ep.design_object_id WHERE d.object_code = %s
+    """, (object_code,))
+    if ep is None:
+        raise LookupError(f"å¤–éƒ¨ä»¶ä¸å­˜åœ¨: {object_code}")
 
-HOˆÂˆHÈÛÛœİˆH]ØZ]\KœÜİ
-‹Ù^\›˜[\\È‹ÈœÛÛˆÂˆ˜[Y\ÜXÙWØÛÙNˆœÔÙ[˜[YK^\›˜[Ü\Û[X™\ˆ’[‹˜[YKˆ˜[YWØÛˆ˜[YR[‹˜[YKX[Y˜Xİ\™\—ØÛÙNˆX[Y˜Xİ\™\”Ù[˜[YH[ˆ^\›˜[ØÛ\Ü×ØÛÙNˆÛ\ÜÔÙ[˜[YKˆ›Ú™XİØÛÙNˆ›Ú™Xİ[‹˜[YKš[J
-H[ˆ›Ú™XİØ\XØXš[]Nˆ\XØXš[]R[‹˜[YKš[J
-H[ˆ›Ú™XİÙ]˜[X][Û—Ø˜\Ú\Îˆ˜\Ú\Ò[‹˜[YKš[J
-H[HJNÂˆØ\İ
-¹mì¹ænú+¬;ï&ˆˆ
-È‹›Øš™XİØÛÙJNÂˆØØ][Û‹š\ÚHˆËÙ^\›˜[Èˆ
-È[˜ÛÙUT’PÛÛ\Û™[
-‹›Øš™XİØÛÙJNÈBˆØ]Ú
-JHÈØ\İ\œ›ÜŠJNÈHHK¹ænú+¬ŠJJJJBˆˆ[
-™]ˆ‹ÈÛ\ÜÎˆ››İHØ\›ˆˆK¹odùbcz-)¹¢-ùcëù§éyç"ùi%º`ê9.í»ï&ùænú+¬9d£9îí9¢©9¢ 9§+ùâ­¹  zg :) x ':+¯º+¨yméyê"ùn"8 'y¢%¸ '9§¡9g¢ùë¨yä!¹df8 'z)äº"l¸à ˆŠKˆ›İÜË›[™İÈX›T[™[
-¹i%º`ê9.í¹b%ú(j‹ˆX›JŞÈX™[ˆ¹kîz,hyï%¹è H‹[Û›ÎˆHKÈX™[ˆ¹i%º`ê9.í¹cíÈ‹[Û›ÎˆHKˆÈX™[ˆ¹d#yéìˆKÈX™[ˆ¹b!¹ìnÈˆKÈX™[ˆ¹§iy®¤ˆKÈX™[ˆ¹¢ 9§+ùâ­¹  y¥lˆKˆÈX™[ˆ¹mì¹£©ycåùâbˆKÈX™[ˆ¹â­¹  HˆWKˆ›İÜËˆOˆÂˆ[
-‹ÈÛ\ÜÎˆ›[Û›ÈˆK[šÊ‹›Øš™XİØÛÙKˆËÙ^\›˜[Èˆ
-È[˜ÛÙUT’PÛÛ\Û™[
-‹›Øš™XİØÛÙJJJKˆ[
-‹ÈÛ\ÜÎˆ›[Û›ÈˆK‹™^\›˜[Ü\Û[X™\ŠKˆ[
-‹ßK‹›˜[YWØÛŠKˆ[
-‹ßK	Ü‹™^\›˜[ØÛ\Ü×ØÛÙ_H	Ü‹™^\›˜[ØÛ\Ü×Û˜[Y_X
-Kˆ[
-‹ÈÛ\ÜÎˆ›]]YˆK‹›˜[Y\ÜXÙWØÛÙJKˆ[
-‹ÈÛ\ÜÎˆ›[HˆK‹œİ]WØÛİ[
-Kˆ[
-‹ÈÛ\ÜÎˆ›[HˆK‹˜XØÙ\YÜİ]HÏÈ¸ %ŠKˆ[
-‹ßKİ]\Ê‹›Y™XŞXÛWÜİ]\ÊJWJKYÙPÛÛ›ÛÊ™\İ[‹Ù^\›˜[\\È‹ÈHJJBˆˆ[\Jº/æ9¬¨y§"yænú+¬9i%º`ê9.íˆŠJNÂŸB‚™^Ü\Ş[˜È[˜İ[Ûˆ^\›˜[]Z[
-İ\˜[\ËÛÙJHÂˆÛÛœİ\H]ØZ]\K™Ù]
-‹Ù^\›˜[\\ËÈˆ
-È[˜ÛÙUT’PÛÛ\Û™[
-ÛÙJJNÂˆÛÛœİ™]’[ˆH[œ]
-ÈÛ\ÜÎˆ›[Û›È‹XÙZÛ\ˆ¹/¦ùn¥9ea¹âb9§+;ï#9i ˆÈˆJNÂˆÛÛœİØÒ[ˆH[œ]
-ÈXÙZÛ\ˆ¹/¦ùn¥9ea¹¥¡ù.í¹cíÈˆJNÂˆÛÛœİ]R[ˆH[œ]
-È\Nˆ™]HˆJNÂˆÛÛœİ›Ú™Xİ[Z[œ]
-ØÛ\ÜÎ‰Û[Û›ÉËXÙZÛ\‰úhnyæë¹ï%¹cíÉßJNÂˆÛÛœİ\XØXš[]R[Z[œ]
-ÜXÙZÛ\‰ù§+:hnyæë¹å*:`%8à y.©ùdày¢%“Óz` ¹å*:# ùfí	ßJNÂˆÛÛœİ˜\Ú\Ò[Z[œ]
-ÜXÙZÛ\‰ú)á9¨/9.i¸à yë)¹d"9 )ú-a9¥¦y¢%º+á9.íùîäú+®‰ßJNÂ‚ˆÛÛœİÙ[H
-‹[Û›ÊHOˆ[
-™]ˆ‹ÈÛ\ÜÎˆ‹XÙ[ˆKˆ[
-˜ˆ‹ßK
-K[
-œÜ[ˆ‹ÈÛ\ÜÎˆ[Û›ÈÈ›[Û›Èˆˆ[KˆÏÈ¸ %ŠJNÂ‚ˆ™]\›ˆ[
-™]ˆ‹ßKˆ[
-™]ˆ‹ÈÛ\ÜÎˆ]X›ØÚÈˆKˆ[
-™]ˆ‹ÈÛ\ÜÎˆ‹ZXYˆKˆ[
-œÜ[ˆ‹ÈÛ\ÜÎˆ‹XÛÙHˆK\›Øš™XİØÛÙJKˆ[
-œÜ[ˆ‹ÈÛ\ÜÎˆ‹[˜[YHˆK\›˜[YWØÛŠJKˆ[
-™]ˆ‹ÈÛ\ÜÎˆ‹YÜšYˆKˆÙ[
-¹§iy®¤‹	Ù\›˜[Y\ÜXÙWØÛÙ_H	Ù\›˜[Y\ÜXÙWÛ˜[Y_X
-KˆÙ[
-¹i%º`ê9.í¹cíÈ‹\™^\›˜[Ü\Û[X™\‹YJKˆÙ[
-¹b!¹ìnÈ‹	Ù\™^\›˜[ØÛ\Ü×ØÛÙ_H	Ù\™^\›˜[ØÛ\Ü×Û˜[Y_X
-KˆÙ[
-¹b-º`(9eaˆ‹\›X[Y˜Xİ\™\—Û˜[YJKˆÙ[
-¹â­¹  H‹İ]\Õ^
-\›Øš™XİÜİ]\ÊJJJKˆ[
-™]ˆ‹ÈÛ\ÜÎˆ››İHˆKˆ¹cê¹§"ymì¹£©ycåùæ¡9¢ 9§+ùâ­¹  y¢cz ïz/æùaiz+¯º+¨ygî¹î¯øà ¹¥-¹b,9/¦ùn¥9ea¹¥¡ù.í¹.#yëby.£º+©9cëùk ø %8 %9.+zeí:g :) y. 9«(y¦#¹èk¹èkº+©8à ˆŠKˆİ˜Ø[Š	Ù˜YİÜš]IÊHÈ[™[
-	ù¥¬9h§ºhnyæë¹î©ùaá¹aiIË[
-	Ù]‰ËØÛ\ÜÎ‰Ú[›[™KY›Ü›IßKšY[
-	úhnyæë‰Ë›Ú™Xİ[ŠKšY[
-	ú` ¹å*:# ùfí	Ë\XØXš[]R[ŠKšY[
-	ú+á9.íù/§y£k‰Ë˜\Ú\Ò[ŠKˆ[
-	Ø]Û‰ËØÛ\ÜÎ‰Øˆš[X\IËÛ˜ÛXÚÎ˜\Ş[˜Ê
-OOÚYŠ\›Ú™Xİ[‹˜[YKš[J
-_X\XØXš[]R[‹˜[YKš[J
-J\™]\›ˆØ\İ
-	úhnyæë¹d£:` ¹å*:# ùfí9.#z ïy..¹ên‰Ë	Ù\œ›Ü‰ÊNİ^Ø]ØZ]\KœÜİ
-Ù^\›˜[\\ËÉÙ[˜ÛÙUT’PÛÛ\Û™[
-ÛÙJ_KÜ›Ú™XİXÛÛ›ÛØÚœÛÛÜ›Ú™XİØÛÙNœ›Ú™Xİ[‹˜[YKš[J
-K\XØXš[]N˜\XØXš[]R[‹˜[YKš[J
-K]˜[X][Û—Ø˜\Ú\Î˜˜\Ú\Ò[‹˜[YKš[J
-_[_JNİØ\İ
-	úhnyæë¹aá¹aiz#byê/ùmì¹nî¹êâÉÊNÜ™[ØY
+    seq = scalar(conn, """
+        SELECT COALESCE(max(state_sequence), 0) + 1 FROM external_technical_state
+         WHERE external_part_id = %s
+    """, (ep["id"],)) or 1
 
-NßXØ]Ú
-J^İØ\İ\œ›ÜŠJ___K	ùnî¹êâùaá¹aiz+¬9oeIÊJJHˆ[ˆ\œ›Ú™XİØÛÛ›ÛÏË›[™İÈX›T[™[
-ºhnyæë¹î©ùaá¹aiH‹ˆX›JŞÛX™[ˆºhnyæëˆ‹[Û›ÎŒ_KÛX™[ˆ¹â­¹  HŸKÛX™[ˆº` ¹å*:# ùfíŸKÛX™[ˆº+á9.íù/§y£kˆŸKÛX™[ˆ¹¢nyaá¹.®ˆŸKÛX™[ˆ¹¢nyaá¹¥íºeíŸKÛX™[ˆˆŸWKˆ\œ›Ú™XİØÛÛ›ÛËOˆÂˆ[
-‹ØÛ\ÜÎˆ›[Û›ÈŸKœ›Ú™XİØÛÙJK[
-‹ßKİ]\Êœİ]\ÊJKˆ[
-‹ßK˜\XØXš[]_¸ %ŠK[
-‹ßK™]˜[X][Û—Ø˜\Ú\ß¸ %ŠKˆ[
-‹ßK˜\›İ™YØWÛ˜[Y_¸ %ŠK[
-‹ØÛ\ÜÎˆ›]]YŸK›]]J˜\›İ™YØ]
-JKˆ[
-	İ	ËØÛ\ÜÎ‰ÜšYÚ	ßKœİ]\ÏOOIÑQ•	É‰˜İ˜Ø[Š	ÜİX›Z]	ÊOØ\›İ˜[İX›Z]]ÛŠ	ù£ä9.©9k¨y¢nIËÙ^\›˜[\›Ú™XİXÛÛ›ÛËÉÜšYKÜİX›Z]™[ØY
-Nœœİ]\ÏOOIÒS—Ô‘U’QUÉÉ‰˜İ˜Ø[Š	Ø\›İ™IÊI‰”İš[™Ê˜\›İ˜[Ø\ÜÚYÛ™YWİ\Ù\—ÚY	ÉÊOOOTİš[™Êİ\Ù\‹šY
-OÙ[
-	Ø]Û‰ËØÛ\ÜÎ‰ØˆÛX[š[X\IËÛ˜ÛXÚÎ˜\Ş[˜Ê
-OOİ^Ø]ØZ]\KœÜİ
-Ù^\›˜[\›Ú™XİXÛÛ›ÛËÉÜšYKØ\›İ™X
-NİØ\İ
-	úhnyæë¹aá¹aiymì¹¢nyaá‰ÊNÜ™[ØY
+    # æ‘˜è¦æŒ‰ã€Œä¾›åº”å•†ç‰ˆæœ¬ + æ–‡ä»¶å· + æ—¥æœŸã€è®¡ç®—, ç”¨äºæ—¥åæ ¸å¯¹è¿™æ¡è®°å½•æè¿°çš„æ˜¯ä¸æ˜¯åŒä¸€ç‰ˆ
+    digest = hashlib.sha256(
+        f"{supplier_revision}|{supplier_document or ''}|{supplier_document_date or ''}"
+        .encode()).hexdigest()
 
-NßXØ]Ú
-J^İØ\İ\œ›ÜŠJ___K	ù¢nyaá‰ÊN›[
-WJJHˆ[ˆİ˜Ø[Š™˜YİÜš]HŠHÈ[™[
-¹ænú+¬9¥¬9¢ 9§+ùâ­¹  H‹[
-™]ˆ‹ÈÛ\ÜÎˆš[›[™KY›Ü›HˆKˆšY[
-¹/¦ùn¥9ea¹âb9§+‹™]’[ŠKšY[
-¹/¦ùn¥9ea¹¥¡ù.í¹cíÈ‹ØÒ[ŠKšY[
-¹¥¡ù.í¹¥éy§'È‹]R[ŠKˆ[
-™]ˆ‹Èİ[Nˆ™›^Œ]]ÈˆK[
-˜]Ûˆ‹ÈÛ\ÜÎˆ˜ˆš[X\H‹ˆÛ˜ÛXÚÎˆ\Ş[˜È
+    row = fetch_one(conn, """
+        INSERT INTO external_technical_state
+            (external_part_id, state_sequence, supplier_revision, supplier_document,
+             supplier_document_date, hash_sha256, notes, created_by)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
+        RETURNING id, state_sequence, supplier_revision, status
+    """, (ep["id"], seq, supplier_revision, supplier_document,
+          supplier_document_date or None, digest, notes, actor["user_id"]))
 
-HOˆÂˆHÈ]ØZ]\KœÜİ
-Ù^\›˜[\\ËÉÙ[˜ÛÙUT’PÛÛ\Û™[
-ÛÙJ_KÜİ]\ØÂˆœÛÛˆÈİ\Y\—Ü™]š\Ú[Ûˆ™]’[‹˜[YKˆİ\Y\—ÙØİ[Y[ˆØÒ[‹˜[YH[ˆİ\Y\—ÙØİ[Y[Ù]Nˆ]R[‹˜[YH[HJNÂˆØ\İ
-¹mì¹ænú+¬;ï#9â­¹  y..º#byê/ûï#:g 9îãù£©ycåùd#¹¥®ycëùå*9.£¹gî¹î¯ÈŠNÈ™[ØY
+    audit.write(conn, action="EXTERNAL_STATE_ADD", user_id=str(actor["user_id"]),
+                username=actor["username"], object_type="EXTERNAL_TECHNICAL_STATE",
+                object_id=str(row["id"]), object_code=object_code,
+                new_value={"state_sequence": seq, "supplier_revision": supplier_revision,
+                           "supplier_document": supplier_document, "status": "DRAFT"},
+                session_id=str(actor.get("session_id")), client_ip=actor.get("client_ip"))
+    return row
 
-NÈBˆØ]Ú
-JHÈØ\İ\œ›ÜŠJNÈHHK¹ænú+¬ŠJJJBˆˆ[
-™]ˆ‹ÈÛ\ÜÎˆ››İHØ\›ˆˆK¹odùbcz-)¹¢-ùcëù§éyç"ú/kù.í¹kîz,h{ï&ùænú+¬9kîz,hyd£9âb9§+:g :) x ':+¯º+¨yméyê"ùn"8 'y¢%¸ '9§¡9g¢ùë¨yä!¹df8 'z)äº"l¸à ˆŠKˆX›T[™[
-¹¢ 9§+ùâ­¹  H‹ˆX›JŞÈX™[ˆ¹n£ùcíÈˆKÈX™[ˆ¹/¦ùn¥9ea¹âb9§+‹[Û›ÎˆHKÈX™[ˆ¹/¦ùn¥9ea¹¥¡ù.íˆˆKˆÈX™[ˆ¹¥¡ù.í¹¥éy§'ÈˆKÈX™[ˆ¹â­¹  HˆKÈX™[ˆ¹£©ycåù.®ˆˆKˆÈX™[ˆ¹gî¹î¯ùo%yå*ˆKÈX™[ˆˆˆWKˆ\XÚšXØ[Üİ]\ËÈOˆÂˆ[
-‹ÈÛ\ÜÎˆ›[HˆKËœİ]WÜÙ\]Y[˜ÙJKˆ[
-‹ÈÛ\ÜÎˆ›[Û›ÈˆKËœİ\Y\—Ü™]š\Ú[Ûˆ¸ %ŠKˆ[
-‹ßKËœİ\Y\—ÙØİ[Y[¸ %ŠKˆ[
-‹ÈÛ\ÜÎˆ›]]YˆKËœİ\Y\—ÙØİ[Y[Ù]H¸ %ŠKˆ[
-‹ßKİ]\ÊËœİ]\ÊJKˆ[
-‹ÈÛ\ÜÎˆ›[Û›ÈˆKË˜XØÙ\YØWİ\Ù\›˜[YH¸ %ŠKˆ[
-‹ÈÛ\ÜÎˆ›[HˆKË˜˜\Ù[[™WÜ™YœÊKˆ[
-‹ÈÛ\ÜÎˆœšYÚ›İÜ˜\ˆKËœİ]\ÈOOH‘Q•ˆ	‰ˆİ˜Ø[ŠœİX›Z]ŠBˆÈ\›İ˜[İX›Z]]ÛŠ¹£ä9.©9k¨y¢nH‹Ù^\›˜[\İ]\ËÉÜËšYKÜİX›Z]™[ØY
-BˆˆËœİ]\ÈOOH’S—Ô‘U’QUÈˆ	‰ˆİ˜Ø[Š˜\›İ™HŠH	‰ˆİš[™ÊË˜\›İ˜[Ø\ÜÚYÛ™YWİ\Ù\—ÚY	ÉÊOOOTİš[™Êİ\Ù\‹šY
-BˆÈÙ[
-˜]Ûˆ‹ÈÛ\ÜÎˆ˜ˆÛX[š[X\H‹Û˜ÛXÚÎˆ\Ş[˜È
 
-HOˆÂˆÛÛœİÈH]ØZ]\ÚÔ™X\ÛÛŠ¹£©ycåù¢ 9§+ùâ­¹  H‹¹èkº+©:/æy. 9âb9/¦ùn¥9eaº)á9¨/9®èz-¬ù¢$y¥®z+¯º+¨z) y¬`ˆŠNÂˆYˆ
-ÈOOH[
-H™]\›ÂˆHÈ]ØZ]\KœÜİ
-Ù^\›˜[\İ]\ËÉÜËšYKØXØÙ\È]Y\NˆÈÛÛ[Y[ÎˆÈHJNÂˆØ\İ
-¹mì¹£©ycåûï#9cëùå*9.£¹gî¹î¯ÈŠNÈ™[ØY
+def accept_technical_state(conn: psycopg.Connection, state_id: str, comments: str,
+                           actor: dict) -> dict:
+    """æ¥å—æŠ€æœ¯çŠ¶æ€ â€” INV-017 çš„å‰ç½®åŠ¨ä½œã€‚
 
-NÈBˆØ]Ú
-JHÈØ\İ\œ›ÜŠJNÈHHK¹£©ycåÈŠKˆˆ‹ˆ[
-˜]Ûˆ‹ÈÛ\ÜÎˆ˜ˆÛX[[™Ù\ˆ‹Û˜ÛXÚÎˆ\Ş[˜È
+    æ¥å—æ˜¯ä¸€æ¬¡æ˜ç¡®çš„æŠ€æœ¯åˆ¤æ–­: ç¡®è®¤è¿™ä¸€ç‰ˆä¾›åº”å•†è§„æ ¼æ»¡è¶³æˆ‘æ–¹è®¾è®¡è¦æ±‚ã€‚åŸºçº¿åªèƒ½å¼•ç”¨
+    å·²æ¥å—çš„çŠ¶æ€, æ•°æ®åº“è§¦å‘å™¨åœ¨åŸºçº¿å‘å¸ƒæ—¶ä¼šå†éªŒä¸€æ¬¡ã€‚
 
-HOˆÂˆÛÛœİˆH]ØZ]\ÚÔ™X\ÛÛŠ¹¢ä¹îçy¢ 9§+ùâ­¹  H‹¹..¹.à9.b9.#y£©ycåú/æy. 9âb;ï'ÈŠNÂˆYˆ
-\ŠH™]\›ÂˆHÈ]ØZ]\KœÜİ
-Ù^\›˜[\İ]\ËÉÜËšYKÜ™Z™XİÈ]Y\NˆÈ™X\ÛÛˆˆHJNÂˆØ\İ
-¹mì¹¢ä¹îçHŠNÈ™[ØY
+    æ¥å—æ–°çŠ¶æ€æ—¶, ä¸Šä¸€ä¸ªå·²æ¥å—çŠ¶æ€è½¬ä¸º SUPERSEDED â€”â€” åŒä¸€å¤–éƒ¨ä»¶åŒæ—¶åªåº”æœ‰ä¸€ä¸ª
+    ã€Œå½“å‰è®¤å¯ç‰ˆæœ¬ã€, å¦åˆ™å¼•ç”¨æ—¶æ— ä»åˆ¤æ–­è¯¥ç”¨å“ªä¸ªã€‚
+    """
+    st = fetch_one(conn, """
+        SELECT ets.*, ep.external_part_number, d.object_code
+          FROM external_technical_state ets
+          JOIN external_part ep ON ep.id = ets.external_part_id
+          JOIN design_object d ON d.id = ep.design_object_id
+         WHERE ets.id = %s
+    """, (state_id,))
+    if st is None:
+        raise LookupError("æŠ€æœ¯çŠ¶æ€ä¸å­˜åœ¨")
+    if st["status"] != "IN_REVIEW":
+        raise ValueError(f"æŠ€æœ¯çŠ¶æ€ä¸º {st['status']}ï¼Œåªæœ‰å®¡æ ¸ä¸­çŠ¶æ€å¯æ¥å—")
+    from . import approvals
+    approvals.require_assignee(conn, str(st["approval_request_id"]), str(actor["user_id"]))
 
-NÈBˆØ]Ú
-JHÈØ\İ\œ›ÜŠJNÈHHK¹¢ä¹îçHŠWBˆˆ[
-WJBˆ[\Jº/æ9¬¨y§"y¢ 9§+ùâ­¹  H‹¹ænú+¬9/¦ùn¥9ea¹îæyaî¹æ¡:)á9¨/9âb9§+8à ˆŠJJNÂŸB‚‹ÊˆOOOOOOOOOOOOOOOOOOOH:/kù.í¹kîz,hHOOOOOOOOOOOOOOOOOOOH
-‹Â™^Ü\Ş[˜È[˜İ[ÛˆÛÙØ\™Jİ\˜[\ÊHÂˆÛÛœİYÙHH[X™\Š\˜[\Ë™Ù]
-œYÙHŠHJKHH\˜[\Ë™Ù]
-œHŠHˆÂˆÛÛœİ™\İ[H]ØZ]\K™Ù]
-‹ÜÛÙØ\™H‹È]Y\NˆÈYÙKYÙWÜÚ^™NˆLHHJNÂˆÛÛœİ›İÜÈH™\İ[š][\ÎÂˆÛÛœİÙX\˜Ú[ˆH[œ]
-È˜[YNˆKXÙZÛ\ˆ¹¤'9í(º/kù.í¹ï%¹cíù¢%¹d#yéìˆJNÂˆÛÛœİ[R[ˆH[œ]
-ÈÛ\ÜÎˆ›[Û›È‹XÙZÛ\ˆ•QËTÕÌHˆJNÂˆÛÛœİ˜[YR[ˆH[œ]
-ÈXÙZÛ\ˆ¹áiù¦#¹£©ùb-¹fî¹.íˆˆJNÂˆÛÛœİ\TÙ[HÙ[Xİ
-ÂˆÈ˜[YNˆ”ÓÑ•ĞT‘H‹X™[ˆº/kù.íˆˆKÈ˜[YNˆ‘’T“UĞT‘H‹X™[ˆ¹fî¹.íˆˆKˆÈ˜[YNˆÓÓ‘’Q×ÑUH‹X™[ˆºacyïk¹¥l9£kˆˆKÈ˜[YNˆ“ĞQP“H‹X™[ˆ¹cëùb¨:/oy.íˆˆKˆJNÂˆ™]\›ˆ[
-™]ˆ‹ßKˆ[
-šH‹ßKº/kù.í¹kîz,hHŠKˆ[
-œ‹ÈÛ\ÜÎˆœİXˆˆKº/kù.í¹ï%¹cíù¦+ú.ªù.ï{ï#9âb9§+9¦+ù¢ 9§+ùâ­¹  xà ¹¥.yâb9.#y¥.yï%¹cíøà ˆŠKˆ[™[
-¹§éz+èˆ‹[
-™]ˆ‹ÈÛ\ÜÎˆš[›[™KY›Ü›HˆKšY[
-¹alúe+º+ãH‹ÙX\˜Ú[ŠKˆ[
-˜]Ûˆ‹ÈÛ\ÜÎˆ˜ˆ‹Û˜ÛXÚÎˆ
+    prev = fetch_one(conn, """
+        SELECT id, state_sequence FROM external_technical_state
+         WHERE external_part_id = %s AND status = 'ACCEPTED'
+    """, (st["external_part_id"],))
+    if prev is not None:
+        execute(conn, "UPDATE external_technical_state SET status='SUPERSEDED' WHERE id=%s",
+                (prev["id"],))
 
-HOˆÈØØ][Û‹š\ÚHˆËÜÛÙØ\™OÈˆ
-È™]ÈT“ÙX\˜Ú\˜[\ÊÈNˆÙX\˜Ú[‹˜[YKš[J
-KYÙNˆHJNÈHK¹§éz+èˆŠJJKˆİ˜Ø[Š™˜YİÜš]HŠHÈ[™[
-¹ænú+¬:/kù.í¹kîz,hH‹[
-™]ˆ‹ÈÛ\ÜÎˆš[›[™KY›Ü›HˆKˆšY[
-º/kù.í¹ï%¹cíÈ‹[R[ŠKšY[
-¹d#yéì‹˜[YR[ŠKšY[
-¹ìnùg¢È‹\TÙ[
-Kˆ[
-™]ˆ‹Èİ[Nˆ™›^Œ]]ÈˆK[
-˜]Ûˆ‹ÈÛ\ÜÎˆ˜ˆš[X\H‹ˆÛ˜ÛXÚÎˆ\Ş[˜È
+    row = fetch_one(conn, """
+        UPDATE external_technical_state
+           SET status='ACCEPTED', accepted_by=%s, accepted_at=now(),
+               notes = COALESCE(NULLIF(%s,''), notes)
+         WHERE id=%s
+        RETURNING id, state_sequence, supplier_revision, status, accepted_at
+    """, (actor["user_id"], comments, state_id))
+    execute(conn, """UPDATE approval_step SET decision='APPROVED', decided_by=%s,
+      acted_at=now(), comments=%s WHERE approval_request_id=%s AND decision='PENDING'""",
+      (actor["user_id"], comments, st["approval_request_id"]))
+    execute(conn, "UPDATE approval_request SET status='APPROVED',closed_at=now() WHERE id=%s",
+            (st["approval_request_id"],))
 
-HOˆÂˆHÈÛÛœİÜ™X]YH]ØZ]\KœÜİ
-‹ÜÛÙØ\™H‹ÈœÛÛˆÈÛÙØ\™WÛ[X™\ˆ[R[‹˜[YKˆ˜[YWØÛˆ˜[YR[‹˜[YKÛÙØ\™Wİ\Nˆ\TÙ[˜[YHHJNÂˆØ\İ
-¹mì¹ænú+¬ŠNÈØØ][Û‹š\ÚHˆËÜÛÙØ\™KÈˆ
-È[˜ÛÙUT’PÛÛ\Û™[
-Ü™X]YœÛÙØ\™WÛ[X™\ŠNÈBˆØ]Ú
-JHÈØ\İ\œ›ÜŠJNÈHHK¹ænú+¬ŠJJJHˆ[ˆ›İÜË›[™İÈX›T[™[
-¹aj:`ê:/kù.í¹kîz,hH‹ˆX›JŞÈX™[ˆº/kù.í¹ï%¹cíÈ‹[Û›ÎˆHKÈX™[ˆ¹d#yéìˆKÈX™[ˆ¹ìnùg¢ÈˆKˆÈX™[ˆ¹odùbcyâb9§+‹[Û›ÎˆHKÈX™[ˆ¹âb9§+9¥lˆKÈX™[ˆ¹â­¹  HˆWKˆ›İÜËˆOˆÂˆ[
-‹ÈÛ\ÜÎˆ›[Û›ÈˆK[šÊ‹œÛÙØ\™WÛ[X™\‹ˆËÜÛÙØ\™KÈˆ
-È[˜ÛÙUT’PÛÛ\Û™[
-‹œÛÙØ\™WÛ[X™\ŠJJKˆ[
-‹ßK‹›˜[YWØÛŠKˆ[
-‹ÈÛ\ÜÎˆ›]]YˆK‹œÛÙØ\™Wİ\JKˆ[
-‹ÈÛ\ÜÎˆ›[Û›ÈˆK‹˜İ\œ™[İ™\œÚ[Ûˆ¸ %ŠKˆ[
-‹ÈÛ\ÜÎˆ›[HˆK‹™\œÚ[Û—ØÛİ[
-Kˆ[
-‹ßKİ]\Ê‹›Y™XŞXÛWÜİ]\ÊJWJKYÙPÛÛ›ÛÊ™\İ[‹ÜÛÙØ\™H‹ÈHJJBˆˆ[\Jº/æ9¬¨y§"z/kù.í¹kîz,hHŠJNÂŸB‚™^Ü\Ş[˜È[˜İ[ÛˆÛÙØ\™Q]Z[
-İ\˜[\Ë[JHÂˆÛÛœİÛÈH]ØZ]\K™Ù]
-‹ÜÛÙØ\™KÈˆ
-È[˜ÛÙUT’PÛÛ\Û™[
-[JJNÂˆÛÛœİ’[ˆH[œ]
-ÈÛ\ÜÎˆ›[Û›È‹XÙZÛ\ˆŒKŒŒˆJNÂˆÛÛœİ’[ˆH[œ]
-ÈÛ\ÜÎˆ›[Û›È‹XÙZÛ\ˆ˜Z[9cíûï#9cëùênˆˆJNÂˆÛÛœİXÚØYÙR[ˆH[œ]
-È\Nˆ™š[H‹XØÙ\ˆ‹š\Ş‹œ˜\‹\‹™Ş‹ŞˆˆJNÂˆÛÛœİÙ[H
-‹[Û›ÊHOˆ[
-™]ˆ‹ÈÛ\ÜÎˆ‹XÙ[ˆKˆ[
-˜ˆ‹ßK
-K[
-œÜ[ˆ‹ÈÛ\ÜÎˆ[Û›ÈÈ›[Û›Èˆˆ[KˆÏÈ¸ %ŠJNÂ‚ˆ™]\›ˆ[
-™]ˆ‹ßKˆ[
-™]ˆ‹ÈÛ\ÜÎˆ]X›ØÚÈˆKˆ[
-™]ˆ‹ÈÛ\ÜÎˆ‹ZXYˆKˆ[
-œÜ[ˆ‹ÈÛ\ÜÎˆ‹XÛÙHˆKÛËœÛÙØ\™WÛ[X™\ŠKˆ[
-œÜ[ˆ‹ÈÛ\ÜÎˆ‹[˜[YHˆKÛË›˜[YWØÛŠJKˆ[
-™]ˆ‹ÈÛ\ÜÎˆ‹YÜšYˆKˆÙ[
-¹ìnùg¢È‹ÛÙU^
-ÛËœÛÙØ\™Wİ\JJKˆÙ[
-¹â­¹  H‹İ]\Õ^
-ÛË›Y™XŞXÛWÜİ]\ÊJKˆÙ[
-¹âb9§+9¥l‹ÛË™\œÚ[ÛœË›[™İ
-KˆÙ[
-¹nî¹êâù¥íºeí‹›]]JÛË˜Ü™X]YØ]
-JJJKˆ[
-™]ˆ‹ÈÛ\ÜÎˆ››İHˆKˆ¹."¹/(:/kù.í¹a¡yk®yc¢ùï*yc!yd#»ï#9ìîùîçú!ê¹bª:+¨yë¥ÈÒKLM»ï&ùk¨y¢nyd£9cäyn ùd#¹.©9.æ9c!y.#ycëù¦ïù£h¸à ˆŠKˆİ˜Ø[Š™˜YİÜš]HŠHÈ[™[
-¹ænú+¬9¥¬9âb9§+‹[
-™]ˆ‹ÈÛ\ÜÎˆš[›[™KY›Ü›HˆKˆšY[
-¹âb9§+9cíÈ‹’[ŠKšY[
-Z[‹’[ŠKšY[
-º/kù.í¹a¡yk®yc¢ùï*yc!H‹XÚØYÙR[ŠKˆ[
-™]ˆ‹Èİ[Nˆ™›^Œ]]ÈˆK[
-˜]Ûˆ‹ÈÛ\ÜÎˆ˜ˆš[X\H‹ˆÛ˜ÛXÚÎˆ\Ş[˜È
+    execute(conn, """
+        UPDATE design_object SET lifecycle_status='RELEASED', updated_by=%s
+         WHERE id = (SELECT design_object_id FROM external_part WHERE id=%s)
+           AND lifecycle_status = 'DRAFT'
+    """, (actor["user_id"], st["external_part_id"]))
 
-HOˆÂˆHÈYŠ\XÚØYÙR[‹™š[\ÖÌJH›İÈ\œ›ÜŠº+íú`"y¢êz/kù.í¹a¡yk®yc¢ùï*yc!HŠNÂˆ]ØZ]\K\ØY
-ÜÛÙØ\™KÉÙ[˜ÛÙUT’PÛÛ\Û™[
-[J_Kİ™\œÚ[ÛœËÜXÚØYÙXˆİ™\œÚ[Û’[‹˜[YKZ[˜’[‹˜[Y_ˆŸKXÚØYÙR[‹™š[\ÖÌJNÂˆØ\İ
-º/kù.í¹âb9§+9d£9.©9.æ9c!ymì¹ænú+¬;ï#ÒKLMˆ9mìº!ê¹bª:+¨yë¥ÈŠNÈ™[ØY
+    audit.write(conn, action="EXTERNAL_STATE_ACCEPT", user_id=str(actor["user_id"]),
+                username=actor["username"], object_type="EXTERNAL_TECHNICAL_STATE",
+                object_id=state_id, object_code=st["object_code"],
+                old_value={"status": st["status"]},
+                new_value={"status": "ACCEPTED",
+                           "superseded": prev["state_sequence"] if prev else None},
+                reason=comments, session_id=str(actor.get("session_id")),
+                client_ip=actor.get("client_ip"))
+    return row
 
-NÈBˆØ]Ú
-JHÈØ\İ\œ›ÜŠJNÈHHK¹ænú+¬ŠJJJHˆ[ˆX›T[™[
-¹âb9§+‹ˆX›JŞÈX™[ˆ¹âb9§+‹[Û›ÎˆHKÈX™[ˆZ[‹[Û›ÎˆHKˆÈX™[ˆº/kù.í¹c!HˆKÈX™[ˆ”ÒKLMˆ‹[Û›ÎˆHKÈX™[ˆ¹â­¹  HˆKˆÈX™[ˆ¹cäyn ù¥íºeíˆKÈX™[ˆ¹gî¹î¯ùo%yå*ˆKÈX™[ˆˆˆWKˆÛË™\œÚ[ÛœËˆOˆÂˆ[
-‹ÈÛ\ÜÎˆ›[Û›ÈˆK‹™\œÚ[ÛŠKˆ[
-‹ÈÛ\ÜÎˆ›[Û›È]]YˆK‹˜Z[¸ %ŠKˆ[
-‹ßK‹œXÚØYÙWÙš[[˜[YHÈ[
-˜]Ûˆ‹ØÛ\ÜÎˆ˜ˆÛX[‹Û˜ÛXÚÎŠ
-OO˜\K™İÛ›ØY
-ÜÛÙØ\™K]™\œÚ[ÛœËÉİ‹šYKÜXÚØYÙKÙİÛ›ØY‹œXÚØYÙWÙš[[˜[YJ_K	İ‹œXÚØYÙWÙš[[˜[Y_H0­È	Ê
-‹œXÚØYÙWÜÚ^™WØ]\ß
-KÌLMÍŠKÑš^Y
-J_HP˜
-Hˆ¹§*¹."¹/(ŠKˆ[
-‹ÈÛ\ÜÎˆ›[Û›È]]YˆK‹š\ÚÜÚLMˆÈ‹š\ÚÜÚLM‹œÛXÙJMŠH
-È¸ )ˆˆˆ¹§*¹ænú+¬ŠKˆ[
-‹ßKİ]\Ê‹œİ]\ÊJKˆ[
-‹ÈÛ\ÜÎˆ›]]Y›İÜ˜\ˆK›]]J‹œ™[X\ÙYØ]
-JKˆ[
-‹ÈÛ\ÜÎˆ›[HˆK‹˜˜\Ù[[™WÜ™YœÊKˆ[
-‹ÈÛ\ÜÎˆœšYÚˆK‹œİ]\ÈOOH‘Q•ˆ	‰ˆİ˜Ø[ŠœİX›Z]ŠBˆÈ\›İ˜[İX›Z]]ÛŠ¹£ä9.©9k¨y¢nH‹ÜÛÙØ\™K]™\œÚ[ÛœËÉİ‹šYKÜİX›Z]™[ØY
-Bˆˆ‹œİ]\ÈOOH’S—Ô‘U’QUÈˆ	‰ˆİ˜Ø[Š˜\›İ™HŠH	‰ˆİš[™Ê‹˜\›İ˜[Ø\ÜÚYÛ™YWİ\Ù\—ÚY	ÉÊOOOTİš[™Êİ\Ù\‹šY
-BˆÈ[
-˜]Ûˆ‹ÈÛ\ÜÎˆ˜ˆÛX[š[X\H‹Û˜ÛXÚÎˆ\Ş[˜È
 
-HOˆÂˆHÈ]ØZ]\KœÜİ
-ÜÛÙØ\™K]™\œÚ[ÛœËÉİ‹šYKÜ™[X\ÙXˆÈ]Y\NˆÈÛÛ[Y[Îˆ¹d#9¡#ùcäyn ÈˆHJNÂˆØ\İ
-¹mì¹cäyn ÈŠNÈ™[ØY
+def submit_technical_state(conn: psycopg.Connection, state_id: str,
+                           approver_user_id: str, actor: dict) -> dict:
+    from . import approvals
+    st=fetch_one(conn,"""SELECT ets.*,d.object_code FROM external_technical_state ets
+      JOIN external_part ep ON ep.id=ets.external_part_id
+      JOIN design_object d ON d.id=ep.design_object_id WHERE ets.id=%s""",(state_id,))
+    if not st: raise LookupError("æŠ€æœ¯çŠ¶æ€ä¸å­˜åœ¨")
+    if st["status"]!="DRAFT": raise ValueError("åªæœ‰è‰ç¨¿æŠ€æœ¯çŠ¶æ€å¯æäº¤")
+    approver=approvals.require_approver(conn,approver_user_id,actor["user_id"])
+    number=approvals.next_request_number(conn)
+    req=fetch_one(conn,"""INSERT INTO approval_request(request_number,request_type,object_type,
+      object_id,object_code,title,requester_id) VALUES(%s,'EXTERNAL_TS_ACCEPT',
+      'EXTERNAL_TECHNICAL_STATE',%s,%s,%s,%s) RETURNING id,request_number""",
+      (number,state_id,st["object_code"],f"æ¥å—å¤–éƒ¨ä»¶æŠ€æœ¯çŠ¶æ€ {st['object_code']} TS{st['state_sequence']}",actor["user_id"]))
+    execute(conn,"""INSERT INTO approval_step(approval_request_id,step_order,step_name,
+      required_role_code,assignee_user_id,is_final) VALUES(%s,1,'æŠ€æœ¯çŠ¶æ€æ¥å—','APPROVER',%s,true)""",
+      (req["id"],approver["id"]))
+    execute(conn,"UPDATE external_technical_state SET status='IN_REVIEW',approval_request_id=%s WHERE id=%s",
+            (req["id"],state_id))
+    return req
 
-NÈBˆØ]Ú
-JHÈØ\İ\œ›ÜŠJNÈHHK¹cäyn ÈŠHˆ[
-WJBˆ[\Jº/æ9¬¨y§"yâb9§+ŠJJNÂŸB
+
+def reject_technical_state(conn: psycopg.Connection, state_id: str, reason: str,
+                           actor: dict) -> None:
+    st = fetch_one(conn, """
+        SELECT ets.status, d.object_code FROM external_technical_state ets
+          JOIN external_part ep ON ep.id = ets.external_part_id
+          JOIN design_object d ON d.id = ep.design_object_id WHERE ets.id = %s
+    """, (state_id,))
+    if st is None:
+        raise LookupError("æŠ€æœ¯çŠ¶æ€ä¸å­˜åœ¨")
+    if st["status"] != "DRAFT":
+        raise ValueError(f"æŠ€æœ¯çŠ¶æ€ä¸º {st['status']}, åªæœ‰ DRAFT å¯æ‹’ç»")
+    execute(conn, "UPDATE external_technical_state SET status='REJECTED' WHERE id=%s",
+            (state_id,))
+    audit.write(conn, action="EXTERNAL_STATE_REJECT", user_id=str(actor["user_id"]),
+                username=actor["username"], object_type="EXTERNAL_TECHNICAL_STATE",
+                object_id=state_id, object_code=st["object_code"],
+                new_value={"status": "REJECTED"}, reason=reason,
+                session_id=str(actor.get("session_id")), client_ip=actor.get("client_ip"))
+
+
+def add_project_control(conn: psycopg.Connection, object_code: str, project_code: str,
+                        applicability: str, evaluation_basis: str | None,
+                        actor: dict) -> dict:
+    ep=fetch_one(conn,"""SELECT ep.id FROM external_part ep JOIN design_object d
+      ON d.id=ep.design_object_id WHERE d.object_code=%s""",(object_code,))
+    if not ep: raise LookupError("å¤–éƒ¨ä»¶ä¸å­˜åœ¨")
+    row=fetch_one(conn,"""INSERT INTO external_part_project_control
+      (external_part_id,project_code,applicability,evaluation_basis,created_by)
+      VALUES(%s,%s,%s,%s,%s) RETURNING *""",
+      (ep["id"],project_code.strip(),applicability.strip(),evaluation_basis,actor["user_id"]))
+    return row
+
+
+def submit_project_control(conn: psycopg.Connection, control_id: str,
+                           approver_user_id: str, actor: dict) -> dict:
+    from . import approvals
+    c=fetch_one(conn,"""SELECT c.*,d.object_code FROM external_part_project_control c
+      JOIN external_part ep ON ep.id=c.external_part_id
+      JOIN design_object d ON d.id=ep.design_object_id WHERE c.id=%s""",(control_id,))
+    if not c: raise LookupError("é¡¹ç›®å‡†å…¥è®°å½•ä¸å­˜åœ¨")
+    if c["status"]!="DRAFT": raise ValueError("åªæœ‰è‰ç¨¿çŠ¶æ€å¯æäº¤")
+    ep=fetch_one(conn,"SELECT external_class_code FROM external_part WHERE id=%s",(c["external_part_id"],))
+    if ep["external_class_code"]=='E99': raise ValueError("å¾…åˆ†ç±»å¤–éƒ¨ä»¶ä¸å¾—æäº¤é¡¹ç›®å‡†å…¥ï¼Œè¯·å…ˆç¡®å®šæ­£å¼åˆ†ç±»")
+    if not c["evaluation_basis"]: raise ValueError("é¡¹ç›®å‡†å…¥å¿…é¡»å¡«å†™è¯„ä»·ä¾æ®")
+    accepted=scalar(conn,"SELECT count(*) FROM external_technical_state WHERE external_part_id=%s AND status='ACCEPTED'",(c["external_part_id"],))
+    if not accepted: raise ValueError("è‡³å°‘æœ‰ä¸€ä¸ªå·²æ¥å—çš„ä¾›åº”å•†æŠ€æœ¯çŠ¶æ€åæ‰èƒ½æäº¤é¡¹ç›®å‡†å…¥")
+    approver=approvals.require_approver(conn,approver_user_id,actor["user_id"])
+    request_number=approvals.next_request_number(conn)
+    req=fetch_one(conn,"""INSERT INTO approval_request(request_number,request_type,
+      object_type,object_id,object_code,title,requester_id,payload)
+      VALUES(%s,'EXTERNAL_PROJECT_APPROVAL','EXTERNAL_PROJECT_CONTROL',%s,%s,%s,%s,%s::jsonb)
+      RETURNING id,request_number""",(request_number,control_id,c["object_code"],
+      f"å¤–éƒ¨ä»¶é¡¹ç›®å‡†å…¥ {c['project_code']} {c['object_code']}",actor["user_id"],
+      json.dumps({"project_code":c["project_code"],"applicability":c["applicability"],
+                  "evaluation_basis":c["evaluation_basis"]},ensure_ascii=False)))
+    execute(conn,"""INSERT INTO approval_step(approval_request_id,step_order,step_name,
+      required_role_code,assignee_user_id,is_final) VALUES(%s,1,'é¡¹ç›®å‡†å…¥æ‰¹å‡†','APPROVER',%s,true)""",
+      (req["id"],approver["id"]))
+    execute(conn,"UPDATE external_part_project_control SET status='IN_REVIEW',approval_request_id=%s WHERE id=%s",(req["id"],control_id))
+    return req
+
+
+def approve_project_control(conn: psycopg.Connection, control_id: str, comments: str,
+                            actor: dict) -> dict:
+    from . import approvals
+    c=fetch_one(conn,"SELECT * FROM external_part_project_control WHERE id=%s",(control_id,))
+    if not c: raise LookupError("é¡¹ç›®å‡†å…¥è®°å½•ä¸å­˜åœ¨")
+    if c["status"]!="IN_REVIEW": raise ValueError("åªæœ‰å®¡æ ¸ä¸­çŠ¶æ€å¯æ‰¹å‡†")
+    approvals.require_assignee(conn,str(c["approval_request_id"]),str(actor["user_id"]))
+    execute(conn,"""UPDATE approval_step SET decision='APPROVED',decided_by=%s,
+      acted_at=now(),comments=%s WHERE approval_request_id=%s AND is_final""",
+      (actor["user_id"],comments,c["approval_request_id"]))
+    execute(conn,"UPDATE approval_request SET status='APPROVED',closed_at=now() WHERE id=%s",(c["approval_request_id"],))
+    return fetch_one(conn,"""UPDATE external_part_project_control SET status='APPROVED',
+      approved_by=%s,approved_at=now() WHERE id=%s RETURNING *""",(actor["user_id"],control_id))
+
+
+# ---------------------------------------------------------------------
+# è½¯ä»¶å¯¹è±¡
+# ---------------------------------------------------------------------
+def list_software(conn: psycopg.Connection, q: str | None = None) -> list[dict]:
+    return fetch_all(conn, """
+        SELECT so.id, d.object_code, so.software_number, so.name_cn, so.software_type,
+               so.lifecycle_status, sv.version AS current_version,
+               (SELECT count(*) FROM software_version x WHERE x.software_object_id = so.id)
+                 AS version_count
+          FROM software_object so
+          JOIN design_object d ON d.id = so.design_object_id
+          LEFT JOIN software_version sv ON sv.id = so.current_version_id
+         WHERE (%s::text IS NULL OR so.software_number ILIKE %s OR so.name_cn ILIKE %s)
+         ORDER BY so.software_number
+    """, (q, f"%{q}%" if q else None, f"%{q}%" if q else None))
+
+
+def page_software(conn: psycopg.Connection, q: str | None, page: int, page_size: int) -> dict:
+    like = f"%{q}%" if q else None
+    args = (q, like, like)
+    total = scalar(conn, """SELECT count(*) FROM software_object so
+      WHERE (%s::text IS NULL OR so.software_number ILIKE %s OR so.name_cn ILIKE %s)""", args) or 0
+    items = fetch_all(conn, """SELECT so.id,d.object_code,so.software_number,so.name_cn,
+      so.software_type,so.lifecycle_status,sv.version AS current_version,
+      (SELECT count(*) FROM software_version x WHERE x.software_object_id=so.id) AS version_count
+      FROM software_object so JOIN design_object d ON d.id=so.design_object_id
+      LEFT JOIN software_version sv ON sv.id=so.current_version_id
+      WHERE (%s::text IS NULL OR so.software_number ILIKE %s OR so.name_cn ILIKE %s)
+      ORDER BY so.software_number LIMIT %s OFFSET %s""",
+      args + (page_size, (page - 1) * page_size))
+    return {"items": items, "total": total, "page": page, "page_size": page_size}
+
+
+def create_software(conn: psycopg.Connection, *, software_number: str, name_cn: str,
+                    name_en: str | None, software_type: str, actor: dict) -> dict:
+    obj = fetch_one(conn, """
+        INSERT INTO design_object (object_type, object_code, display_name, created_by, updated_by)
+        VALUES ('SOFTWARE', %s, %s, %s, %s) RETURNING id
+    """, (software_number, name_cn, actor["user_id"], actor["user_id"]))
+    row = fetch_one(conn, """
+        INSERT INTO software_object (design_object_id, software_number, name_cn, name_en,
+                                     software_type, created_by, updated_by)
+        VALUES (%s,%s,%s,%s,%s,%s,%s)
+        RETURNING id, software_number, name_cn, software_type, lifecycle_status
+    """, (obj["id"], software_number, name_cn, name_en, software_type,
+          actor["user_id"], actor["user_id"]))
+    audit.write(conn, action="SOFTWARE_CREATE", user_id=str(actor["user_id"]),
+                username=actor["username"], object_type="SOFTWARE_OBJECT",
+                object_id=str(row["id"]), object_code=software_number,
+                new_value={"name_cn": name_cn, "software_type": software_type},
+                session_id=str(actor.get("session_id")), client_ip=actor.get("client_ip"))
+    return row
+
+
+def get_software(conn: psycopg.Connection, software_number: str) -> dict | None:
+    so = fetch_one(conn, """
+        SELECT so.*, d.object_code FROM software_object so
+          JOIN design_object d ON d.id = so.design_object_id
+         WHERE so.software_number = %s
+    """, (software_number,))
+    if so is None:
+        return None
+    so["versions"] = fetch_all(conn, """
+        SELECT sv.id, sv.version, sv.build, sv.hash_sha256, sv.status, sv.released_at,
+               sv.package_filename, sv.package_size_bytes,
+               sv.notes, aps.assignee_user_id AS approval_assignee_user_id,
+               (SELECT count(*) FROM baseline_item bi WHERE bi.software_version_id = sv.id)
+                 AS baseline_refs
+          FROM software_version sv
+          LEFT JOIN approval_step aps ON aps.approval_request_id=sv.approval_request_id
+            AND aps.decision='PENDING'
+         WHERE sv.software_object_id = %s
+         ORDER BY sv.created_at DESC
+    """, (so["id"],))
+    for version in so["versions"]:
+        version["compatible_hardware"] = fetch_all(conn, """
+          SELECT c.id,d.object_code,d.display_name,d.object_type,c.hardware_version,
+                 c.applicability_note,ep.external_part_number,ns.code AS namespace_code
+          FROM software_hardware_compatibility c
+          JOIN design_object d ON d.id=c.hardware_design_object_id
+          LEFT JOIN external_part ep ON ep.design_object_id=d.id
+          LEFT JOIN namespace ns ON ns.id=ep.namespace_id
+          WHERE c.software_version_id=%s
+          ORDER BY d.object_code,c.hardware_version
+        """, (version["id"],))
+    return so
+
+
+def hardware_candidates(conn: psycopg.Connection, query: str, limit: int) -> list[dict]:
+    term=query.strip(); pattern=f"%{term}%"; prefix=f"{term}%"
+    return fetch_all(conn,"""SELECT d.object_code,d.display_name,d.object_type,
+      d.lifecycle_status,ep.external_part_number,ns.code AS namespace_code
+      FROM design_object d
+      LEFT JOIN external_part ep ON ep.design_object_id=d.id
+      LEFT JOIN namespace ns ON ns.id=ep.namespace_id
+      WHERE d.object_type IN ('INTERNAL_PART','EXTERNAL_PART')
+        AND (d.object_code ILIKE %s OR d.display_name ILIKE %s
+             OR ep.external_part_number ILIKE %s)
+      ORDER BY CASE
+        WHEN lower(d.object_code)=lower(%s)
+          OR lower(COALESCE(ep.external_part_number,''))=lower(%s) THEN 0
+        WHEN d.object_code ILIKE %s OR ep.external_part_number ILIKE %s THEN 1
+        ELSE 2 END,d.object_code LIMIT %s""",
+      (pattern,pattern,pattern,term,term,prefix,prefix,limit))
+
+
+def add_hardware_compatibility(conn: psycopg.Connection, version_id: str,
+                               hardware_object_code: str, hardware_version: str,
+                               applicability_note: str | None, actor: dict) -> dict:
+    sv=fetch_one(conn,"SELECT id,status FROM software_version WHERE id=%s FOR UPDATE",(version_id,))
+    if sv is None: raise LookupError("è½¯ä»¶ç‰ˆæœ¬ä¸å­˜åœ¨")
+    if sv["status"] != "DRAFT": raise ValueError("åªæœ‰è‰ç¨¿è½¯ä»¶ç‰ˆæœ¬å¯ä»¥ç»´æŠ¤é€‚è£…ç¡¬ä»¶")
+    if not hardware_version.strip(): raise ValueError("ç¡¬ä»¶ç‰ˆæœ¬ä¸èƒ½ä¸ºç©º")
+    hw=fetch_one(conn,"""SELECT id,lifecycle_status FROM design_object
+      WHERE object_code=%s AND object_type IN ('INTERNAL_PART','EXTERNAL_PART') FOR SHARE""",
+      (hardware_object_code,))
+    if hw is None: raise LookupError("æ‰€é€‰ç¡¬ä»¶ä»¶å·ä¸å­˜åœ¨")
+    if hw["lifecycle_status"] == "OBSOLETE": raise ValueError("å·²ä½œåºŸç¡¬ä»¶ä¸èƒ½æ–°å¢é€‚è£…å…³ç³»")
+    row=fetch_one(conn,"""INSERT INTO software_hardware_compatibility
+      (software_version_id,hardware_design_object_id,hardware_version,
+       applicability_note,created_by) VALUES(%s,%s,%s,%s,%s)
+      RETURNING id,hardware_version,applicability_note""",
+      (version_id,hw["id"],hardware_version.strip(),applicability_note,actor["user_id"]))
+    row["object_code"]=hardware_object_code
+    audit.write(conn,action="SOFTWARE_HARDWARE_ADD",user_id=str(actor["user_id"]),
+      username=actor["username"],object_type="SOFTWARE_VERSION",object_id=version_id,
+      object_code=hardware_object_code,new_value={"hardware_version":hardware_version.strip()},
+      session_id=str(actor.get("session_id")),client_ip=actor.get("client_ip"))
+    return row
+
+
+def delete_hardware_compatibility(conn: psycopg.Connection, compatibility_id: str,
+                                  actor: dict) -> None:
+    row=fetch_one(conn,"""SELECT c.id,c.software_version_id,d.object_code,sv.status
+      FROM software_hardware_compatibility c
+      JOIN software_version sv ON sv.id=c.software_version_id
+      JOIN design_object d ON d.id=c.hardware_design_object_id WHERE c.id=%s FOR UPDATE OF sv""",
+      (compatibility_id,))
+    if row is None: raise LookupError("é€‚è£…ç¡¬ä»¶å…³ç³»ä¸å­˜åœ¨")
+    if row["status"] != "DRAFT": raise ValueError("åªæœ‰è‰ç¨¿è½¯ä»¶ç‰ˆæœ¬å¯ä»¥åˆ é™¤é€‚è£…ç¡¬ä»¶")
+    execute(conn,"DELETE FROM software_hardware_compatibility WHERE id=%s",(compatibility_id,))
+    audit.write(conn,action="SOFTWARE_HARDWARE_DELETE",user_id=str(actor["user_id"]),
+      username=actor["username"],object_type="SOFTWARE_VERSION",
+      object_id=str(row["software_version_id"]),object_code=row["object_code"],
+      session_id=str(actor.get("session_id")),client_ip=actor.get("client_ip"))
+
+
+def compatible_software(conn: psycopg.Connection, object_code: str,
+                        hardware_version: str | None = None) -> list[dict]:
+    """è¿”å›æ˜ç¡®ç™»è®°çš„é€‚è£…å…³ç³»ï¼Œä¸å°†è‰ç¨¿è½¯ä»¶è§†ä¸ºå·²æ‰¹å‡†å¯åŠ è½½è½¯ä»¶ã€‚"""
+    return fetch_all(conn, """SELECT c.id,c.hardware_version,c.applicability_note,
+      so.software_number,so.name_cn,so.software_type,sv.id AS software_version_id,
+      sv.version,sv.build,sv.status,sv.package_filename,sv.package_size_bytes,
+      sv.hash_sha256,sv.released_at,
+      (sv.status='RELEASED' AND so.lifecycle_status <> 'OBSOLETE'
+        AND d.lifecycle_status <> 'OBSOLETE'
+        AND sv.package_storage_key IS NOT NULL) AS loadable
+      FROM software_hardware_compatibility c
+      JOIN design_object d ON d.id=c.hardware_design_object_id
+      JOIN software_version sv ON sv.id=c.software_version_id
+      JOIN software_object so ON so.id=sv.software_object_id
+      WHERE d.object_code=%s AND (%s::text IS NULL OR c.hardware_version=%s)
+      ORDER BY (sv.status='RELEASED') DESC,so.software_number,sv.created_at DESC,c.hardware_version
+    """, (object_code,hardware_version,hardware_version))
+
+
+def add_version(conn: psycopg.Connection, software_number: str, *, version: str,
+                build: str, hash_sha256: str | None, notes: str | None,
+                actor: dict) -> dict:
+    so = fetch_one(conn, "SELECT id FROM software_object WHERE software_number = %s",
+                   (software_number,))
+    if so is None:
+        raise LookupError(f"è½¯ä»¶å¯¹è±¡ä¸å­˜åœ¨: {software_number}")
+    row = fetch_one(conn, """
+        INSERT INTO software_version (software_object_id, version, build, hash_sha256,
+                                      notes, created_by)
+        VALUES (%s,%s,%s,%s,%s,%s)
+        RETURNING id, version, build, status
+    """, (so["id"], version, build or "", hash_sha256, notes, actor["user_id"]))
+    audit.write(conn, action="SOFTWARE_VERSION_ADD", user_id=str(actor["user_id"]),
+                username=actor["username"], object_type="SOFTWARE_VERSION",
+                object_id=str(row["id"]), object_code=f"{software_number} {version}",
+                new_value={"version": version, "build": build, "hash_sha256": hash_sha256},
+                session_id=str(actor.get("session_id")), client_ip=actor.get("client_ip"))
+    return row
+
+
+def add_version_package(conn: psycopg.Connection, software_number: str, *, version: str,
+                        build: str, filename: str, mime_type: str, content: bytes,
+                        actor: dict) -> dict:
+    from uuid import uuid4
+    from .. import storage
+    so=fetch_one(conn,"SELECT id FROM software_object WHERE software_number=%s",(software_number,))
+    if so is None: raise LookupError(f"è½¯ä»¶å¯¹è±¡ä¸å­˜åœ¨: {software_number}")
+    version_id=str(uuid4())
+    key=storage.make_software_key(software_number,version_id,filename)
+    stored=storage.save(key,content)
+    try:
+        row=fetch_one(conn,"""INSERT INTO software_version
+          (id,software_object_id,version,build,hash_sha256,package_filename,
+           package_storage_key,package_mime_type,package_size_bytes,created_by)
+          VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+          RETURNING id,version,build,status,hash_sha256,package_filename,package_size_bytes""",
+          (version_id,so["id"],version,build or "",stored.sha256,filename,stored.storage_key,
+           mime_type,stored.size_bytes,actor["user_id"]))
+    except BaseException:
+        storage.delete(stored.storage_key)
+        raise
+    audit.write(conn,action="SOFTWARE_PACKAGE_UPLOAD",user_id=str(actor["user_id"]),
+      username=actor["username"],object_type="SOFTWARE_VERSION",object_id=version_id,
+      object_code=f"{software_number} {version}",new_value={"filename":filename,
+      "size_bytes":stored.size_bytes,"sha256":stored.sha256},
+      session_id=str(actor.get("session_id")),client_ip=actor.get("client_ip"))
+    return row
+
+
+def get_version_package(conn: psycopg.Connection, version_id: str) -> dict | None:
+    return fetch_one(conn,"""SELECT package_filename,package_storage_key,package_mime_type,
+      package_size_bytes,hash_sha256 FROM software_version
+      WHERE id=%s AND package_storage_key IS NOT NULL""",(version_id,))
+
+
+def release_version(conn: psycopg.Connection, version_id: str, comments: str,
+                    actor: dict) -> dict:
+    """å‘å¸ƒè½¯ä»¶ç‰ˆæœ¬ã€‚å‘å¸ƒå hash å†»ç»“(ä¸æ–‡ä»¶ç‰ˆæ¬¡åŒç†), ä¸Šä¸€ä¸ªå‘å¸ƒç‰ˆè½¬ SUPERSEDEDã€‚"""
+    sv = fetch_one(conn, """
+        SELECT sv.*, so.software_number, so.id AS so_id FROM software_version sv
+          JOIN software_object so ON so.id = sv.software_object_id WHERE sv.id = %s FOR UPDATE OF sv
+    """, (version_id,))
+    if sv is None:
+        raise LookupError("è½¯ä»¶ç‰ˆæœ¬ä¸å­˜åœ¨")
+    if sv["status"] != "IN_REVIEW":
+        raise ValueError(f"è½¯ä»¶ç‰ˆæœ¬ä¸º {sv['status']}ï¼Œåªæœ‰å®¡æ ¸ä¸­çŠ¶æ€å¯å‘å¸ƒ")
+    from . import approvals
+    approvals.require_assignee(conn,str(sv["approval_request_id"]),str(actor["user_id"]))
+    if not sv["hash_sha256"] or not sv["package_storage_key"]:
+        raise ValueError("å‘å¸ƒå‰å¿…é¡»ä¸Šä¼ è½¯ä»¶å‹ç¼©åŒ…ï¼Œç”±ç³»ç»Ÿè®¡ç®—å¹¶ç™»è®° SHA-256")
+    if not fetch_one(conn,"SELECT id FROM software_hardware_compatibility WHERE software_version_id=%s",(version_id,)):
+        raise ValueError("å‘å¸ƒå‰å¿…é¡»ç™»è®°é€‚è£…ç¡¬ä»¶ä»¶å·åŠç¡¬ä»¶ç‰ˆæœ¬ï¼Œè¯·é€€å›è¡¥å……")
+
+    prev = fetch_one(conn, """
+        SELECT id FROM software_version WHERE software_object_id=%s AND status='RELEASED'
+    """, (sv["so_id"],))
+    if prev is not None:
+        execute(conn, "UPDATE software_version SET status='SUPERSEDED' WHERE id=%s",
+                (prev["id"],))
+
+    row = fetch_one(conn, """
+        UPDATE software_version SET status='RELEASED', released_at=now(), released_by=%s
+         WHERE id=%s RETURNING id, version, build, status, released_at
+    """, (actor["user_id"], version_id))
+    execute(conn,"""UPDATE approval_step SET decision='APPROVED',decided_by=%s,
+      acted_at=now(),comments=%s WHERE approval_request_id=%s AND decision='PENDING'""",
+      (actor["user_id"],comments,sv["approval_request_id"]))
+    execute(conn,"UPDATE approval_request SET status='APPROVED',closed_at=now() WHERE id=%s",
+            (sv["approval_request_id"],))
+    execute(conn, """
+        UPDATE software_object SET current_version_id=%s, lifecycle_status='RELEASED',
+               updated_by=%s WHERE id=%s
+    """, (version_id, actor["user_id"], sv["so_id"]))
+    execute(conn, """
+        UPDATE design_object SET lifecycle_status='RELEASED', updated_by=%s
+         WHERE id=(SELECT design_object_id FROM software_object WHERE id=%s)
+    """, (actor["user_id"], sv["so_id"]))
+
+    audit.write(conn, action="SOFTWARE_VERSION_RELEASE", user_id=str(actor["user_id"]),
+                username=actor["username"], object_type="SOFTWARE_VERSION",
+                object_id=version_id,
+                object_code=f"{sv['software_number']} {sv['version']}",
+                new_value={"status": "RELEASED", "hash_sha256": sv["hash_sha256"]},
+                reason=comments, session_id=str(actor.get("session_id")),
+                client_ip=actor.get("client_ip"))
+    return row
+
+
+def submit_version(conn: psycopg.Connection, version_id: str,
+                   approver_user_id: str, actor: dict) -> dict:
+    from . import approvals
+    sv=fetch_one(conn,"""SELECT sv.*,so.software_number FROM software_version sv
+      JOIN software_object so ON so.id=sv.software_object_id WHERE sv.id=%s FOR UPDATE OF sv""",(version_id,))
+    if not sv: raise LookupError("è½¯ä»¶ç‰ˆæœ¬ä¸å­˜åœ¨")
+    if sv["status"]!="DRAFT": raise ValueError("åªæœ‰è‰ç¨¿è½¯ä»¶ç‰ˆæœ¬å¯æäº¤")
+    if not sv["hash_sha256"] or not sv["package_storage_key"]:
+        raise ValueError("æäº¤å‰å¿…é¡»ä¸Šä¼ è½¯ä»¶å‹ç¼©åŒ…ï¼Œç”±ç³»ç»Ÿè‡ªåŠ¨ç™»è®° SHA-256")
+    compatibility=fetch_one(conn,"SELECT id FROM software_hardware_compatibility WHERE software_version_id=%s",(version_id,))
+    if compatibility is None:
+        raise ValueError("æäº¤å‰å¿…é¡»è‡³å°‘ç™»è®°ä¸€ä¸ªå¯åŠ è½½ç¡¬ä»¶ä»¶å·åŠç¡¬ä»¶ç‰ˆæœ¬")
+    approver=approvals.require_approver(conn,approver_user_id,actor["user_id"])
+    number=approvals.next_request_number(conn)
+    req=fetch_one(conn,"""INSERT INTO approval_request(request_number,request_type,object_type,
+      object_id,object_code,title,requester_id) VALUES(%s,'CHANGE_PACKAGE','SOFTWARE_VERSION',
+      %s,%s,%s,%s) RETURNING id,request_number""",(number,version_id,
+      f"{sv['software_number']} {sv['version']}",f"å‘å¸ƒè½¯ä»¶ç‰ˆæœ¬ {sv['software_number']} {sv['version']}",actor["user_id"]))
+    execute(conn,"""INSERT INTO approval_step(approval_request_id,step_order,step_name,
+      required_role_code,assignee_user_id,is_final) VALUES(%s,1,'è½¯ä»¶ç‰ˆæœ¬å‘å¸ƒ','APPROVER',%s,true)""",
+      (req["id"],approver["id"]))
+    execute(conn,"UPDATE software_version SET status='IN_REVIEW',approval_request_id=%s WHERE id=%s",
+            (req["id"],version_id))
+    return req

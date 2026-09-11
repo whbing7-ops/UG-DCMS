@@ -61,6 +61,12 @@ class VersionRequest(BaseModel):
     notes: str | None = Field(default=None, max_length=500)
 
 
+class HardwareCompatibilityRequest(BaseModel):
+    hardware_object_code: str = Field(min_length=1, max_length=64)
+    hardware_version: str = Field(min_length=1, max_length=64)
+    applicability_note: str | None = Field(default=None, max_length=500)
+
+
 SOFTWARE_PACKAGE_EXTENSIONS = {".zip", ".7z", ".rar", ".tar", ".gz", ".tgz"}
 MAX_SOFTWARE_PACKAGE_BYTES = 200 * 1024 * 1024
 
@@ -219,6 +225,19 @@ def get_software(software_number: str, conn: Conn, user: CurrentUser):
     return so
 
 
+@router.get("/hardware-candidates")
+def hardware_candidates(conn: Conn, user: CurrentUser,
+                        q: str = Query(..., min_length=1, max_length=128),
+                        limit: int = Query(30, ge=1, le=100)):
+    return ext_svc.hardware_candidates(conn, q, limit)
+
+
+@router.get("/hardware/{object_code}/software")
+def hardware_software(object_code: str, conn: Conn, user: CurrentUser,
+                      hardware_version: str | None = Query(None, max_length=64)):
+    return ext_svc.compatible_software(conn, object_code, hardware_version)
+
+
 @router.post("/software/{software_number}/versions", status_code=201)
 def add_version(software_number: str, payload: VersionRequest, conn: Conn,
                 actor: dict = Depends(require(Perm.DRAFT_WRITE))):
@@ -263,6 +282,26 @@ def download_version_package(version_id: str, conn: Conn, user: CurrentUser):
     return Response(content=storage.read(row["package_storage_key"]),
         media_type=row["package_mime_type"],headers={"Content-Disposition":
         "attachment; filename*=UTF-8''"+quote(row["package_filename"],safe="")})
+
+
+@router.post("/software-versions/{version_id}/hardware", status_code=201)
+def add_software_hardware(version_id: str, payload: HardwareCompatibilityRequest,
+                          conn: Conn, actor: dict = Depends(require(Perm.DRAFT_WRITE))):
+    try:
+        return ext_svc.add_hardware_compatibility(
+            conn, version_id, payload.hardware_object_code,
+            payload.hardware_version, payload.applicability_note, actor)
+    except LookupError as e: raise errors.not_found(str(e))
+    except ValueError as e: raise errors.bad_request(str(e))
+
+
+@router.delete("/software-hardware/{compatibility_id}")
+def delete_software_hardware(compatibility_id: str, conn: Conn,
+                             actor: dict = Depends(require(Perm.DRAFT_WRITE))):
+    try: ext_svc.delete_hardware_compatibility(conn, compatibility_id, actor)
+    except LookupError as e: raise errors.not_found(str(e))
+    except ValueError as e: raise errors.bad_request(str(e))
+    return {"message": "适装硬件关系已删除"}
 
 
 @router.post("/software-versions/{version_id}/release")

@@ -140,6 +140,21 @@ with sync_playwright() as pw:
         expect(page.locator('tbody tr')).to_have_count(1)
         mark('large-list/external-parts-paged-filtered-responsive')
 
+        # Hardware -> exact software version -> authenticated package download.
+        hardware=call(page,'GET','/search?q=CI演示成品&kinds=PART_NUMBER&limit=10')['results'][0]['object_code']
+        page.goto(base+'/#/object/'+hardware)
+        expect(page.get_by_role('heading',name='可加载软件',exact=True)).to_be_visible()
+        expect(page.get_by_label('筛选硬件版本')).to_be_visible()
+        page.get_by_label('筛选硬件版本').select_option('HW-A')
+        page.get_by_role('link',name='CI测试软件',exact=True).click()
+        expect(page).to_have_url(__import__('re').compile(r'version_id='))
+        expect(page.get_by_text('当前显示从硬件关联进入的指定软件版本。',exact=False)).to_be_visible()
+        expect(page.get_by_role('heading',name='适装硬件 · 软件版本 1.0.0 · 构建号 ci',exact=True)).to_be_visible()
+        with page.expect_download() as package_download:
+            page.get_by_role('button',name='下载 ci-software.zip',exact=False).click()
+        assert package_download.value.suggested_filename=='ci-software.zip'
+        mark('hardware/software-exact-version-navigation-and-package-download')
+
         nav(admin,'/dictionary')
         admin.get_by_label('字典',exact=True).select_option('manufacturer')
         dictionary_row=admin.locator('tbody tr').first

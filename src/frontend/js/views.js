@@ -1,6 +1,7 @@
 /* 各页面视图。每个视图返回一个 DOM 节点, 由 app.js 的路由挂载。 */
 import { api, ApiError } from "./api.js";
 import { definitionButton } from "./extras.js";
+import { hardwareSoftwarePanel } from "./software-hardware.js";
 import {
   el, table, tablePanel, panel, empty, status, statusText, codeText, field, input, select,
   toast, toastError, fmtDate, link, askReason, clear,
@@ -122,6 +123,8 @@ export async function objectDetail(ctx, params, code) {
   const obj = await api.get("/objects/" + encodeURIComponent(code));
   const definitions = await api.get('/definitions/' + encodeURIComponent(code));
   const isPart = obj.object_type === "INTERNAL_PART";
+  const softwarePanel = (isPart || obj.object_type === "EXTERNAL_PART")
+    ? await hardwareSoftwarePanel(code) : null;
 
   let cfg = null, wu = null;
   if (isPart) {
@@ -174,6 +177,7 @@ export async function objectDetail(ctx, params, code) {
     tablePanel('关联设计文件', table([{label:'文件号'},{label:'名称'},{label:'关联角色'}], definitions, d => [
       el('td',{},link(d.file_number,'#/file/'+encodeURIComponent(d.file_number))),
       el('td',{},d.title_cn),el('td',{},ROLE_CN[d.relation_type] || d.relation_type)])),
+    softwarePanel,
     tablePanel("属性",
       table([{ label: "属性" }, { label: "值" }, { label: "单位" }],
         obj.attributes, a => [

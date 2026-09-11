@@ -21,6 +21,7 @@ _RULE_RE_UNUSED = None
 _RULE_RE = re.compile(r"(DCMS-[A-Z0-9§\-]+):\s*(.*)", re.S)
 
 FIELD_CN = {
+    "hardware_object_code":"硬件件号", "hardware_version":"硬件版本", "applicability_note":"适用说明",
     "username":"账户名", "password":"密码", "old_password":"当前密码", "new_password":"新密码",
     "full_name":"姓名", "email":"邮箱", "employee_no":"员工编号", "roles":"角色",
     "external_part_number":"外部件号", "name_cn":"中文名称", "name_en":"英文名称",
@@ -157,6 +158,9 @@ async def db_error_handler(request: Request, exc: psycopg.Error) -> JSONResponse
                                "message": "请求参数格式不正确", "rule": None}})
 
     constraint = getattr(getattr(exc, "diag", None), "constraint_name", None)
+    if constraint == 'uq_software_hardware_version':
+        return JSONResponse(status_code=409, content={"error": {
+            "code":"CONSTRAINT_VIOLATION", "message":"该软件版本已关联此硬件件号和版本，请勿重复登记", "rule":constraint}})
     if constraint:
         return JSONResponse(
             status_code=409,

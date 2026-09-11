@@ -36,6 +36,7 @@ export function toastError(e) {
 }
 
 const STATUS_CN = Object.freeze({
+  SOFTWARE_PACKAGE_UPLOAD:'上传软件交付包', SOFTWARE_HARDWARE_ADD:'添加适装硬件', SOFTWARE_HARDWARE_DELETE:'移除适装硬件',
   ACTIVE:'有效', INACTIVE:'停用', DEPRECATED:'已废止', HISTORICAL:'历史',
   DRAFT:'草稿', WORKING:'编制中', PENDING:'待处理', IN_REVIEW:'审核中',
   APPROVED:'已批准', REJECTED:'已拒绝', RELEASED:'已发布',

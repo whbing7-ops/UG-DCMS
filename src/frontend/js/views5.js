@@ -1,6 +1,7 @@
 /* 外部件、软件对象、审批中心。 */
 import { api } from "./api.js";
 import { approvalSubmitButton } from "./extras.js";
+import { hardwareSoftwarePanel, softwareHardwarePanel, softwarePackageButton } from "./software-hardware.js";
 import {
   el, table, tablePanel, panel, empty, status, statusText, codeText, field, input, select, pageControls,
   toast, toastError, fmtDate, link, askReason,
@@ -180,6 +181,7 @@ export async function externalParts(ctx, params) {
 
 export async function externalDetail(ctx, params, code) {
   const ep = await api.get("/external-parts/" + encodeURIComponent(code));
+  const softwarePanel = await hardwareSoftwarePanel(code);
   const revIn = input({ class: "mono", placeholder: "供应商版本，如 C" });
   const docIn = input({ placeholder: "供应商文件号" });
   const dateIn = input({ type: "date" });
@@ -223,6 +225,7 @@ export async function externalDetail(ctx, params, code) {
                 toast("已登记，状态为草稿，需经接受后方可用于基线"); reload(); }
           catch (e) { toastError(e); } } }, "登记"))))
       : el("div", { class: "note warn" }, "当前账户可查看软件对象；登记对象和版本需要“设计工程师”或“构型管理员”角色。"),
+    softwarePanel,
     tablePanel("技术状态",
       table([{ label: "序号" }, { label: "供应商版本", mono: 1 }, { label: "供应商文件" },
              { label: "文件日期" }, { label: "状态" }, { label: "接受人" },
@@ -295,8 +298,10 @@ export async function software(ctx, params) {
 
 export async function softwareDetail(ctx, params, num) {
   const so = await api.get("/software/" + encodeURIComponent(num));
+  const selectedId=params.get('version_id');
+  const versions=selectedId ? so.versions.filter(v=>String(v.id)===selectedId) : so.versions;
   const vIn = input({ class: "mono", placeholder: "1.0.0" });
-  const bIn = input({ class: "mono", placeholder: "build 号，可空" });
+  const bIn = input({ class: "mono", placeholder: "构建号，可空" });
   const packageIn = input({ type: "file", accept: ".zip,.7z,.rar,.tar,.gz,.tgz" });
   const cell = (l, v, mono) => el("div", { class: "tb-cell" },
     el("b", {}, l), el("span", { class: mono ? "mono" : null }, v ?? "—"));
@@ -313,8 +318,11 @@ export async function softwareDetail(ctx, params, num) {
         cell("建立时间", fmtDate(so.created_at)))),
     el("div", { class: "note" },
       "上传软件内容压缩包后，系统自动计算 SHA-256；审批和发布后交付包不可替换。"),
+    selectedId ? el('div',{class:'note'},'当前显示从硬件关联进入的指定软件版本。 ',
+      link('查看全部软件版本','#/software/'+encodeURIComponent(num))) : null,
+    selectedId && !versions.length ? empty('指定软件版本不存在','请返回硬件信息刷新关联清单。') : null,
     ctx.can("draft_write") ? panel("登记新版本", el("div", { class: "inline-form" },
-      field("版本号", vIn), field("Build", bIn), field("软件内容压缩包", packageIn),
+      field("版本号", vIn), field("构建号", bIn), field("软件内容压缩包", packageIn),
       el("div", { style: "flex:0 0 auto" }, el("button", { class: "btn primary",
         onclick: async () => {
           try { if(!packageIn.files[0]) throw Error("请选择软件内容压缩包");
@@ -323,14 +331,14 @@ export async function softwareDetail(ctx, params, num) {
                 toast("软件版本和交付包已登记，SHA-256 已自动计算"); reload(); }
           catch (e) { toastError(e); } } }, "登记")))) : null,
     tablePanel("版本",
-      table([{ label: "版本", mono: 1 }, { label: "Build", mono: 1 },
+      table([{ label: "版本", mono: 1 }, { label: "构建号", mono: 1 },
              { label: "软件包" }, { label: "SHA-256", mono: 1 }, { label: "状态" },
              { label: "发布时间" }, { label: "基线引用" }, { label: "" }],
-        so.versions, v => [
+        versions, v => [
           el("td", { class: "mono" }, v.version),
           el("td", { class: "mono muted" }, v.build || "—"),
-          el("td", {}, v.package_filename ? el("button",{class:"btn small",onclick:()=>api.download(`/software-versions/${v.id}/package/download`,v.package_filename)},`${v.package_filename} · ${((v.package_size_bytes||0)/1048576).toFixed(1)} MB`) : "未上传"),
-          el("td", { class: "mono muted" }, v.hash_sha256 ? v.hash_sha256.slice(0, 16) + "…" : "未登记"),
+          el("td", {}, softwarePackageButton(v)),
+          el("td", { class: "mono muted", style:'max-width:220px;overflow-wrap:anywhere' }, v.hash_sha256 || "未登记"),
           el("td", {}, status(v.status)),
           el("td", { class: "muted nowrap" }, fmtDate(v.released_at)),
           el("td", { class: "num" }, v.baseline_refs),
@@ -342,5 +350,6 @@ export async function softwareDetail(ctx, params, num) {
                         { query: { comments: "同意发布" } });
                       toast("已发布"); reload(); }
                 catch (e) { toastError(e); } } }, "发布") : null)])
-      || empty("还没有版本")));
+      || empty("还没有版本")),
+    versions.map(v=>softwareHardwarePanel(ctx,v,reload)));
 }

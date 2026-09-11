@@ -11,6 +11,7 @@ export class ApiError extends Error {
   constructor(status, body) {
     const e = (body && body.error) || {};
     const labels = {username:'账户名',password:'密码',old_password:'当前密码',new_password:'新密码',
+      hardware_object_code:'硬件件号',hardware_version:'硬件版本',applicability_note:'适用说明',version:'软件版本',build:'构建号',file:'附件',
       quantity:'数量',item_number:'项号',child_object_code:'子件号',name_cn:'名称',name_en:'英文名称',
       full_name:'姓名',email:'邮箱',file_number:'文件编号',file_type_code:'文件类型',
       external_part_number:'外部件号',namespace_code:'来源',manufacturer_code:'制造商',

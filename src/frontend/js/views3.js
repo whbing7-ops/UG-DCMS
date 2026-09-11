@@ -22,21 +22,25 @@ export async function bom(ctx, params, code) {
   const childIn = input({ placeholder: "输入内部件号、外部件号或名称后选择", class: "mono", autocomplete:"off", "aria-label":"子件号搜索" });
   const childResults=el("div",{class:"part-picker-results"});
   const childSelected=el("div",{class:"muted part-picker-selected"},"尚未选择子件");
-  let selectedChild="",searchTimer;
+  let selectedChild="",searchTimer,searchSequence=0;
   const searchChildren=async()=>{
+    const sequence=++searchSequence;
     const rows=await api.get(`/bom-candidates/${encodeURIComponent(code)}`,{query:{q:childIn.value.trim(),limit:30}});
+    if(sequence!==searchSequence)return;
     childResults.replaceChildren(...rows.map(x=>{
       const external=x.object_kind==="EXTERNAL_PART";
       const shown=external?(x.external_part_number||x.object_code):x.object_code;
       const disabled=x.lifecycle_status==="OBSOLETE";
       return el("button",{type:"button",class:"part-picker-option",disabled,onclick:()=>{
-        selectedChild=x.object_code;childIn.value=shown;childResults.replaceChildren();
+        ++searchSequence;clearTimeout(searchTimer);selectedChild=x.object_code;childIn.value=shown;childResults.replaceChildren();
         childSelected.textContent=`已选择：${shown} · ${x.display_name} · ${external?`外部件（${x.namespace_code}）`:"内部件"}`;
       }},el("b",{class:"mono"},shown),el("span",{},x.display_name),
         el("small",{},`${external?`外部件 · ${x.namespace_code}`:"内部件"} · ${statusText(x.lifecycle_status)}${disabled?" · 不可选":""}`));
-    }),rows.length?null:el("div",{class:"muted",style:"padding:10px"},"没有匹配的可用件号"));
+    }));
+    if(!rows.length)childResults.append(el("div",{class:"muted",style:"padding:10px"},"没有匹配的可用件号"));
+    if(rows.length===30)childResults.append(el("div",{class:"muted"},"显示前30条，请补充关键词缩小范围"));
   };
-  childIn.addEventListener("input",()=>{selectedChild="";childSelected.textContent="请从搜索结果中选择子件";clearTimeout(searchTimer);searchTimer=setTimeout(()=>searchChildren().catch(toastError),250);});
+  childIn.addEventListener("input",()=>{++searchSequence;selectedChild="";childResults.replaceChildren();childSelected.textContent="请从搜索结果中选择子件";clearTimeout(searchTimer);searchTimer=setTimeout(()=>searchChildren().catch(toastError),250);});
   childIn.addEventListener("focus",()=>searchChildren().catch(toastError));
   const itemIn = input({ placeholder: "项号，例如 010" });
   const qtyIn = input({ type: "number", step: "0.001", min: "0.001", value: "1" });

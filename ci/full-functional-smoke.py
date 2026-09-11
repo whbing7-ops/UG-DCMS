@@ -259,8 +259,40 @@ def main() -> None:
     check(version["hash_sha256"]==__import__("hashlib").sha256(package).hexdigest(),"software package SHA-256 not calculated")
     check(engineer.download(f"/software-versions/{version['id']}/package/download")==package,
           "software package authenticated download mismatch")
+    hardware_matches=engineer.get(q('/hardware-candidates',q=child_code,limit=30))
+    check(any(x['object_code']==child_code for x in hardware_matches),'hardware search failed')
+    for hardware_code in (parent_code,child_code):
+        engineer.post(f"/software-versions/{version['id']}/hardware",{
+            'hardware_object_code':hardware_code,'hardware_version':'HW-A',
+            'applicability_note':'CI双向软件硬件适装验证'})
+    software_detail=engineer.get(f'/software/{sw_num}')
+    check(len(software_detail['versions'][0]['compatible_hardware'])==2,
+          'one software version must support multiple hardware parts')
+    compatibility_id=software_detail['versions'][0]['compatible_hardware'][0]['id']
+    engineer.delete(f'/software-hardware/{compatibility_id}')
+    removed=engineer.get(f'/software/{sw_num}')['versions'][0]['compatible_hardware']
+    check(len(removed)==1,'draft compatibility removal failed')
+    removed_code=next(x for x in (parent_code,child_code) if x!=removed[0]['object_code'])
+    engineer.post(f"/software-versions/{version['id']}/hardware",{
+        'hardware_object_code':removed_code,'hardware_version':'HW-A'})
+    before_release=engineer.get(f'/hardware/{parent_code}/software')
+    check(before_release and not before_release[0]['loadable'],'draft software must not be loadable')
     engineer.post(f"/software-versions/{version['id']}/submit",{"approver_user_id":target["id"]})
     approver.post(q(f"/software-versions/{version['id']}/release", comments="CI release"))
+    compatible=engineer.get(q(f'/hardware/{parent_code}/software',hardware_version='HW-A'))
+    check(compatible and compatible[0]['loadable'] and compatible[0]['software_number']==sw_num,
+          'hardware reverse software relation failed')
+    check(engineer.download(f"/software-versions/{compatible[0]['software_version_id']}/package/download")==package,
+          'hardware software attachment download mismatch')
+    check(not engineer.get(q(f'/hardware/{parent_code}/software',hardware_version='HW-B')),
+          'nonmatching hardware version must not be declared compatible')
+    try:
+        engineer.post(f"/software-versions/{version['id']}/hardware",{
+            'hardware_object_code':parent_code,'hardware_version':'HW-B'})
+    except AssertionError as e:
+        check('HTTP 400' in str(e),'unexpected frozen compatibility error')
+    else:
+        raise AssertionError('released compatibility must be immutable')
     results.append("software/create-version-release")
 
     namespaces = engineer.get("/dictionary/namespace")
@@ -274,6 +306,14 @@ def main() -> None:
         q="CI-EXT-"+STAMP,limit=30))
     check(any(x["object_kind"]=="EXTERNAL_PART" and x["object_code"]==ext["object_code"]
               for x in external_candidates),"BOM external part candidate search failed")
+    external_sw=engineer.upload_software(f'/software/{sw_num}/versions/package',
+        'ci-software-external.zip',package,'2.0.0','ci')
+    engineer.post(f"/software-versions/{external_sw['id']}/hardware",{
+        'hardware_object_code':ext['object_code'],'hardware_version':'A'})
+    ext_software=engineer.get(f"/hardware/{urllib.parse.quote(ext['object_code'])}/software")
+    check(ext_software and ext_software[0]['software_version_id']==external_sw['id'],
+          'external hardware reverse software relation failed')
+    results.append('software/hardware-many-to-many-reverse-version-download-and-freeze')
     state = engineer.post(f"/external-parts/{urllib.parse.quote(ext['object_code'])}/states", {"supplier_revision": "A"})
     engineer.post(f"/external-states/{state['id']}/submit",{"approver_user_id":target["id"]})
     approver.post(q(f"/external-states/{state['id']}/accept", comments="CI accept"))
