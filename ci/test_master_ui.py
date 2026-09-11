@@ -38,6 +38,7 @@ def run(page, admin, call, base, output):
     expect(admin.locator('.tb-code')).to_have_text(re.compile(r'^UG1\d{5}$'))
     basic=admin.locator('.tb-code').inner_text()
     page.goto(base+'/#/family/'+family_id)
+    page.reload()  # A second user's approval requires a fresh fetch of the same hash URL.
     expect(page.get_by_role('link',name='新增 Dash 件号',exact=True)).to_be_visible()
     page.screenshot(path=str(output/'family-approved-rc234.png'),full_page=True)
     print('PASS UI/family-category-invalidation-create-submit-admin-approve-number',flush=True)

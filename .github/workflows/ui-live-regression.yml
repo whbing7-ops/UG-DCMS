@@ -7,6 +7,8 @@ on:
       - 'src/backend/**'
       - 'src/db/migrations/**'
       - 'ci/test-installed-actions.py'
+      - 'ci/test_master_ui.py'
+      - 'ci/test_master_transfer.py'
       - 'ci/test-ui-interactions.cjs'
       - 'ci/full-functional-smoke.py'
       - '.github/workflows/ui-live-regression.yml'
@@ -48,6 +50,8 @@ jobs:
             psql -h 127.0.0.1 -U dcms -d dcms -v ON_ERROR_STOP=1 -f "$f" > /dev/null
           done
           python -m pip install -q -r src/backend/requirements.txt playwright==1.51.0
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq fonts-noto-cjk
           google-chrome --version
       - name: Check browser interactions and state-specific rendering
         run: |
