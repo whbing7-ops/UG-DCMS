@@ -1,4 +1,4 @@
-name: UG-DCMS rc2.31 source integration and installer
+name: UG-DCMS rc2.32 source integration and installer
 
 on:
   workflow_dispatch:
@@ -6,10 +6,11 @@ on:
     paths:
       - 'src/**'
       - 'ci/full-functional-smoke.py'
+      - 'ci/test-backup-restore.py'
       - '.github/workflows/windows-installer-ci-v5.yml'
 
 concurrency:
-  group: ug-dcms-rc231
+  group: ug-dcms-rc232
   cancel-in-progress: true
 
 jobs:
@@ -55,6 +56,18 @@ jobs:
           # not recorded. Reapplying must reconcile without deleting any data.
           psql -X -1 -v ON_ERROR_STOP=1 -h 127.0.0.1 -U dcms -d dcms -f src/db/migrations/0014_operational_workflow.sql
           test "$(psql -XAt -h 127.0.0.1 -U dcms -d dcms -c 'select count(*) from external_part_class')" = 31
+      - name: Verify real backup restore and failure diagnostics
+        env:
+          PYTHONPATH: src/backend
+          DCMS_PG_HOST: 127.0.0.1
+          DCMS_PG_USER: dcms
+          DCMS_PG_PASSWORD: dcms-ci-password
+          DCMS_PG_DATABASE: dcms
+          DCMS_STORAGE_ROOT: ${{ runner.temp }}/restore-test-files
+          DCMS_BACKUP_ROOT: ${{ runner.temp }}/restore-test-backups
+        run: |
+          python ci/test-backup-restore.py
+          python ci/test-backup-restore.py --postgres
       - name: Start application and run role-separated functional smoke
         env:
           DCMS_PG_HOST: 127.0.0.1
@@ -103,17 +116,17 @@ jobs:
         run: |
           python src\installer\verify_installer_source.py
           powershell -NoProfile -ExecutionPolicy Bypass -File src\installer\Build-Setup.ps1
-          $setup='src\installer\output\UG-DCMS-Setup-1.0.0-rc2.31.exe'
+          $setup='src\installer\output\UG-DCMS-Setup-1.0.0-rc2.32.exe'
           if(-not(Test-Path $setup)){ throw 'installer missing' }
           if((Get-Item $setup).Length -lt 1000000){ throw 'installer unexpectedly small' }
           Get-FileHash $setup -Algorithm SHA256
       - name: Package installer and source
         shell: powershell
         run: |
-          Compress-Archive -Path src\installer\output\UG-DCMS-Setup-1.0.0-rc2.31.exe -DestinationPath svgUG-DCMS-20260910-rc2.31.zip
+          Compress-Archive -Path src\installer\output\UG-DCMS-Setup-1.0.0-rc2.32.exe -DestinationPath svgUG-DCMS-20260910-rc2.32.zip
       - uses: actions/upload-artifact@v4
         with:
-          name: svgUG-DCMS-20260910-rc2.31
+          name: svgUG-DCMS-20260910-rc2.32
           path: |
-            src/installer/output/UG-DCMS-Setup-1.0.0-rc2.31.exe
-            svgUG-DCMS-20260910-rc2.31.zip
+            src/installer/output/UG-DCMS-Setup-1.0.0-rc2.32.exe
+            svgUG-DCMS-20260910-rc2.32.zip

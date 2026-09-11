@@ -56,12 +56,13 @@ export async function diagnostics() {
 export async function backupPage(ctx) {
   if (!ctx.can('system_setting')) return empty('无系统备份权限', '仅系统管理员可执行备份和恢复。');
   const root=el('div');
+  const diagnosticButton=s=>s?.diagnostic_log ? el('button',{class:'btn',onclick:async()=>{try{await api.download('/system/restore/logs/'+encodeURIComponent(s.diagnostic_log),s.diagnostic_log);}catch(e){toast(e.message,'error');}}},'下载恢复诊断日志') : null;
   const monitorRestore=async initial=>{
     const started=Date.now(), title=el('h3',{},'正在恢复系统'), message=el('p',{},initial.message||'正在重启应用服务'),
       percent=el('b',{class:'mono'},'2%'), bar=el('progress',{max:100,value:2}), elapsed=el('span',{class:'muted'},'已耗时 0 秒'),
       dialog=el('div',{class:'restore-dialog'}), box=el('div',{class:'restore-mask'},dialog);
     dialog.append(title,bar,el('div',{class:'restore-progress-line'},percent,elapsed),message,
-      el('p',{class:'muted'},'服务重启期间显示预计进度；服务恢复后自动读取实际结果。'));
+      el('p',{class:'muted'},'百分比表示最近确认的恢复阶段。服务重启期间暂时无法读取新进度；只有显示“恢复完成”才表示成功。'));
     const retry=async()=>{
       box.remove();
       try{const r=await api.post('/system/restore/apply');await monitorRestore({message:r.message});}
@@ -70,8 +71,6 @@ export async function backupPage(ctx) {
     document.body.append(box); let done=false, unreachableSince=null;
     while(!done){
       const seconds=Math.floor((Date.now()-started)/1000); elapsed.textContent=`已耗时 ${seconds} 秒`;
-      const estimated=Math.min(95,seconds<4?2:seconds<10?15:seconds<20?30:seconds<45?45:80);
-      bar.value=estimated; percent.textContent=estimated+'%';
       try{
         const s=await api.get('/system/restore/status');
         unreachableSince=null;
@@ -80,17 +79,20 @@ export async function backupPage(ctx) {
           done=true; title.textContent='恢复完成'; bar.value=100; percent.textContent='100%';
           dialog.append(el('button',{class:'btn primary',onclick:()=>{box.remove();location.hash='#/login';location.reload();}},'重新登录系统'));
         }else if(s.state==='FAILED'){
-          done=true; title.textContent='恢复失败';
+          done=true; title.textContent='恢复失败'; bar.style.accentColor='#b42318';
+          percent.textContent=`停止于 ${value}%`;
+          if(s.failed_stage) dialog.append(el('p',{},'失败阶段：'+s.failed_stage));
+          const logButton=diagnosticButton(s); if(logButton) dialog.append(logButton);
           dialog.append(el('div',{class:'actions'},
             el('button',{class:'btn danger',onclick:retry},'重试恢复'),
             el('button',{class:'btn',onclick:()=>box.remove()},'关闭')));
         }
       }catch(e){
         unreachableSince??=Date.now();
-        message.textContent='应用服务正在重启并恢复数据，请勿关闭此页面…';
-        if(Date.now()-unreachableSince>10*60*1000){
+        message.textContent='暂时无法连接应用服务，正在等待恢复结果；当前百分比保留在最近确认的阶段。';
+        if(Date.now()-unreachableSince>35*60*1000){
           done=true; title.textContent='恢复状态读取超时';
-          message.textContent='应用服务超过10分钟没有恢复连接。请检查 UGDCMS-App 服务和安装日志后重试。';
+          message.textContent='超过35分钟仍无法读取恢复结果。请检查 UGDCMS-App 服务和备份目录中的恢复诊断日志；此提示不代表恢复成功。';
           dialog.append(el('div',{class:'actions'},
             el('button',{class:'btn danger',onclick:retry},'重试恢复'),
             el('button',{class:'btn',onclick:()=>box.remove()},'关闭')));
@@ -113,7 +115,7 @@ export async function backupPage(ctx) {
         el('b',{},'恢复完成（100%）'),el('div',{},data.restore_status.message),
         el('div',{class:'muted'},`完成时间：${fmtDate(data.restore_status.completed_at)}`)) :
       data.restore_status?.state==='FAILED' ? el('div',{class:'note error'},
-        el('b',{},'恢复失败'),el('div',{},data.restore_status.message)) : null,
+        el('b',{},'恢复失败'),el('div',{},data.restore_status.message),diagnosticButton(data.restore_status)) : null,
       el('div',{class:'actions'},el('button',{class:'btn primary',onclick:async()=>{try{await api.post('/system/backups');toast('全量备份已完成');await draw();}catch(e){toast(e.message,'error')}}},'立即备份')),
       panel('定时备份',el('div',{class:'inline-form'},field('启用',enabled),field('频率',freq),field('执行小时',hour),field('星期',weekday),field('保留份数',retention),
         el('button',{class:'btn',onclick:async()=>{try{await api.put('/system/backup-schedule',{json:{enabled:enabled.checked,frequency:freq.value,hour:Number(hour.value),weekday:Number(weekday.value),retention:Number(retention.value)}});toast('定时任务已保存');await draw();}catch(e){toast(e.message,'error')}}},'保存设置'))),

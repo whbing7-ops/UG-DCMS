@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import threading
 import time
@@ -102,6 +103,16 @@ def restore_status():
     return backups.restore_status()
 
 
+@router.get("/system/restore/logs/{filename}")
+def restore_log(filename: str, actor: dict = Depends(require(Perm.SYSTEM_SETTING))):
+    if not re.fullmatch(r"restore-log-[0-9a-f]{32}\.log", filename):
+        raise errors.bad_request("恢复诊断日志文件名无效")
+    path = backups._root() / filename
+    if not path.is_file():
+        raise errors.bad_request("恢复诊断日志不存在，请检查本机备份目录")
+    return FileResponse(path, media_type="text/plain; charset=utf-8", filename=filename)
+
+
 @router.post("/system/backups", status_code=201)
 def backup_now(conn: Conn, actor: dict = Depends(require(Perm.SYSTEM_SETTING))):
     try: result=backups.create_backup("MANUAL")
@@ -176,7 +187,7 @@ def apply_restore(conn: Conn, actor: dict=Depends(require(Perm.SYSTEM_SETTING)))
         if probe.returncode != 0:
             raise RuntimeError("未检测到正在托管本应用的 Windows 服务")
     except Exception as exc:
-        backups._restore_status("FAILED",100,f"无法启动恢复：{exc}",**marker)
+        backups._restore_status("FAILED",2,f"无法启动恢复：{exc}",**marker)
         raise errors.bad_request("无法启动系统恢复，请确认 UGDCMS-App Windows 服务已安装并正在运行")
     threading.Thread(target=_exit_for_managed_restore,name="UGDCMS-Restore-Restart",daemon=True).start()
     return {"message":"恢复命令已接受；应用服务将在3秒内重启并自动执行恢复"}
