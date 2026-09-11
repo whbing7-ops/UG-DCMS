@@ -153,7 +153,7 @@ const assert = require('node:assert/strict');
    {id:'new',status:'RELEASED',baseline_sequence:3},
    {id:'middle',status:'SUPERSEDED',baseline_sequence:2},
   ];
-  const ctx={can:()=>false};
+  const ctx={can:()=>false,user:{id:'fixture-user'}};
   try {
    api.get=async path=>path.endsWith('/validate')?{errors:[],warnings:[]}:path.startsWith('/parts/')?records:{status:'CANCELLED',items:[]};
    const list=await baselines(ctx,{},'PN');
@@ -172,8 +172,8 @@ const assert = require('node:assert/strict');
     }
    }
    for(const allowed of [false,true]) {
-    api.get=async path=>path.endsWith('/validate')?{errors:[],warnings:[]}:{status:'IN_REVIEW',items:[]};
-    const view=await baselineDetail({can:()=>allowed},{},'bl');
+    api.get=async path=>path.endsWith('/validate')?{errors:[],warnings:[]}:{status:'IN_REVIEW',items:[],approval_assignee_user_id:'fixture-user'};
+    const view=await baselineDetail({can:()=>allowed,user:{id:'fixture-user'}},{},'bl');
     if(view.textContent.includes('批准发布')!==allowed) throw Error('Baseline approval permission rendering');
    }
    return true;
