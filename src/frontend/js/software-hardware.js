@@ -35,9 +35,9 @@ export async function hardwareSoftwarePanel(code) {
       el('summary',{},`其他关联软件（${other.length} 条，未批准或已失效，不可据此加载）`),renderTable(other)));
   };
   version.addEventListener('change',render); render();
-  return panel('可加载软件',
+  return panel('可加载软件',el('div',{},
     el('p',{class:'muted'},'按适用硬件版本核对。点击软件名称查看对应版本信息及附件；项目准入和基线要求仍需满足。'),
-    field('筛选硬件版本',version),output);
+    field('筛选硬件版本',version),output));
 }
 
 export function softwareHardwarePanel(ctx, version, reload) {
