@@ -198,7 +198,7 @@ def postgres_roundtrip():
         assert conn.execute('SELECT count(*) FROM schema_migration').fetchone()[0] == len(migrations)
         assert conn.execute('SELECT object_level_code FROM basic_drawing_family WHERE id=%s',(old_family,)).fetchone()[0]=='ASSEMBLY'
         assert dict(conn.execute("SELECT external_part_number,external_class_code FROM external_part WHERE external_part_number LIKE 'RESTORE-CLASS-%'").fetchall())=={'RESTORE-CLASS-E07':'T3','RESTORE-CLASS-E08':'T2','RESTORE-CLASS-E20':'E20'}
-        assert conn.execute("SELECT count(*) FROM audit_log WHERE action='OBJECT_LEVEL_SIMPLIFY' AND object_id=%s",(old_family,)).fetchone()[0]==1
+        assert conn.execute("SELECT count(*) FROM audit_log WHERE action='OBJECT_LEVEL_SIMPLIFY' AND object_id=%s",(str(old_family),)).fetchone()[0]==1
         print('PASS: legacy hierarchy and external classes upgrade with audit; ambiguous category retained for confirmation')
         assert conn.execute('SELECT id,username,password_hash FROM app_user ORDER BY id').fetchall() == accounts
         assert payload.read_bytes() == b'original attachment\x00\xff'
