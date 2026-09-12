@@ -1,5 +1,6 @@
 /* 外部件、软件对象、审批中心。 */
 import { api } from "./api.js";
+import { editor } from "./manage.js";
 import { transferActions } from "./master-transfer.js";
 const externalClassText = x => /^T[123]$/.test(x.external_class_code)
   ? `${x.external_class_code} ${x.external_class_name}` : '待确认一级类别';
