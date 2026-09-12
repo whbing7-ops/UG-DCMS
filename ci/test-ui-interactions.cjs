@@ -132,7 +132,7 @@ const assert = require('node:assert/strict');
  await page.getByText('解析通过，共 1 行；排除 0 行。').waitFor();
  const downloadPromise=page.waitForEvent('download');
  await page.getByRole('button',{name:'下载模板'}).click();
- assert.equal((await downloadPromise).suggestedFilename(),'bom_template.csv');
+ assert.equal((await downloadPromise).suggestedFilename(),'bom_template.xlsx');
  await page.screenshot({path:'bom-ui.png',fullPage:true});
  await page.setViewportSize({width:390,height:844});
  assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'Mobile page overflows horizontally');

@@ -30,7 +30,7 @@ class SimilarSearchRequest(BaseModel):
 class FamilyCreateRequest(BaseModel):
     primary_class_code: str
     physical_class_id: str
-    object_level_code: str
+    object_level_code: str = Field(pattern='^(PART|ASSEMBLY)$')
     core_term_id: str
     qualifier_1_id: str | None = None
     qualifier_2_id: str | None = None
@@ -45,7 +45,7 @@ class FamilyCreateRequest(BaseModel):
 class DashCreateRequest(BaseModel):
     formal_name_cn: str = Field(min_length=1, max_length=128)
     formal_name_en: str = Field(min_length=1, max_length=128)
-    object_level_code: str
+    object_level_code: str = Field(pattern='^(PART|ASSEMBLY)$')
     difference_summary: str = Field(min_length=1, max_length=500)
     requested_dash: int | None = Field(default=None, ge=1, le=999)
 

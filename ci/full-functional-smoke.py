@@ -326,7 +326,7 @@ def main() -> None:
     namespaces = engineer.get("/dictionary/namespace")
     ext = engineer.post("/external-parts", {"namespace_code": namespaces[0]["code"],
         "external_part_number": "CI-EXT-" + STAMP, "name_cn": "CI外部件",
-        "external_class_code": "E08", "project_code": "CI-PROJECT-" + STAMP,
+        "external_class_code": "T2", "project_code": "CI-PROJECT-" + STAMP,
         "project_applicability": "CI 项目级准入测试",
         "project_evaluation_basis": "CI供应商规格及符合性资料"})
     external_candidates=engineer.get(q(

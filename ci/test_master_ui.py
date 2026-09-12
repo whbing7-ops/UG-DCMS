@@ -10,6 +10,8 @@ def run(page, admin, call, base, output):
     stamp=str(time.time_ns())
     page.goto(base+'/#/family-new')
     selector=page.get_by_label('一级技术类别',exact=True)
+    expect(page.get_by_label('对象层级',exact=True).locator('option')).to_have_count(2)
+    assert set(page.get_by_label('对象层级',exact=True).locator('option').all_text_contents())=={'零件','组件'}
     expect(selector.locator('option')).to_have_count(9)
     assert '机械、结构及非电气件' in selector.locator('option').first.inner_text()
     assert selector.locator('option:disabled').count()==6
@@ -67,10 +69,23 @@ def run(page, admin, call, base, output):
     print('PASS UI/batch-download-template-upload-preview-commit-export',flush=True)
 
     ns=call(page,'GET','/dictionary/namespace')[0]['code']
+    page.goto(base+'/#/external-parts')
+    expect(page.get_by_label('分类',exact=True).locator('option')).to_have_count(3)
+    assert page.get_by_label('分类',exact=True).locator('option').evaluate_all('(xs)=>xs.map(x=>x.value)')==['T1','T2','T3']
+    page.screenshot(path=str(output/'external-classes-rc235.png'),full_page=True)
     cls=call(page,'GET','/external-part-classes')[0]['code']
     for n in range(12):
         call(page,'POST','/external-parts',{'namespace_code':ns,'external_part_number':'UI-PICK-'+stamp+'-'+str(n),
           'name_cn':'下拉列表模块'+str(n),'external_class_code':cls},status=201)
+    # Follow the actual list link, whose route is owned by the application.
+    page.goto(base+'/#/external-parts?q=UI-PICK-'+stamp+'-0')
+    page.get_by_role('link',name=ns+'::UI-PICK-'+stamp+'-0',exact=True).click()
+    page.get_by_role('button',name='设置一级类别',exact=True).click()
+    d=page.get_by_role('dialog');d.get_by_label('一级技术类别').select_option('T3')
+    d.get_by_label('分类依据').fill('按技术资料确认互连组件')
+    d.get_by_role('button',name='保存',exact=True).click();expect(d).not_to_be_visible()
+    expect(page.locator('.tb-grid')).to_contain_text('T3 以导线或电缆为主体的互连组件')
+    print('PASS UI/two-object-levels-three-external-classes-and-audited-reclassification',flush=True)
     page.goto(base+'/#/bom/'+basic+'-001')
     search=page.get_by_role('textbox',name='子件号搜索',exact=True)
     search.fill('UI-PICK-'+stamp)

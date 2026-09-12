@@ -208,7 +208,18 @@ with sync_playwright() as pw:
         assert call(page,'POST','/bom/'+pn+'/resolve',{'context_code':ctx})['line_count']==1
         with page.expect_download() as download:
             page.get_by_role('button',name='下载模板').click()
-        assert download.value.suggested_filename=='bom_template.csv'
+        assert download.value.suggested_filename=='bom_template.xlsx'
+        import openpyxl, io
+        book=openpyxl.load_workbook(download.value.path())
+        assert book.worksheets[0]['A1'].value=='项号' and book.worksheets[0]['B1'].value=='子件号'
+        assert book.worksheets[0]['A2'].value=='010'
+        book.worksheets[0]['A2']='077';book.worksheets[0]['B2']=child
+        prepared=io.BytesIO();book.save(prepared)
+        page.get_by_label('文件',exact=True).set_input_files({'name':'bom-filled.xlsx','mimeType':'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet','buffer':prepared.getvalue()})
+        page.get_by_role('button',name='预览',exact=True).click()
+        expect(page.get_by_role('button',name='确认导入',exact=True)).to_be_enabled()
+        expect(page.locator('main')).to_contain_text('077 / '+child)
+        mark('bom/Chinese-Excel-template-download-fill-upload-preview-leading-zero')
         page.get_by_role('button',name='冻结构型 BOM').click()
         expect(page.locator('#toast')).to_contain_text('已冻结')
         snapshots=call(page,'GET','/bom/'+pn+'/snapshots')

@@ -68,7 +68,8 @@ def export_rows(conn, kind, family_id=None):
         return fetch_all(conn, """SELECT p.*,p.dash_number AS requested_dash,f.basic_drawing_number
           FROM part_number p JOIN basic_drawing_family f ON f.id=p.basic_drawing_family_id
           WHERE (%s::uuid IS NULL OR f.id=%s::uuid) ORDER BY p.full_part_number""", (family_id,family_id))
-    return fetch_all(conn, """SELECT e.*,n.code AS namespace_code,m.code AS manufacturer_code
+    return fetch_all(conn, """SELECT e.*,n.code AS namespace_code,m.code AS manufacturer_code,
+       CASE WHEN e.external_class_code IN ('T1','T2','T3') THEN e.external_class_code ELSE '' END AS external_class_code
        FROM external_part e JOIN namespace n ON n.id=e.namespace_id
        LEFT JOIN manufacturer m ON m.id=e.manufacturer_id ORDER BY e.external_part_number,e.id""")
 
@@ -87,6 +88,8 @@ def create_row(conn, kind, data, actor):
     from ..api.families import FamilyCreateRequest, DashCreateRequest
     from ..api.externals import ExternalCreateRequest
     d = dict(data)
+    if d.get('object_level_code') in ('零件','组件'):
+        d['object_level_code'] = {'零件':'PART','组件':'ASSEMBLY'}[d['object_level_code']]
     if kind == 'families':
         if d.get('basic_drawing_number'):
             raise ValueError('新建设计族的基本图号必须留空，由审批发号；导出文件中的已有设计族不可重复新建')

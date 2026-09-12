@@ -16,6 +16,16 @@ def run(engineer, approver, cm, admin, target):
     terms=engineer.get('/dictionary/core-term')
     fn=engineer.get('/dictionary/function-item')[0]
     level=engineer.get('/dictionary/object-level')[0]['code']
+    assert {x['code'] for x in engineer.get('/dictionary/object-level')} == {'PART','ASSEMBLY'}
+    assert [x['code'] for x in engineer.get('/external-part-classes')] == ['T1','T2','T3']
+    csv_template=engineer.download('/import/bom/template')
+    assert csv_template.startswith(b'\xef\xbb\xbf') and csv_template.decode('utf-8-sig').startswith('项号,子件号,数量')
+    import openpyxl
+    book=openpyxl.load_workbook(io.BytesIO(engineer.download('/import/bom/template?format=xlsx')))
+    assert [c.value for c in book.worksheets[0][1]]==['项号','子件号','数量','单位','位号','适用性规则','有效性','备注']
+    assert book.worksheets[0]['A2'].value=='010' and book.worksheets[0]['A2'].number_format=='@'
+    assert book.worksheets[0]['B2'].value=='UG100001-001'
+    print('PASS template/Chinese-xlsx-and-UTF8-BOM-CSV-leading-zero-identifiers',flush=True)
 
     def csv_bytes(rows):
         f=io.StringIO(); w=csv.DictWriter(f,fieldnames=list(rows[0]));w.writeheader();w.writerows(rows)
@@ -51,6 +61,7 @@ def run(engineer, approver, cm, admin, target):
     bad=preview('families',[row('T1'),dict(row('T1'),primary_class_code='T4')])
     assert bad['error_rows']==1
     commit(bad,expected=(400,))
+    assert preview('families',[dict(row('T1'),object_level_code='MODULE')])['error_rows']==1
     print('PASS batch/family-preview-rollback-approval-per-class-numbering-blocked-category',flush=True)
 
     basic=made[0]['basic_drawing_number']
@@ -63,6 +74,7 @@ def run(engineer, approver, cm, admin, target):
     numbers=engineer.get('/families/'+made[0]['id']+'/dashes')
     assert [p['full_part_number'] for p in numbers]==[basic+'-001',basic+'-002']
     assert preview('parts',[dict(part,requested_dash='001')])['error_rows']==1
+    assert preview('parts',[dict(part,object_level_code='END_ITEM')])['error_rows']==1
     exported=list(csv.DictReader(io.StringIO(engineer.download('/master-data/parts/export?family_id='+made[0]['id']).decode('utf-8-sig'))))
     assert len(exported)==2 and exported[0]['完整件号']==basic+'-001'
     # XLSX uses the same validation path, not just CSV parsing.
@@ -87,6 +99,12 @@ def run(engineer, approver, cm, admin, target):
     duplicate=dict(ext,name_cn='不同的名称',namespace_code=ns[-1]['code'])
     b=preview('externals',[ext,duplicate]);assert b['error_rows']==1,b
     b=preview('externals',[ext]);assert b['committable'];assert commit(b)['created']==1
+    assert preview('externals',[dict(ext,external_part_number='OLDCLASS-'+stamp,external_class_code='E08')])['error_rows']==1
+    engineer.call('POST','/external-parts',dict(ext,external_part_number='INVALID-'+stamp,external_class_code='E08'),expected=(422,))
+    created=next(x for x in engineer.get('/external-parts') if x['external_part_number']==ext['external_part_number'])
+    from urllib.parse import quote
+    engineer.patch('/external-parts/'+quote(created['object_code'])+'/classification',{'external_class_code':'T3','reason':'技术资料确认导线互连组件'})
+    assert engineer.get('/external-parts/'+quote(created['object_code']))['external_class_code']=='T3'
     for d in (duplicate,dict(duplicate,external_part_number=' '+ext['external_part_number'].lower()+' ')):
         r=engineer.call('POST','/external-parts',d,expected=(400,409))
         assert '已存在' in r['error']['message'],r

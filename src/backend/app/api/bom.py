@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, File, Form, Query, UploadFile
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import PlainTextResponse, Response
 from pydantic import BaseModel, Field
 
 from .. import errors
@@ -198,7 +198,11 @@ def snapshots(object_code: str, conn: Conn, user: CurrentUser):
 
 # ---------------- 导入 ----------------
 @router.get("/import/bom/template", response_class=PlainTextResponse)
-def bom_template(user: CurrentUser):
+def bom_template(user: CurrentUser, format: str = Query('csv', pattern='^(csv|xlsx)$')):
+    if format == 'xlsx':
+        return Response(imp_svc.bom_template_xlsx(),
+            media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            headers={'Content-Disposition':'attachment; filename="bom_template.xlsx"'})
     return PlainTextResponse(
         imp_svc.bom_template_csv(), media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": 'attachment; filename="bom_template.csv"'})

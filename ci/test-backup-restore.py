@@ -118,7 +118,23 @@ def postgres_roundtrip():
         conn.execute('DROP TRIGGER trg_external_number_unique ON external_part')
         conn.execute('DROP FUNCTION dcms_guard_external_number()')
         conn.execute('DROP TABLE external_part_number_registry')
+        conn.execute('DROP TRIGGER trg_external_primary_class_only ON external_part')
+        conn.execute('DROP FUNCTION dcms_external_primary_class_only()')
+        conn.execute('ALTER TABLE basic_drawing_family DROP CONSTRAINT ck_family_two_levels')
+        conn.execute('ALTER TABLE part_number DROP CONSTRAINT ck_part_two_levels')
         conn.execute("DELETE FROM schema_migration WHERE version >= '0017'")
+        for cls in ('E07','E08','E20'):
+            oid=conn.execute("INSERT INTO design_object(object_type,object_code,display_name) VALUES('EXTERNAL_PART',%s,'旧分类恢复测试') RETURNING id",('RESTORE-CLASS-'+cls,)).fetchone()[0]
+            conn.execute("""INSERT INTO external_part(design_object_id,namespace_id,external_part_number,name_cn,external_class_code)
+              VALUES(%s,(SELECT id FROM namespace ORDER BY code LIMIT 1),%s,'旧分类恢复测试',%s)""",(oid,'RESTORE-CLASS-'+cls,cls))
+        old_family=conn.execute("""INSERT INTO basic_drawing_family
+            (basic_drawing_number,primary_class_code,physical_class_id,object_level_code,
+             family_name_cn,family_name_en,core_term_id,family_definition,allowed_variation,excluded_variation)
+            VALUES('PENDING-RESTORE-LEVEL','T1',
+              (SELECT id FROM physical_class WHERE primary_class_code='T1' AND status='ACTIVE' ORDER BY code LIMIT 1),
+              'MODULE','临时','TEMP',
+              (SELECT id FROM naming_core_term WHERE primary_class_code='T1' AND status='ACTIVE' ORDER BY code LIMIT 1),
+              '旧模块层级','尺寸','原理') RETURNING id""").fetchone()[0]
         part = conn.execute("INSERT INTO design_object(object_type,object_code,display_name) VALUES ('INTERNAL_PART','RESTORE-HW-PROBE','备份中的硬件') RETURNING id").fetchone()[0]
         sw = conn.execute("INSERT INTO design_object(object_type,object_code,display_name) VALUES ('SOFTWARE','RESTORE-SW-PROBE','备份中的软件') RETURNING id").fetchone()[0]
         obj = conn.execute("INSERT INTO software_object(design_object_id,software_number,name_cn,software_type) VALUES (%s,'RESTORE-SW-PROBE','恢复测试软件','FIRMWARE') RETURNING id", (sw,)).fetchone()[0]
@@ -180,6 +196,10 @@ def postgres_roundtrip():
         assert conn.execute('SELECT count(*) FROM software_version WHERE id=%s', (version,)).fetchone()[0] == 1
         assert conn.execute('SELECT count(*) FROM software_hardware_compatibility').fetchone()[0] == 0
         assert conn.execute('SELECT count(*) FROM schema_migration').fetchone()[0] == len(migrations)
+        assert conn.execute('SELECT object_level_code FROM basic_drawing_family WHERE id=%s',(old_family,)).fetchone()[0]=='ASSEMBLY'
+        assert dict(conn.execute("SELECT external_part_number,external_class_code FROM external_part WHERE external_part_number LIKE 'RESTORE-CLASS-%'").fetchall())=={'RESTORE-CLASS-E07':'T3','RESTORE-CLASS-E08':'T2','RESTORE-CLASS-E20':'E20'}
+        assert conn.execute("SELECT count(*) FROM audit_log WHERE action='OBJECT_LEVEL_SIMPLIFY' AND object_id=%s",(old_family,)).fetchone()[0]==1
+        print('PASS: legacy hierarchy and external classes upgrade with audit; ambiguous category retained for confirmation')
         assert conn.execute('SELECT id,username,password_hash FROM app_user ORDER BY id').fetchall() == accounts
         assert payload.read_bytes() == b'original attachment\x00\xff'
         assert not (backups._root() / 'pending-restore.json').exists()

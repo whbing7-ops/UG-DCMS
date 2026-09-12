@@ -89,6 +89,8 @@ def create_external(conn: psycopg.Connection, *, namespace_code: str,
         mf = fetch_one(conn, "SELECT id FROM manufacturer WHERE code = %s", (manufacturer_code,))
         if mf is None:
             raise LookupError(f"制造商不存在: {manufacturer_code}")
+    if external_class_code not in ('T1','T2','T3'):
+        raise ValueError('外部件只能选择 T1、T2、T3 一级技术类别')
     cls = fetch_one(conn, "SELECT code FROM external_part_class WHERE code=%s AND status='ACTIVE'",
                     (external_class_code,))
     if cls is None:
@@ -135,6 +137,21 @@ def create_external(conn: psycopg.Connection, *, namespace_code: str,
                            "project_code": project_code},
                 session_id=str(actor.get("session_id")), client_ip=actor.get("client_ip"))
     row["object_code"] = object_code
+    return row
+
+
+def classify_external(conn, object_code, class_code, reason, actor):
+    if class_code not in ('T1','T2','T3') or not reason.strip():
+        raise ValueError('请选择 T1、T2 或 T3，并填写分类依据')
+    before=fetch_one(conn,"""SELECT e.id,e.external_class_code FROM external_part e
+        JOIN design_object d ON d.id=e.design_object_id WHERE d.object_code=%s FOR UPDATE OF e""",(object_code,))
+    if before is None:
+        raise LookupError('外部件不存在')
+    row=fetch_one(conn,"""UPDATE external_part SET external_class_code=%s,updated_by=%s
+        WHERE id=%s RETURNING id,external_class_code""",(class_code,actor['user_id'],before['id']))
+    audit.write(conn,action='EXTERNAL_PART_CLASSIFY',user_id=str(actor['user_id']),username=actor['username'],
+        object_type='EXTERNAL_PART',object_id=str(before['id']),object_code=object_code,
+        old_value={'external_class_code':before['external_class_code']},new_value={'external_class_code':class_code},reason=reason.strip())
     return row
 
 
@@ -350,7 +367,7 @@ def submit_project_control(conn: psycopg.Connection, control_id: str,
     if not c: raise LookupError("项目准入记录不存在")
     if c["status"]!="DRAFT": raise ValueError("只有草稿状态可提交")
     ep=fetch_one(conn,"SELECT external_class_code FROM external_part WHERE id=%s",(c["external_part_id"],))
-    if ep["external_class_code"]=='E99': raise ValueError("待分类外部件不得提交项目准入，请先确定正式分类")
+    if ep["external_class_code"] not in ('T1','T2','T3'): raise ValueError("请先确认外部件的 T1、T2 或 T3 一级类别，再提交项目准入")
     if not c["evaluation_basis"]: raise ValueError("项目准入必须填写评价依据")
     accepted=scalar(conn,"SELECT count(*) FROM external_technical_state WHERE external_part_id=%s AND status='ACCEPTED'",(c["external_part_id"],))
     if not accepted: raise ValueError("至少有一个已接受的供应商技术状态后才能提交项目准入")

@@ -181,7 +181,7 @@ function importForm(code) {
             const r = await api.upload("/import/bom/preview", { parent_object_code: code }, fileIn.files[0]);
             out.replaceChildren(previewResult(r));
           } catch (e) { toastError(e); } } }, "预览"),
-        el("button", { class: "btn", onclick: () => api.download("/import/bom/template", "bom_template.csv").catch(toastError) }, "下载模板"))),
+        el("button", { class: "btn", onclick: () => api.download("/import/bom/template?format=xlsx", "bom_template.xlsx").catch(toastError) }, "下载模板"))),
     out);
 }
 

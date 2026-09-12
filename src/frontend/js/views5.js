@@ -1,6 +1,8 @@
 /* 外部件、软件对象、审批中心。 */
 import { api } from "./api.js";
 import { transferActions } from "./master-transfer.js";
+const externalClassText = x => /^T[123]$/.test(x.external_class_code)
+  ? `${x.external_class_code} ${x.external_class_name}` : '待确认一级类别';
 import { approvalSubmitButton } from "./extras.js";
 import { hardwareSoftwarePanel, softwareHardwarePanel, softwarePackageButton } from "./software-hardware.js";
 import {
@@ -173,7 +175,7 @@ export async function externalParts(ctx, params) {
           el("td", { class: "mono" }, link(r.object_code, "#/external/" + encodeURIComponent(r.object_code))),
           el("td", { class: "mono" }, r.external_part_number),
           el("td", {}, r.name_cn),
-          el("td", {}, `${r.external_class_code} ${r.external_class_name}`),
+          el("td", {}, externalClassText(r)),
           el("td", { class: "muted" }, r.namespace_code),
           el("td", { class: "num" }, r.state_count),
           el("td", { class: "num" }, r.accepted_state ?? "—"),
@@ -202,9 +204,21 @@ export async function externalDetail(ctx, params, code) {
       el("div", { class: "tb-grid" },
         cell("来源", `${ep.namespace_code} ${ep.namespace_name}`),
         cell("外部件号", ep.external_part_number, true),
-        cell("分类", `${ep.external_class_code} ${ep.external_class_name}`),
+        cell("分类", externalClassText(ep)),
         cell("制造商", ep.manufacturer_name),
         cell("状态", statusText(ep.object_status)))),
+    ctx.can('draft_write') ? el('div',{class:'actions'},el('button',{class:'btn',onclick:async()=>{
+      try {
+        const classes=await api.get('/external-part-classes');
+        const selection=select(classes.map(c=>({value:c.code,label:`${c.code} ${c.name_cn}`,selected:c.code===ep.external_class_code})));
+        const reason=input({required:true,maxlength:500});
+        editor('设置一级类别',el('div',{},field('一级技术类别',selection),field('分类依据',reason)),async()=>{
+          await api.patch(`/external-parts/${encodeURIComponent(code)}/classification`,{json:{external_class_code:selection.value,reason:reason.value}});
+          toast('一级类别已更新');reload();
+        });
+      } catch(e){toastError(e);}
+    }},'设置一级类别')) : null,
+    !/^T[123]$/.test(ep.external_class_code) ? el('div',{class:'note warn'},'原类别不足以确定一级技术类别。请根据实物或技术资料选择 T1、T2 或 T3，再提交项目准入。') : null,
     el("div", { class: "note" },
       "只有已接受的技术状态才能进入设计基线。收到供应商文件不等于认可它——中间需要一次明确确认。"),
     ctx.can('draft_write') ? panel('新增项目级准入',el('div',{class:'inline-form'},field('项目',projectIn),field('适用范围',applicabilityIn),field('评价依据',basisIn),

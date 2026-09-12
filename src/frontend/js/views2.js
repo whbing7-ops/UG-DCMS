@@ -242,7 +242,7 @@ export async function familyDetail(ctx, params, id) {
         cell("二级分类", fam.physical_class_code, true),
         cell("核心实体词", fam.core_term_code, true),
         cell("主功能", fam.primary_function_code, true),
-        cell("对象层级", fam.object_level_code),
+        cell("对象层级", {PART:'零件',ASSEMBLY:'组件'}[fam.object_level_code] || fam.object_level_code),
         cell("批准时间", fmtDate(fam.approved_at)))),
     acts,
     transferActions(ctx, "parts", id),

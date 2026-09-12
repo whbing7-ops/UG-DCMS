@@ -38,7 +38,7 @@ export function transferActions(ctx,kind,familyId='') {
     }},'校验并预览');
     const note=kind==='families'?'按词典代码填写；基本图号、名称和状态列留空。导入建立待审批设计族，由审批人发号。':
       kind==='parts'?'填写已批准的基本图号。Dash 号留空可自动分配，填写时必须未被占用；完整件号和状态列留空。':
-      '外部件号不能与已有记录或本批其他行重复，即使名称或来源不同。状态列留空。';
+      '外部件分类只填写 T1、T2 或 T3。外部件号不能与已有记录或本批其他行重复，即使名称或来源不同。状态列留空。';
     editor('批量导入'+title,el('div',{},el('p',{class:'note'},note),
       el('p',{class:'muted'},'支持 CSV、XLSX，每批最多 2000 行。先下载模板；全部校验通过后才能整批导入。导出包含已有编号，直接重新导入会被防重规则拦截。'),
       field('导入文件',file),el('div',{class:'actions'},preview,confirm),results),async()=>{}, {submit:'关闭'});
