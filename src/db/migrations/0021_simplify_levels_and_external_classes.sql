@@ -34,7 +34,7 @@ SELECT 'SYSTEM','EXTERNAL_PART_CLASSIFY','EXTERNAL_PART',e.id,
 FROM external_part e JOIN external_class_map m ON m.old_code=e.external_class_code;
 UPDATE external_part e SET external_class_code=m.new_code FROM external_class_map m WHERE m.old_code=e.external_class_code;
 DROP TABLE external_class_map;
-UPDATE external_part_class SET status='DEPRECATED' WHERE code NOT IN ('T1','T2','T3');
+UPDATE external_part_class SET status='INACTIVE' WHERE code NOT IN ('T1','T2','T3');
 
 CREATE FUNCTION dcms_external_primary_class_only() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
