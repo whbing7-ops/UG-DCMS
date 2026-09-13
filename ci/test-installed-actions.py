@@ -152,7 +152,7 @@ with sync_playwright() as pw:
         page.get_by_label('筛选硬件版本').select_option('HW-A')
         page.get_by_role('link',name='CI测试软件',exact=True).click()
         expect(page).to_have_url(__import__('re').compile(r'version_id='))
-        expect(page.get_by_text('当前显示从硬件关联进入的指定软件版本。',exact=False)).to_be_visible()
+        expect(page.get_by_text('当前显示指定软件版本。',exact=False)).to_be_visible()
         expect(page.get_by_role('heading',name='适装硬件 · 软件版本 1.0.0 · 构建号 ci',exact=True)).to_be_visible()
         with page.expect_download() as package_download:
             page.get_by_role('button',name='下载 ci-software.zip',exact=False).click()
@@ -298,3 +298,4 @@ with sync_playwright() as pw:
     finally:
         (output/'UI-ACTIONS-RESULTS.json').write_text(json.dumps({'passed':passed,'browser_errors':errors},ensure_ascii=False,indent=2),encoding='utf-8')
         browser.close()
+
