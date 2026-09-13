@@ -236,6 +236,7 @@ def postgres_roundtrip():
         conn.execute('DELETE FROM software_hardware_compatibility WHERE software_version_id=%s', (version,))
         conn.execute('DELETE FROM software_version WHERE id=%s', (version,))
         conn.execute('DELETE FROM software_object WHERE id=%s', (obj,))
+        conn.execute('DELETE FROM part_number WHERE id=%s', (legacy_part,))
         conn.execute('DELETE FROM design_object WHERE id IN (%s,%s)', (part, sw))
         payload.unlink()
         print('PASS: current-version roundtrip preserves hardware/software compatibility')
