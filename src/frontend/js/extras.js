@@ -18,7 +18,9 @@ export function approvalSubmitButton(label, path, after, requiredRole = 'APPROVE
   return el('button', { class: 'btn', onclick: async () => {
     try {
       const candidates = await api.get('/approvals/candidates', { query: { required_role: requiredRole } });
-      if (!candidates.length) throw Error('当前没有可用审批人，请管理员启用审批员账户');
+      if (!candidates.length) throw Error(requiredRole === 'APPROVER'
+        ? '没有可选审批人：需要另一名已启用且具有审批员或构型管理员角色的账户，申请人不能审批自己'
+        : '没有符合本流程角色要求的其他启用账户，请联系管理员检查审批人员配置');
       const approver = select(candidates.map(x => ({ value: x.id,
         label: `${x.full_name}（${x.username}${x.employee_no ? ' · '+x.employee_no : ''}）` })));
       editor(label, el('div', {}, field('审批人', approver),

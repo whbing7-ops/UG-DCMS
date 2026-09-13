@@ -1,5 +1,9 @@
 /* 外部件、软件对象、审批中心。 */
 import { api } from "./api.js";
+import { editor } from "./manage.js";
+import { transferActions } from "./master-transfer.js";
+const externalClassText = x => /^T[123]$/.test(x.external_class_code)
+  ? `${x.external_class_code} ${x.external_class_name}` : '待确认一级类别';
 import { approvalSubmitButton } from "./extras.js";
 import { hardwareSoftwarePanel, softwareHardwarePanel, softwarePackageButton } from "./software-hardware.js";
 import {
@@ -18,7 +22,28 @@ const REQ_CN = {
   CHANGE_PACKAGE: "变更包", FAMILY_CLOSE: "关闭设计族", OBJECT_OBSOLETE: "废止对象",
 };
 
+const requestTypeText = r => r.object_type === "SOFTWARE_VERSION" ? "软件版本发布" : (REQ_CN[r.request_type] || r.request_type);
+
+function softwareApprovalButton(ctx, r) {
+  const step = r.steps ? r.steps.find(s => s.decision === "PENDING") : r;
+  if (r.object_type !== "SOFTWARE_VERSION" || r.status !== "PENDING" || !ctx.can("approve") ||
+      String(r.requester_id) === String(ctx.user.id) || !step ||
+      String(step.assignee_user_id || "") !== String(ctx.user.id)) return null;
+  return el("button", {class: "btn small primary", onclick: async () => {
+    const comments = await askReason("批准发布", "请确认软件包和适装硬件，并填写审批意见");
+    if (!comments) return;
+    try {
+      await api.post(`/software-versions/${r.object_id}/release`, {query: {comments}});
+      toast("软件版本已批准发布"); reload();
+    } catch (e) { toastError(e); }
+  }}, "批准发布");
+}
+
 function approvalObjectLink(r, label = "打开对象办理") {
+  if (r.object_type === "SOFTWARE_VERSION" && r.software_number && r.object_id)
+    return link(label, "#/software/" + encodeURIComponent(r.software_number) +
+      "?version_id=" + encodeURIComponent(r.object_id), "btn small");
+
   const routes = { BASIC_DRAWING_FAMILY: "/family/", FILE_REVISION: "/revision/", DESIGN_BASELINE: "/baseline/" };
   const route = routes[r.object_type];
   return route && r.object_id ? link(label, "#" + route + encodeURIComponent(r.object_id), "btn small") : null;
@@ -58,12 +83,12 @@ export async function approvals(ctx) {
              { label: "申请人" }, { label: "提交时间" }, { label: "" }],
         inbox, r => [
           el("td", { class: "mono" }, link(r.request_number, "#/approval/" + r.id)),
-          el("td", {}, REQ_CN[r.request_type] || r.request_type),
+          el("td", {}, requestTypeText(r)),
           el("td", { class: "mono" }, r.object_code || "—"),
           el("td", {}, r.requester_name),
           el("td", { class: "muted nowrap" }, fmtDate(r.requested_at)),
           el("td", { class: "right nowrap" },
-            approvalObjectLink(r), " ",
+            approvalObjectLink(r), " ", softwareApprovalButton(ctx, r), " ",
             el("button", { class: "btn small", onclick: () =>
               act(r.id, "return", "退回补充", "需要补充什么？申请人改完可再次提交") }, "退回"),
             " ",
@@ -76,7 +101,7 @@ export async function approvals(ctx) {
              { label: "状态" }, { label: "提交时间" }, { label: "" }],
         mine, r => [
           el("td", { class: "mono" }, link(r.request_number, "#/approval/" + r.id)),
-          el("td", {}, REQ_CN[r.request_type] || r.request_type),
+          el("td", {}, requestTypeText(r)),
           el("td", { class: "mono" }, r.object_code || "—"),
           el("td", {}, status(r.status)),
           el("td", { class: "muted nowrap" }, fmtDate(r.requested_at)),
@@ -96,7 +121,7 @@ export async function approvalDetail(ctx, params, id) {
         el("span", { class: "tb-code" }, r.request_number),
         el("span", { class: "tb-name" }, r.title)),
       el("div", { class: "tb-grid" },
-        cell("类型", REQ_CN[r.request_type] || r.request_type),
+        cell("类型", requestTypeText(r)),
         cell("状态", statusText(r.status)),
         cell("对象", r.object_code, true),
         cell("申请人", r.requester_name),
@@ -116,7 +141,7 @@ export async function approvalDetail(ctx, params, id) {
           el("td", { class: "mono" }, s.decided_by_username || "—"),
           el("td", {}, s.comments || "—"),
           el("td", { class: "muted nowrap" }, fmtDate(s.acted_at))])),
-    el("div", { class: "actions" }, approvalObjectLink(r), link("返回审批中心", "#/approvals", "btn")));
+    el("div", { class: "actions" }, approvalObjectLink(r), softwareApprovalButton(ctx, r), link("返回审批中心", "#/approvals", "btn")));
 }
 
 /* ==================== 外部件 ==================== */
@@ -141,8 +166,9 @@ export async function externalParts(ctx, params) {
 
   return el("div", {},
     el("h1", {}, "外部件"),
+    transferActions(ctx, "externals"),
     el("p", { class: "sub" },
-      "同一件号在不同来源下是不同对象。供应商改版不改件号——改版登记为新的技术状态。"),
+      "外部件号不得重复登记，即使名称或来源不同。供应商改版请在原件号下登记新的技术状态。"),
     panel("查询", el("div", { class: "inline-form" }, field("关键词", searchIn),
       el("button", { class: "btn", onclick: () => { location.hash = "#/external-parts?" + new URLSearchParams({ q: searchIn.value.trim(), page: 1 }); } }, "查询"))),
     ctx.can("draft_write") ? panel("登记外部件", el("div", {},
@@ -171,7 +197,7 @@ export async function externalParts(ctx, params) {
           el("td", { class: "mono" }, link(r.object_code, "#/external/" + encodeURIComponent(r.object_code))),
           el("td", { class: "mono" }, r.external_part_number),
           el("td", {}, r.name_cn),
-          el("td", {}, `${r.external_class_code} ${r.external_class_name}`),
+          el("td", {}, externalClassText(r)),
           el("td", { class: "muted" }, r.namespace_code),
           el("td", { class: "num" }, r.state_count),
           el("td", { class: "num" }, r.accepted_state ?? "—"),
@@ -200,9 +226,21 @@ export async function externalDetail(ctx, params, code) {
       el("div", { class: "tb-grid" },
         cell("来源", `${ep.namespace_code} ${ep.namespace_name}`),
         cell("外部件号", ep.external_part_number, true),
-        cell("分类", `${ep.external_class_code} ${ep.external_class_name}`),
+        cell("分类", externalClassText(ep)),
         cell("制造商", ep.manufacturer_name),
         cell("状态", statusText(ep.object_status)))),
+    ctx.can('draft_write') ? el('div',{class:'actions'},el('button',{class:'btn',onclick:async()=>{
+      try {
+        const classes=await api.get('/external-part-classes');
+        const selection=select(classes.map(c=>({value:c.code,label:`${c.code} ${c.name_cn}`,selected:c.code===ep.external_class_code})));
+        const reason=input({required:true,maxlength:500});
+        editor('设置一级类别',el('div',{},field('一级技术类别',selection),field('分类依据',reason)),async()=>{
+          await api.patch(`/external-parts/${encodeURIComponent(code)}/classification`,{json:{external_class_code:selection.value,reason:reason.value}});
+          toast('一级类别已更新');reload();
+        });
+      } catch(e){toastError(e);}
+    }},'设置一级类别')) : null,
+    !/^T[123]$/.test(ep.external_class_code) ? el('div',{class:'note warn'},'原类别不足以确定一级技术类别。请根据实物或技术资料选择 T1、T2 或 T3，再提交项目准入。') : null,
     el("div", { class: "note" },
       "只有已接受的技术状态才能进入设计基线。收到供应商文件不等于认可它——中间需要一次明确确认。"),
     ctx.can('draft_write') ? panel('新增项目级准入',el('div',{class:'inline-form'},field('项目',projectIn),field('适用范围',applicabilityIn),field('评价依据',basisIn),
@@ -318,9 +356,9 @@ export async function softwareDetail(ctx, params, num) {
         cell("建立时间", fmtDate(so.created_at)))),
     el("div", { class: "note" },
       "上传软件内容压缩包后，系统自动计算 SHA-256；审批和发布后交付包不可替换。"),
-    selectedId ? el('div',{class:'note'},'当前显示从硬件关联进入的指定软件版本。 ',
+    selectedId ? el('div',{class:'note'},'当前显示指定软件版本。 ',
       link('查看全部软件版本','#/software/'+encodeURIComponent(num))) : null,
-    selectedId && !versions.length ? empty('指定软件版本不存在','请返回硬件信息刷新关联清单。') : null,
+    selectedId && !versions.length ? empty('指定软件版本不存在','请返回软件对象查看版本清单。') : null,
     ctx.can("draft_write") ? panel("登记新版本", el("div", { class: "inline-form" },
       field("版本号", vIn), field("构建号", bIn), field("软件内容压缩包", packageIn),
       el("div", { style: "flex:0 0 auto" }, el("button", { class: "btn primary",

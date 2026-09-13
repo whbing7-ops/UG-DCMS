@@ -1,4 +1,4 @@
-name: UG-DCMS rc2.32 source integration and installer
+name: UG-DCMS rc2.36 source integration and installer
 
 on:
   workflow_dispatch:
@@ -7,10 +7,11 @@ on:
       - 'src/**'
       - 'ci/full-functional-smoke.py'
       - 'ci/test-backup-restore.py'
+      - 'ci/test-approval-permissions.py'
       - '.github/workflows/windows-installer-ci-v5.yml'
 
 concurrency:
-  group: ug-dcms-rc232
+  group: ug-dcms-rc236
   cancel-in-progress: true
 
 jobs:
@@ -21,12 +22,12 @@ jobs:
       postgres:
         image: postgres:16
         env:
-          POSTGRES_USER: dcms
+          POSTGRES_USER: postgres
           POSTGRES_PASSWORD: dcms-ci-password
-          POSTGRES_DB: dcms
+          POSTGRES_DB: postgres
         ports: ['5432:5432']
         options: >-
-          --health-cmd "pg_isready -U dcms -d dcms"
+          --health-cmd "pg_isready -U postgres -d postgres"
           --health-interval 5s --health-timeout 5s --health-retries 12
     steps:
       - uses: actions/checkout@v4
@@ -35,6 +36,12 @@ jobs:
           python-version: '3.12'
       - name: Install backend
         run: pip install -r src/backend/requirements.txt
+      - name: Create database with production application-owner permissions
+        env:
+          PGPASSWORD: dcms-ci-password
+        run: |
+          psql -X -v ON_ERROR_STOP=1 -h 127.0.0.1 -U postgres -d postgres -c "CREATE ROLE dcms LOGIN PASSWORD 'dcms-ci-password' NOSUPERUSER NOCREATEDB;"
+          psql -X -v ON_ERROR_STOP=1 -h 127.0.0.1 -U postgres -d postgres -c "CREATE DATABASE dcms OWNER dcms;"
       - name: Validate frontend modules
         run: |
           for f in src/frontend/js/*.js; do node --input-type=module --check < "$f"; done
@@ -51,11 +58,11 @@ jobs:
             sha="$(sha256sum "$f" | cut -d' ' -f1)"
             psql -X -v ON_ERROR_STOP=1 -h 127.0.0.1 -U dcms -d dcms -c "INSERT INTO schema_migration(version,filename,sha256) VALUES ('$v','$(basename "$f")','$sha')"
           done
-          test "$(psql -XAt -h 127.0.0.1 -U dcms -d dcms -c 'select count(*) from schema_migration')" = 19
+          test "$(psql -XAt -h 127.0.0.1 -U dcms -d dcms -c 'select count(*) from schema_migration')" = 21
           # Model the field failure: 0014 objects exist while its ledger row was
           # not recorded. Reapplying must reconcile without deleting any data.
           psql -X -1 -v ON_ERROR_STOP=1 -h 127.0.0.1 -U dcms -d dcms -f src/db/migrations/0014_operational_workflow.sql
-          test "$(psql -XAt -h 127.0.0.1 -U dcms -d dcms -c 'select count(*) from external_part_class')" = 31
+          test "$(psql -XAt -h 127.0.0.1 -U dcms -d dcms -c 'select count(*) from external_part_class')" = 34
       - name: Verify real backup restore and failure diagnostics
         env:
           PYTHONPATH: src/backend
@@ -67,6 +74,7 @@ jobs:
           DCMS_BACKUP_ROOT: ${{ runner.temp }}/restore-test-backups
         run: |
           python ci/test-backup-restore.py
+          python ci/test-approval-permissions.py
           python ci/test-backup-restore.py --postgres
       - name: Start application and run role-separated functional smoke
         env:
@@ -111,22 +119,27 @@ jobs:
         run: |
           choco install innosetup -y --no-progress
           'C:\Program Files (x86)\Inno Setup 6' | Out-File $env:GITHUB_PATH -Append
+      - name: Verify Windows restore diagnostics and attachment rollback
+        run: |
+          pip install -r src/backend/requirements.txt
+          python ci/test-backup-restore.py
+          python ci/test-approval-permissions.py
       - name: Verify and build canonical source
         shell: powershell
         run: |
           python src\installer\verify_installer_source.py
           powershell -NoProfile -ExecutionPolicy Bypass -File src\installer\Build-Setup.ps1
-          $setup='src\installer\output\UG-DCMS-Setup-1.0.0-rc2.32.exe'
+          $setup='src\installer\output\UG-DCMS-Setup-1.0.0-rc2.36.exe'
           if(-not(Test-Path $setup)){ throw 'installer missing' }
           if((Get-Item $setup).Length -lt 1000000){ throw 'installer unexpectedly small' }
           Get-FileHash $setup -Algorithm SHA256
       - name: Package installer and source
         shell: powershell
         run: |
-          Compress-Archive -Path src\installer\output\UG-DCMS-Setup-1.0.0-rc2.32.exe -DestinationPath svgUG-DCMS-20260910-rc2.32.zip
+          Compress-Archive -Path src\installer\output\UG-DCMS-Setup-1.0.0-rc2.36.exe -DestinationPath svgUG-DCMS-20260913-rc2.36.zip
       - uses: actions/upload-artifact@v4
         with:
-          name: svgUG-DCMS-20260910-rc2.32
+          name: svgUG-DCMS-20260913-rc2.36
           path: |
-            src/installer/output/UG-DCMS-Setup-1.0.0-rc2.32.exe
-            svgUG-DCMS-20260910-rc2.32.zip
+            src/installer/output/UG-DCMS-Setup-1.0.0-rc2.36.exe
+            svgUG-DCMS-20260913-rc2.36.zip

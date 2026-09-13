@@ -10,7 +10,7 @@ set "RC=%ERRORLEVEL%"
 if not "%RC%"=="0" goto :failed
 echo.
 echo [OK] Setup.exe build completed.
-echo Output: installer\output\UG-DCMS-Setup-1.0.0-rc2.32.exe
+echo Output: installer\output\UG-DCMS-Setup-1.0.0-rc2.36.exe
 if exist ".\installer\output" start "" ".\installer\output"
 pause
 exit /b 0

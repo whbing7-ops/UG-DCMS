@@ -24,10 +24,10 @@ from ..db import execute, fetch_all, fetch_one, scalar
 
 # Dash 号范围 — INV-003 / CK-01
 DASH_MIN, DASH_MAX = 1, 999
-# 基本图号流水范围 (UGTn####)
-BASIC_MIN, BASIC_MAX = 1, 9999
+# UG + 一级类别数字 + 类别内五位永久流水号
+BASIC_MIN, BASIC_MAX = 1, 99999
 
-CLASS_PREFIX = {"T1": "UGT1", "T2": "UGT2", "T3": "UGT3", "SW": "UGSW"}
+CLASS_PREFIX = {"T1": "UG1", "T2": "UG2", "T3": "UG3"}
 
 
 def basic_drawing_number(primary_class_code: str, sequence: int) -> str:
@@ -35,7 +35,24 @@ def basic_drawing_number(primary_class_code: str, sequence: int) -> str:
     prefix = CLASS_PREFIX.get(primary_class_code)
     if prefix is None:
         raise ValueError(f"未知一级技术类别: {primary_class_code}")
-    return f"{prefix}{sequence:04d}"
+    if not BASIC_MIN <= sequence <= BASIC_MAX:
+        raise ValueError("基本图号流水号必须为 1–99999")
+    return f"{prefix}{sequence:05d}"
+
+
+def next_basic(conn: psycopg.Connection, primary_class_code: str) -> int | None:
+    prefix = CLASS_PREFIX.get(primary_class_code)
+    if prefix is None:
+        raise ValueError("该类别不允许普通新建设计族发号")
+    # 已分配、预留、作废及旧版 UGTn 号码均永久占用原类别流水。
+    return scalar(conn, """
+        SELECT g.n FROM generate_series(%s::int,%s::int) g(n)
+        WHERE NOT EXISTS (SELECT 1 FROM number_allocation na
+          WHERE na.number_type='BASIC_DRAWING'
+          AND (na.allocated_number LIKE %s OR na.allocated_number LIKE %s)
+          AND na.numeric_sequence=g.n)
+        ORDER BY g.n LIMIT 1
+    """, (BASIC_MIN, BASIC_MAX, prefix + '%', 'UG' + primary_class_code + '%'))
 
 
 def dash_suffix(dash: int) -> str:
@@ -105,7 +122,7 @@ def allocate_basic_drawing(conn: psycopg.Connection, primary_class_code: str,
                            target_id: str, actor: dict) -> tuple[str, int]:
     """为设计族分配基本图号。返回 (基本图号, 流水号)。"""
     _lock_scope(conn, f"basic:{primary_class_code}")
-    seq = next_available(conn, "BASIC_DRAWING", None, BASIC_MIN, BASIC_MAX)
+    seq = next_basic(conn, primary_class_code)
     if seq is None:
         raise ValueError(f"{primary_class_code} 类别的基本图号已用尽 "
                          f"({BASIC_MIN}~{BASIC_MAX})")

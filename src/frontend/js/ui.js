@@ -145,7 +145,7 @@ export function input(attrs = {}) { return el("input", attrs); }
 
 export function select(options, attrs = {}) {
   return el("select", attrs, options.map(o =>
-    el("option", { value: o.value, selected: o.selected }, o.label)));
+    el("option", { value: o.value, selected: o.selected, disabled: o.disabled, title: o.title }, o.label)));
 }
 
 export function fmtDate(s) {

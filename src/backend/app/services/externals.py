@@ -89,6 +89,8 @@ def create_external(conn: psycopg.Connection, *, namespace_code: str,
         mf = fetch_one(conn, "SELECT id FROM manufacturer WHERE code = %s", (manufacturer_code,))
         if mf is None:
             raise LookupError(f"制造商不存在: {manufacturer_code}")
+    if external_class_code not in ('T1','T2','T3'):
+        raise ValueError('外部件只能选择 T1、T2、T3 一级技术类别')
     cls = fetch_one(conn, "SELECT code FROM external_part_class WHERE code=%s AND status='ACTIVE'",
                     (external_class_code,))
     if cls is None:
@@ -96,7 +98,12 @@ def create_external(conn: psycopg.Connection, *, namespace_code: str,
     if project_code and (not project_applicability or not project_evaluation_basis):
         raise ValueError("创建项目准入记录时，必须同时填写项目适用范围和评价依据")
 
-    # 对象编码取 NAMESPACE::EXT_PN —— 同一件号在不同来源下是不同对象(INV-016)
+    external_part_number = external_part_number.strip()
+    if not external_part_number:
+        raise ValueError('外部件号不能为空')
+    if scalar(conn, 'SELECT EXISTS(SELECT 1 FROM external_part_number_registry WHERE normalized_number=upper(%s))', (external_part_number,)):
+        raise ValueError(f'外部件号 {external_part_number} 已存在，即使名称或来源不同也不能重复创建')
+    # 保留既有对象编码架构；新登记的外部件号跨来源防重。
     object_code = f"{ns['code']}::{external_part_number.strip()}"
     obj = fetch_one(conn, """
         INSERT INTO design_object (object_type, object_code, display_name, created_by, updated_by)
@@ -130,6 +137,21 @@ def create_external(conn: psycopg.Connection, *, namespace_code: str,
                            "project_code": project_code},
                 session_id=str(actor.get("session_id")), client_ip=actor.get("client_ip"))
     row["object_code"] = object_code
+    return row
+
+
+def classify_external(conn, object_code, class_code, reason, actor):
+    if class_code not in ('T1','T2','T3') or not reason.strip():
+        raise ValueError('请选择 T1、T2 或 T3，并填写分类依据')
+    before=fetch_one(conn,"""SELECT e.id,e.external_class_code FROM external_part e
+        JOIN design_object d ON d.id=e.design_object_id WHERE d.object_code=%s FOR UPDATE OF e""",(object_code,))
+    if before is None:
+        raise LookupError('外部件不存在')
+    row=fetch_one(conn,"""UPDATE external_part SET external_class_code=%s,updated_by=%s
+        WHERE id=%s RETURNING id,external_class_code""",(class_code,actor['user_id'],before['id']))
+    audit.write(conn,action='EXTERNAL_PART_CLASSIFY',user_id=str(actor['user_id']),username=actor['username'],
+        object_type='EXTERNAL_PART',object_id=str(before['id']),object_code=object_code,
+        old_value={'external_class_code':before['external_class_code']},new_value={'external_class_code':class_code},reason=reason.strip())
     return row
 
 
@@ -296,8 +318,8 @@ def submit_technical_state(conn: psycopg.Connection, state_id: str,
       'EXTERNAL_TECHNICAL_STATE',%s,%s,%s,%s) RETURNING id,request_number""",
       (number,state_id,st["object_code"],f"接受外部件技术状态 {st['object_code']} TS{st['state_sequence']}",actor["user_id"]))
     execute(conn,"""INSERT INTO approval_step(approval_request_id,step_order,step_name,
-      required_role_code,assignee_user_id,is_final) VALUES(%s,1,'技术状态接受','APPROVER',%s,true)""",
-      (req["id"],approver["id"]))
+      required_role_code,assignee_user_id,is_final) VALUES(%s,1,'技术状态接受',%s,%s,true)""",
+      (req["id"],approver["role_code"],approver["id"]))
     execute(conn,"UPDATE external_technical_state SET status='IN_REVIEW',approval_request_id=%s WHERE id=%s",
             (req["id"],state_id))
     return req
@@ -345,7 +367,7 @@ def submit_project_control(conn: psycopg.Connection, control_id: str,
     if not c: raise LookupError("项目准入记录不存在")
     if c["status"]!="DRAFT": raise ValueError("只有草稿状态可提交")
     ep=fetch_one(conn,"SELECT external_class_code FROM external_part WHERE id=%s",(c["external_part_id"],))
-    if ep["external_class_code"]=='E99': raise ValueError("待分类外部件不得提交项目准入，请先确定正式分类")
+    if ep["external_class_code"] not in ('T1','T2','T3'): raise ValueError("请先确认外部件的 T1、T2 或 T3 一级类别，再提交项目准入")
     if not c["evaluation_basis"]: raise ValueError("项目准入必须填写评价依据")
     accepted=scalar(conn,"SELECT count(*) FROM external_technical_state WHERE external_part_id=%s AND status='ACCEPTED'",(c["external_part_id"],))
     if not accepted: raise ValueError("至少有一个已接受的供应商技术状态后才能提交项目准入")
@@ -359,8 +381,8 @@ def submit_project_control(conn: psycopg.Connection, control_id: str,
       json.dumps({"project_code":c["project_code"],"applicability":c["applicability"],
                   "evaluation_basis":c["evaluation_basis"]},ensure_ascii=False)))
     execute(conn,"""INSERT INTO approval_step(approval_request_id,step_order,step_name,
-      required_role_code,assignee_user_id,is_final) VALUES(%s,1,'项目准入批准','APPROVER',%s,true)""",
-      (req["id"],approver["id"]))
+      required_role_code,assignee_user_id,is_final) VALUES(%s,1,'项目准入批准',%s,%s,true)""",
+      (req["id"],approver["role_code"],approver["id"]))
     execute(conn,"UPDATE external_part_project_control SET status='IN_REVIEW',approval_request_id=%s WHERE id=%s",(req["id"],control_id))
     return req
 
@@ -674,8 +696,8 @@ def submit_version(conn: psycopg.Connection, version_id: str,
       %s,%s,%s,%s) RETURNING id,request_number""",(number,version_id,
       f"{sv['software_number']} {sv['version']}",f"发布软件版本 {sv['software_number']} {sv['version']}",actor["user_id"]))
     execute(conn,"""INSERT INTO approval_step(approval_request_id,step_order,step_name,
-      required_role_code,assignee_user_id,is_final) VALUES(%s,1,'软件版本发布','APPROVER',%s,true)""",
-      (req["id"],approver["id"]))
+      required_role_code,assignee_user_id,is_final) VALUES(%s,1,'软件版本发布',%s,%s,true)""",
+      (req["id"],approver["role_code"],approver["id"]))
     execute(conn,"UPDATE software_version SET status='IN_REVIEW',approval_request_id=%s WHERE id=%s",
             (req["id"],version_id))
     return req

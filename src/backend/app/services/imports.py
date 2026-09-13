@@ -326,5 +326,35 @@ def abort_batch(conn: psycopg.Connection, batch_id: str, reason: str, actor: dic
 
 def bom_template_csv() -> str:
     """导入模板。给出可直接另存为 Excel 的表头与一行示例。"""
-    return ("项号,子件号,数量,单位,位号,适用性规则,有效性,备注\r\n"
-            "010,UGT10001-001,2,EA,C1;C2,,全部,示例行——请删除后填写实际数据\r\n")
+    return ("\ufeff项号,子件号,数量,单位,位号,适用性规则,有效性,备注\r\n"
+            "010,UG100001-001,2,EA,C1;C2,,全部,示例行——请删除后填写实际数据\r\n")
+
+
+def bom_template_xlsx() -> bytes:
+    """Excel-native template preserves Chinese text and leading-zero item numbers."""
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Alignment
+    from openpyxl.utils import get_column_letter
+    wb = Workbook(); ws = wb.active; ws.title = 'BOM导入'
+    ws.append(['项号','子件号','数量','单位','位号','适用性规则','有效性','备注'])
+    ws.append(['010','UG100001-001',2,'EA','C1;C2',None,'全部','示例行，请删除后填写实际数据'])
+    for cell in ws[1]:
+        cell.font = Font(name='微软雅黑',bold=True,color='FFFFFF')
+        cell.fill = PatternFill('solid',fgColor='17365D')
+        cell.alignment = Alignment(vertical='center')
+    ws.row_dimensions[1].height = 26
+    for column,width in enumerate([14,30,12,12,24,24,22,48],1):
+        ws.column_dimensions[get_column_letter(column)].width=width
+    for row in ws.iter_rows(min_row=2,max_row=1001):
+        for cell in row:
+            cell.number_format = '0.###' if cell.column==3 else '@'
+    ws.freeze_panes='A2';ws.auto_filter.ref='A1:H1001'
+    guide=wb.create_sheet('填写说明')
+    for text in ['请在第一个工作表填写，删除示例行后再上传。',
+                 '项号、子件号和数量必填；文本列保留前导零。数量必须大于零。',
+                 '子件号填写系统中的完整对象编码；外部件填写 来源代码::外部件号。',
+                 '同一项号允许不同子件；同项号加同子件不可重复。',
+                 '上传后先校验预览，修正全部错误后再整批导入。']:
+        guide.append([text])
+    guide.column_dimensions['A'].width=100
+    result=io.BytesIO();wb.save(result);return result.getvalue()

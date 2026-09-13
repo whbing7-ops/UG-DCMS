@@ -24,10 +24,15 @@ class ExternalCreateRequest(BaseModel):
     name_cn: str = Field(min_length=1, max_length=128)
     name_en: str | None = Field(default=None, max_length=128)
     manufacturer_code: str | None = Field(default=None, max_length=32)
-    external_class_code: str = Field(min_length=3, max_length=3)
+    external_class_code: str = Field(pattern='^T[123]$')
     project_code: str | None = Field(default=None, min_length=1, max_length=64)
     project_applicability: str | None = Field(default=None, max_length=500)
     project_evaluation_basis: str | None = Field(default=None, max_length=1000)
+
+
+class ExternalClassRequest(BaseModel):
+    external_class_code: str = Field(pattern='^T[123]$')
+    reason: str = Field(min_length=1,max_length=500)
 
 
 class TechnicalStateRequest(BaseModel):
@@ -86,7 +91,7 @@ def external_part_classes(conn: Conn, user: CurrentUser):
     from ..db import fetch_all
     return fetch_all(conn, """
         SELECT code, name_cn, definition FROM external_part_class
-         WHERE status='ACTIVE' ORDER BY sort_order, code
+         WHERE status='ACTIVE' AND code IN ('T1','T2','T3') ORDER BY code
     """)
 
 
@@ -125,6 +130,17 @@ def get_external(object_code: str, conn: Conn, user: CurrentUser):
     if ep is None:
         raise errors.not_found(f"外部件不存在: {object_code}")
     return ep
+
+
+@router.patch('/external-parts/{object_code}/classification')
+def classify_external(object_code: str, payload: ExternalClassRequest, conn: Conn,
+                      actor: dict=Depends(require(Perm.DRAFT_WRITE))):
+    try:
+        return ext_svc.classify_external(conn,object_code,payload.external_class_code,payload.reason,actor)
+    except LookupError as exc:
+        raise errors.not_found(str(exc))
+    except ValueError as exc:
+        raise errors.bad_request(str(exc))
 
 
 @router.post("/external-parts/{object_code}/states", status_code=201)
@@ -333,7 +349,10 @@ def approval_summary(conn: Conn, user: CurrentUser):
 @router.get("/approvals/candidates")
 def approval_candidates(conn: Conn, user: CurrentUser,
                         required_role: str = Query("APPROVER", max_length=32)):
-    return ap_svc.available_approvers(conn, str(user["user_id"]), required_role)
+    try:
+        return ap_svc.available_approvers(conn, str(user["user_id"]), required_role)
+    except ValueError as exc:
+        raise errors.bad_request(str(exc))
 
 
 @router.get("/approvals/inbox")

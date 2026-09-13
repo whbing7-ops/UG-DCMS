@@ -129,6 +129,10 @@ with sync_playwright() as pw:
         page.get_by_role('button',name='修改口令',exact=True).click()
         expect(page.locator('.nav')).to_be_visible()
 
+        from test_master_ui import run as test_master_ui
+        test_master_ui(page,admin,call,base,output)
+        nav(admin,'/admin')
+
         nav(page,'/external-parts')
         expect(page.get_by_role('heading',name='外部件',exact=True)).to_be_visible()
         expect(page.get_by_text('第 1 /',exact=False)).to_be_visible()
@@ -148,7 +152,7 @@ with sync_playwright() as pw:
         page.get_by_label('筛选硬件版本').select_option('HW-A')
         page.get_by_role('link',name='CI测试软件',exact=True).click()
         expect(page).to_have_url(__import__('re').compile(r'version_id='))
-        expect(page.get_by_text('当前显示从硬件关联进入的指定软件版本。',exact=False)).to_be_visible()
+        expect(page.get_by_text('当前显示指定软件版本。',exact=False)).to_be_visible()
         expect(page.get_by_role('heading',name='适装硬件 · 软件版本 1.0.0 · 构建号 ci',exact=True)).to_be_visible()
         with page.expect_download() as package_download:
             page.get_by_role('button',name='下载 ci-software.zip',exact=False).click()
@@ -204,7 +208,18 @@ with sync_playwright() as pw:
         assert call(page,'POST','/bom/'+pn+'/resolve',{'context_code':ctx})['line_count']==1
         with page.expect_download() as download:
             page.get_by_role('button',name='下载模板').click()
-        assert download.value.suggested_filename=='bom_template.csv'
+        assert download.value.suggested_filename=='bom_template.xlsx'
+        import openpyxl, io
+        book=openpyxl.load_workbook(io.BytesIO(download.value.path().read_bytes()))
+        assert book.worksheets[0]['A1'].value=='项号' and book.worksheets[0]['B1'].value=='子件号'
+        assert book.worksheets[0]['A2'].value=='010'
+        book.worksheets[0]['A2']='077';book.worksheets[0]['B2']=child
+        prepared=io.BytesIO();book.save(prepared)
+        page.get_by_label('文件',exact=True).set_input_files({'name':'bom-filled.xlsx','mimeType':'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet','buffer':prepared.getvalue()})
+        page.get_by_role('button',name='预览',exact=True).click()
+        expect(page.get_by_role('button',name='确认导入',exact=True)).to_be_enabled()
+        expect(page.locator('main')).to_contain_text('077 / '+child)
+        mark('bom/Chinese-Excel-template-download-fill-upload-preview-leading-zero')
         page.get_by_role('button',name='冻结构型 BOM').click()
         expect(page.locator('#toast')).to_contain_text('已冻结')
         snapshots=call(page,'GET','/bom/'+pn+'/snapshots')
@@ -283,3 +298,4 @@ with sync_playwright() as pw:
     finally:
         (output/'UI-ACTIONS-RESULTS.json').write_text(json.dumps({'passed':passed,'browser_errors':errors},ensure_ascii=False,indent=2),encoding='utf-8')
         browser.close()
+

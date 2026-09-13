@@ -19,6 +19,7 @@ import psycopg
 from .. import audit
 from ..db import execute, fetch_all, fetch_one
 from ..db import scalar
+from ..rbac import Perm, ROLE_PERMISSIONS
 
 REQUEST_TYPE_CN = {
     "BASIC_DRAWING_NUMBER": "新建设计族",
@@ -46,30 +47,47 @@ def next_request_number(conn: psycopg.Connection) -> str:
     return f"{prefix}{seq:06d}"
 
 
+def approver_roles(required_role: str) -> list[str]:
+    # 一般审批按既有 APPROVE 权限选人；基线等专门角色要求仍严格匹配。
+    if required_role == "APPROVER":
+        return [str(role) for role, permissions in ROLE_PERMISSIONS.items()
+                if Perm.APPROVE in permissions]
+    if required_role not in ROLE_PERMISSIONS:
+        raise ValueError("审批角色无效")
+    return [required_role]
+
+
 def available_approvers(conn: psycopg.Connection, requester_id: str,
                         required_role: str = "APPROVER") -> list[dict]:
     """返回发起人当前可选择的审批人。
 
-    只列启用账户、具备所需角色且不是发起人本人。申请提交时会再次校验，
+    只列启用账户、具备所需权限或专门角色且不是发起人本人。申请提交时会再次校验，
     避免页面打开后人员被停用或角色被撤销造成越权提交。
     """
     return fetch_all(conn, """
         SELECT u.id::text, u.username, u.full_name, u.employee_no,
                ur.role_code
           FROM app_user u
-          JOIN user_role ur ON ur.user_id=u.id
-         WHERE u.is_active AND ur.role_code=%s AND u.id<>%s
+          JOIN LATERAL (
+            SELECT role_code FROM user_role WHERE user_id=u.id AND role_code=ANY(%s)
+             ORDER BY (role_code=%s) DESC, role_code LIMIT 1
+          ) ur ON true
+         WHERE u.is_active AND u.id<>%s
          ORDER BY u.full_name, u.username
-    """, (required_role, requester_id))
+    """, (approver_roles(required_role), required_role, requester_id))
 
 
 def require_approver(conn: psycopg.Connection, approver_user_id: str,
                      requester_id: str, required_role: str = "APPROVER") -> dict:
     row = fetch_one(conn, """
-        SELECT u.id, u.username, u.full_name
-          FROM app_user u JOIN user_role ur ON ur.user_id=u.id
-         WHERE u.id=%s AND u.is_active AND ur.role_code=%s
-    """, (approver_user_id, required_role))
+        SELECT u.id, u.username, u.full_name, ur.role_code
+          FROM app_user u
+          JOIN LATERAL (
+            SELECT role_code FROM user_role WHERE user_id=u.id AND role_code=ANY(%s)
+             ORDER BY (role_code=%s) DESC, role_code LIMIT 1
+          ) ur ON true
+         WHERE u.id=%s AND u.is_active
+    """, (approver_roles(required_role), required_role, approver_user_id))
     if row is None:
         raise ValueError("所选审批人已停用或不再具备审批权限，请重新选择")
     if str(row["id"]) == str(requester_id):
@@ -94,13 +112,15 @@ def _base_query() -> str:
         SELECT ar.id, ar.request_number, ar.request_type, ar.object_type, ar.object_id,
                ar.object_code, ar.title, ar.status, ar.requested_at, ar.closed_at,
                u.username AS requester_username, u.full_name AS requester_name,
-               ar.requester_id,
+               ar.requester_id, so.software_number,
                s.id AS step_id, s.step_order, s.step_name, s.required_role_code,
                s.assignee_user_id,
                s.is_final, s.decision, s.comments, s.acted_at,
                du.username AS decided_by_username
           FROM approval_request ar
           JOIN app_user u ON u.id = ar.requester_id
+          LEFT JOIN software_version sv ON ar.object_type='SOFTWARE_VERSION' AND sv.id=ar.object_id
+          LEFT JOIN software_object so ON so.id=sv.software_object_id
           LEFT JOIN approval_step s ON s.approval_request_id = ar.id
                                    AND s.decision = 'PENDING'
           LEFT JOIN app_user du ON du.id = s.decided_by
@@ -146,8 +166,10 @@ def all_pending(conn: psycopg.Connection) -> list[dict]:
 
 def get_request(conn: psycopg.Connection, request_id: str) -> dict | None:
     req = fetch_one(conn, """
-        SELECT ar.*, u.username AS requester_username, u.full_name AS requester_name
+        SELECT ar.*, u.username AS requester_username, u.full_name AS requester_name, so.software_number
           FROM approval_request ar JOIN app_user u ON u.id = ar.requester_id
+          LEFT JOIN software_version sv ON ar.object_type='SOFTWARE_VERSION' AND sv.id=ar.object_id
+          LEFT JOIN software_object so ON so.id=sv.software_object_id
          WHERE ar.id = %s
     """, (request_id,))
     if req is None:
