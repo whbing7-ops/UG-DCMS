@@ -1,0 +1,47 @@
+name: Publish verified rc2.36 installer
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/publish-rc236.yml'
+permissions:
+  contents: write
+  actions: read
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: svgUG-DCMS-20260913-rc2.36
+          run-id: 34730547478
+          github-token: ${{ github.token }}
+          path: verified
+      - name: Verify exact tested installer and prepare download
+        run: |
+          python - <<'PY'
+          import hashlib, zipfile
+          from pathlib import Path
+          source=Path('verified/svgUG-DCMS-20260913-rc2.36.zip')
+          with zipfile.ZipFile(source) as z:
+              assert z.testzip() is None
+              assert z.namelist()==['UG-DCMS-Setup-1.0.0-rc2.36.exe'], z.namelist()
+              exe=z.read(z.namelist()[0])
+              assert exe[:2]==b'MZ'
+              assert hashlib.sha256(exe).hexdigest()=='22bd0585a5bf0bce05d7459f67ade434e52b1d982cdc02e5edacbabfc542c132'
+          Path('UG-DCMS-Setup-rc2.36.zip').write_bytes(source.read_bytes())
+          Path('SHA256SUMS.txt').write_text(hashlib.sha256(source.read_bytes()).hexdigest()+'  UG-DCMS-Setup-rc2.36.zip\n')
+          PY
+      - name: Publish downloadable prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          cat > release-notes.md <<'EOF'
+          修复 rc2.35 在已有旧层级件号的数据库上升级失败：修改表结构前完成延迟约束检查，保留事务回滚与基线约束。无需清空数据库，可直接重新安装。
+
+          已复现 pending trigger events 原始错误，并通过包含旧 MODULE 件号的真实数据库迁移、恢复、失败回滚、业务接口和双账户浏览器回归。保留此前的设计族审批、编号、外部件唯一性、批量导入导出及 BOM 搜索修复。
+
+          安装包来自已通过验证的构建 34730547478，源代码版本 3bc40c0e5f309147e3d533fe8283588bd2b445e2。解压 ZIP 后运行 EXE。
+          EOF
+          gh release create rc2.36 UG-DCMS-Setup-rc2.36.zip SHA256SUMS.txt --target 3bc40c0e5f309147e3d533fe8283588bd2b445e2 --title 'UG-DCMS rc2.36' --prerelease --notes-file release-notes.md
