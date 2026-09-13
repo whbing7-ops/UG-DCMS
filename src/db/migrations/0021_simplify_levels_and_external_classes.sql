@@ -15,8 +15,12 @@ WHERE object_level_code IN ('MODULE','EQUIPMENT','END_ITEM');
 UPDATE part_number SET object_level_code='ASSEMBLY'
 WHERE object_level_code IN ('MODULE','EQUIPMENT','END_ITEM');
 UPDATE object_level SET status=CASE WHEN code IN ('PART','ASSEMBLY') THEN 'ACTIVE' ELSE 'DEPRECATED' END;
+-- Flush deferred baseline checks queued by existing part updates before DDL.
+-- Keep the migration atomic and keep the invariant enabled.
+SET CONSTRAINTS trg_part_current_baseline_check IMMEDIATE;
 ALTER TABLE basic_drawing_family ADD CONSTRAINT ck_family_two_levels CHECK(object_level_code IN ('PART','ASSEMBLY'));
 ALTER TABLE part_number ADD CONSTRAINT ck_part_two_levels CHECK(object_level_code IN ('PART','ASSEMBLY'));
+SET CONSTRAINTS trg_part_current_baseline_check DEFERRED;
 
 INSERT INTO external_part_class(code,name_cn,definition,sort_order,status)
 SELECT code,name_cn,definition,sort_order,'ACTIVE' FROM primary_class WHERE code IN ('T1','T2','T3')

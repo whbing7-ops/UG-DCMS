@@ -136,6 +136,22 @@ def postgres_roundtrip():
               (SELECT id FROM naming_core_term WHERE primary_class_code='T1' AND status='ACTIVE' ORDER BY code LIMIT 1),
               '旧模块层级','尺寸','原理') RETURNING id""").fetchone()[0]
         part = conn.execute("INSERT INTO design_object(object_type,object_code,display_name) VALUES ('INTERNAL_PART','RESTORE-HW-PROBE','备份中的硬件') RETURNING id").fetchone()[0]
+        legacy_part=conn.execute("""INSERT INTO part_number(design_object_id,basic_drawing_family_id,
+          dash_number,full_part_number,formal_name_cn,formal_name_en,object_level_code,lifecycle_status)
+          VALUES(%s,%s,1,'RESTORE-HW-PROBE','旧模块件号','LEGACY MODULE','MODULE','DRAFT') RETURNING id""",
+          (part,old_family)).fetchone()[0]
+        migration21=next(m for m in migrations if m.name.startswith('0021_')).read_text(encoding='utf-8-sig')
+        original21=migration21.replace('SET CONSTRAINTS trg_part_current_baseline_check IMMEDIATE;', '').replace('SET CONSTRAINTS trg_part_current_baseline_check DEFERRED;', '')
+        try:
+            with conn.transaction():
+                conn.execute(original21)
+        except psycopg.errors.ObjectInUse as error:
+            assert 'pending trigger events' in str(error) and 'part_number' in str(error), str(error)
+        else:
+            raise AssertionError('rc2.35 populated-part migration failure was not reproduced')
+        assert conn.execute('SELECT object_level_code FROM part_number WHERE id=%s',(legacy_part,)).fetchone()[0]=='MODULE'
+        assert conn.execute("SELECT count(*) FROM audit_log WHERE action='OBJECT_LEVEL_SIMPLIFY' AND object_id=%s",(str(legacy_part),)).fetchone()[0]==0
+        print('PASS: exact rc2.35 pending trigger events reproduced with existing MODULE part; transaction rolled back')
         sw = conn.execute("INSERT INTO design_object(object_type,object_code,display_name) VALUES ('SOFTWARE','RESTORE-SW-PROBE','备份中的软件') RETURNING id").fetchone()[0]
         obj = conn.execute("INSERT INTO software_object(design_object_id,software_number,name_cn,software_type) VALUES (%s,'RESTORE-SW-PROBE','恢复测试软件','FIRMWARE') RETURNING id", (sw,)).fetchone()[0]
         version = conn.execute("INSERT INTO software_version(software_object_id,version) VALUES (%s,'R00') RETURNING id", (obj,)).fetchone()[0]
@@ -199,6 +215,9 @@ def postgres_roundtrip():
         assert conn.execute('SELECT object_level_code FROM basic_drawing_family WHERE id=%s',(old_family,)).fetchone()[0]=='ASSEMBLY'
         assert dict(conn.execute("SELECT external_part_number,external_class_code FROM external_part WHERE external_part_number LIKE 'RESTORE-CLASS-%'").fetchall())=={'RESTORE-CLASS-E07':'T3','RESTORE-CLASS-E08':'T2','RESTORE-CLASS-E20':'E20'}
         assert conn.execute("SELECT count(*) FROM audit_log WHERE action='OBJECT_LEVEL_SIMPLIFY' AND object_id=%s",(str(old_family),)).fetchone()[0]==1
+        assert conn.execute('SELECT object_level_code FROM part_number WHERE id=%s',(legacy_part,)).fetchone()[0]=='ASSEMBLY'
+        assert conn.execute("SELECT count(*) FROM audit_log WHERE action='OBJECT_LEVEL_SIMPLIFY' AND object_id=%s",(str(legacy_part),)).fetchone()[0]==1
+        assert conn.execute("SELECT tgdeferrable AND tginitdeferred FROM pg_trigger WHERE tgname='trg_part_current_baseline_check'").fetchone()[0]
         print('PASS: legacy hierarchy and external classes upgrade with audit; ambiguous category retained for confirmation')
         assert conn.execute('SELECT id,username,password_hash FROM app_user ORDER BY id').fetchall() == accounts
         assert payload.read_bytes() == b'original attachment\x00\xff'

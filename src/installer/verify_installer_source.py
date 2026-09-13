@@ -39,11 +39,11 @@ views5 = (ROOT/'frontend'/'js'/'views5.js').read_text(encoding='utf-8-sig')
 
 checks = {
     'builder migration count': 'Count -ne 21' in build and '21/21' in build,
-    'CMD output version': 'rc2.35.exe' in (ROOT/'installer'/'BUILD-SETUP.cmd').read_text(),
+    'CMD output version': 'rc2.36.exe' in (ROOT/'installer'/'BUILD-SETUP.cmd').read_text(),
     'versioned runtime pointer': 'CURRENT-RUNTIME.txt' in ps and 'CURRENT-RUNTIME.txt' in start,
     'versioned release pointer': 'CURRENT-RELEASE.txt' in ps and 'CURRENT-RELEASE.txt' in start,
-    'versioned runtime name': 'venv-1.0.0-rc2.35-' in ps,
-    'versioned release name': 'app-1.0.0-rc2.35-' in ps,
+    'versioned runtime name': 'venv-1.0.0-rc2.36-' in ps,
+    'versioned release name': 'app-1.0.0-rc2.36-' in ps,
     'stale app process cleanup': 'Stop-StaleAppProcesses' in ps,
     'application port owner check': 'Get-PortOwner $AppPort' in ps,
     'service failure log tail': 'UGDCMS-App.err.log' in ps and 'Get-Content $path -Tail 30' in ps,
@@ -71,7 +71,7 @@ checks = {
     'restore archive is collision-safe': 'applied-pending-restore-{suffix}.zip' in backup_service
         and 'os.replace(pending,applied)' in backup_service,
     'frontend upgrade invalidates cache': 'FreshStaticFiles' in main_api
-        and 'no-store, max-age=0' in main_api and '?v=rc2.35' in index_html,
+        and 'no-store, max-age=0' in main_api and '?v=rc2.36' in index_html,
     'business purge preserves accounts': 'TRUNCATE TABLE' in purge_migration
         and 'app_user' not in purge_migration.split('TRUNCATE TABLE', 1)[1].split('RESTART IDENTITY', 1)[0]
         and '账户保护校验失败' in purge_migration,
