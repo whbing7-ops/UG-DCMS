@@ -210,7 +210,7 @@ with sync_playwright() as pw:
             page.get_by_role('button',name='下载模板').click()
         assert download.value.suggested_filename=='bom_template.xlsx'
         import openpyxl, io
-        book=openpyxl.load_workbook(download.value.path())
+        book=openpyxl.load_workbook(io.BytesIO(download.value.path().read_bytes()))
         assert book.worksheets[0]['A1'].value=='项号' and book.worksheets[0]['B1'].value=='子件号'
         assert book.worksheets[0]['A2'].value=='010'
         book.worksheets[0]['A2']='077';book.worksheets[0]['B2']=child

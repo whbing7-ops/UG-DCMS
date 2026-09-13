@@ -112,13 +112,15 @@ def _base_query() -> str:
         SELECT ar.id, ar.request_number, ar.request_type, ar.object_type, ar.object_id,
                ar.object_code, ar.title, ar.status, ar.requested_at, ar.closed_at,
                u.username AS requester_username, u.full_name AS requester_name,
-               ar.requester_id,
+               ar.requester_id, so.software_number,
                s.id AS step_id, s.step_order, s.step_name, s.required_role_code,
                s.assignee_user_id,
                s.is_final, s.decision, s.comments, s.acted_at,
                du.username AS decided_by_username
           FROM approval_request ar
           JOIN app_user u ON u.id = ar.requester_id
+          LEFT JOIN software_version sv ON ar.object_type='SOFTWARE_VERSION' AND sv.id=ar.object_id
+          LEFT JOIN software_object so ON so.id=sv.software_object_id
           LEFT JOIN approval_step s ON s.approval_request_id = ar.id
                                    AND s.decision = 'PENDING'
           LEFT JOIN app_user du ON du.id = s.decided_by
@@ -164,8 +166,10 @@ def all_pending(conn: psycopg.Connection) -> list[dict]:
 
 def get_request(conn: psycopg.Connection, request_id: str) -> dict | None:
     req = fetch_one(conn, """
-        SELECT ar.*, u.username AS requester_username, u.full_name AS requester_name
+        SELECT ar.*, u.username AS requester_username, u.full_name AS requester_name, so.software_number
           FROM approval_request ar JOIN app_user u ON u.id = ar.requester_id
+          LEFT JOIN software_version sv ON ar.object_type='SOFTWARE_VERSION' AND sv.id=ar.object_id
+          LEFT JOIN software_object so ON so.id=sv.software_object_id
          WHERE ar.id = %s
     """, (request_id,))
     if req is None:

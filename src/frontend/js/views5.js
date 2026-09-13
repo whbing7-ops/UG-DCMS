@@ -22,7 +22,28 @@ const REQ_CN = {
   CHANGE_PACKAGE: "变更包", FAMILY_CLOSE: "关闭设计族", OBJECT_OBSOLETE: "废止对象",
 };
 
+const requestTypeText = r => r.object_type === "SOFTWARE_VERSION" ? "软件版本发布" : (REQ_CN[r.request_type] || r.request_type);
+
+function softwareApprovalButton(ctx, r) {
+  const step = r.steps ? r.steps.find(s => s.decision === "PENDING") : r;
+  if (r.object_type !== "SOFTWARE_VERSION" || r.status !== "PENDING" || !ctx.can("approve") ||
+      String(r.requester_id) === String(ctx.user.id) || !step ||
+      String(step.assignee_user_id || "") !== String(ctx.user.id)) return null;
+  return el("button", {class: "btn small primary", onclick: async () => {
+    const comments = await askReason("批准发布", "请确认软件包和适装硬件，并填写审批意见");
+    if (!comments) return;
+    try {
+      await api.post(`/software-versions/${r.object_id}/release`, {query: {comments}});
+      toast("软件版本已批准发布"); reload();
+    } catch (e) { toastError(e); }
+  }}, "批准发布");
+}
+
 function approvalObjectLink(r, label = "打开对象办理") {
+  if (r.object_type === "SOFTWARE_VERSION" && r.software_number && r.object_id)
+    return link(label, "#/software/" + encodeURIComponent(r.software_number) +
+      "?version_id=" + encodeURIComponent(r.object_id), "btn small");
+
   const routes = { BASIC_DRAWING_FAMILY: "/family/", FILE_REVISION: "/revision/", DESIGN_BASELINE: "/baseline/" };
   const route = routes[r.object_type];
   return route && r.object_id ? link(label, "#" + route + encodeURIComponent(r.object_id), "btn small") : null;
@@ -62,12 +83,12 @@ export async function approvals(ctx) {
              { label: "申请人" }, { label: "提交时间" }, { label: "" }],
         inbox, r => [
           el("td", { class: "mono" }, link(r.request_number, "#/approval/" + r.id)),
-          el("td", {}, REQ_CN[r.request_type] || r.request_type),
+          el("td", {}, requestTypeText(r)),
           el("td", { class: "mono" }, r.object_code || "—"),
           el("td", {}, r.requester_name),
           el("td", { class: "muted nowrap" }, fmtDate(r.requested_at)),
           el("td", { class: "right nowrap" },
-            approvalObjectLink(r), " ",
+            approvalObjectLink(r), " ", softwareApprovalButton(ctx, r), " ",
             el("button", { class: "btn small", onclick: () =>
               act(r.id, "return", "退回补充", "需要补充什么？申请人改完可再次提交") }, "退回"),
             " ",
@@ -80,7 +101,7 @@ export async function approvals(ctx) {
              { label: "状态" }, { label: "提交时间" }, { label: "" }],
         mine, r => [
           el("td", { class: "mono" }, link(r.request_number, "#/approval/" + r.id)),
-          el("td", {}, REQ_CN[r.request_type] || r.request_type),
+          el("td", {}, requestTypeText(r)),
           el("td", { class: "mono" }, r.object_code || "—"),
           el("td", {}, status(r.status)),
           el("td", { class: "muted nowrap" }, fmtDate(r.requested_at)),
@@ -100,7 +121,7 @@ export async function approvalDetail(ctx, params, id) {
         el("span", { class: "tb-code" }, r.request_number),
         el("span", { class: "tb-name" }, r.title)),
       el("div", { class: "tb-grid" },
-        cell("类型", REQ_CN[r.request_type] || r.request_type),
+        cell("类型", requestTypeText(r)),
         cell("状态", statusText(r.status)),
         cell("对象", r.object_code, true),
         cell("申请人", r.requester_name),
@@ -120,7 +141,7 @@ export async function approvalDetail(ctx, params, id) {
           el("td", { class: "mono" }, s.decided_by_username || "—"),
           el("td", {}, s.comments || "—"),
           el("td", { class: "muted nowrap" }, fmtDate(s.acted_at))])),
-    el("div", { class: "actions" }, approvalObjectLink(r), link("返回审批中心", "#/approvals", "btn")));
+    el("div", { class: "actions" }, approvalObjectLink(r), softwareApprovalButton(ctx, r), link("返回审批中心", "#/approvals", "btn")));
 }
 
 /* ==================== 外部件 ==================== */
@@ -335,9 +356,9 @@ export async function softwareDetail(ctx, params, num) {
         cell("建立时间", fmtDate(so.created_at)))),
     el("div", { class: "note" },
       "上传软件内容压缩包后，系统自动计算 SHA-256；审批和发布后交付包不可替换。"),
-    selectedId ? el('div',{class:'note'},'当前显示从硬件关联进入的指定软件版本。 ',
+    selectedId ? el('div',{class:'note'},'当前显示指定软件版本。 ',
       link('查看全部软件版本','#/software/'+encodeURIComponent(num))) : null,
-    selectedId && !versions.length ? empty('指定软件版本不存在','请返回硬件信息刷新关联清单。') : null,
+    selectedId && !versions.length ? empty('指定软件版本不存在','请返回软件对象查看版本清单。') : null,
     ctx.can("draft_write") ? panel("登记新版本", el("div", { class: "inline-form" },
       field("版本号", vIn), field("构建号", bIn), field("软件内容压缩包", packageIn),
       el("div", { style: "flex:0 0 auto" }, el("button", { class: "btn primary",

@@ -102,3 +102,45 @@ def run(page, admin, call, base, output):
     expect(page.locator('.part-picker-results')).not_to_be_visible()
     expect(page.locator('.part-picker-selected')).to_contain_text('已选择')
     print('PASS UI/BOM-dropdown-twelve-results-unclipped-scroll-and-select',flush=True)
+
+    # Submit as engineer, open exact version and approve as assigned administrator.
+    import zipfile
+    package=io.BytesIO()
+    with zipfile.ZipFile(package,'w') as z:
+        z.writestr('software.txt','UI software release')
+    sw='UI-SW-'+stamp
+    call(page,'POST','/software',{'software_number':sw,'name_cn':'审批入口回归','software_type':'SOFTWARE'},201)
+    token=page.evaluate("sessionStorage.getItem('dcms.token')")
+    response=page.request.post(base+'/api/v1/software/'+sw+'/versions/package',
+      headers={'Authorization':'Bearer '+token},
+      multipart={'version':'1.0.1','build':'ui','file':{'name':'ui-software.zip','mimeType':'application/zip','buffer':package.getvalue()}})
+    assert response.status==201,response.text()
+    version=response.json()
+    call(page,'POST','/software-versions/'+version['id']+'/hardware',
+      {'hardware_object_code':basic+'-001','hardware_version':'HW-A','applicability_note':'UI release'},201)
+    page.goto(base+'/#/software/'+sw)
+    page.get_by_role('button',name='提交审批',exact=True).click()
+    d=page.get_by_role('dialog')
+    d.get_by_label('审批人').select_option(admin_id)
+    d.get_by_role('button',name='确认提交',exact=True).click()
+    expect(d).not_to_be_visible()
+    requests=call(page,'GET','/approvals/mine?include_closed=true')
+    request=next(r for r in requests if r['object_id']==version['id'])
+    page.goto(base+'/#/approval/'+request['id'])
+    expect(page.get_by_role('button',name='批准发布',exact=True)).to_have_count(0)
+    admin.goto(base+'/#/approvals')
+    row=admin.get_by_role('row').filter(has=admin.get_by_text(sw+' 1.0.1',exact=True))
+    expect(row).to_contain_text('软件版本发布')
+    expect(row.get_by_role('button',name='批准发布',exact=True)).to_be_visible()
+    admin.screenshot(path=str(output/'software-approval-inbox-rc235.png'),full_page=True)
+    row.get_by_role('link',name='打开对象办理',exact=True).click()
+    expect(admin).to_have_url(re.compile('version_id='+version['id']))
+    expect(admin.get_by_role('button',name='发布',exact=True)).to_be_visible()
+    admin.goto(base+'/#/approval/'+request['id'])
+    admin.once('dialog',lambda dialog: dialog.accept('软件包与适装硬件核对通过'))
+    admin.get_by_role('button',name='批准发布',exact=True).click()
+    expect(admin.locator('.tb-grid')).to_contain_text('已批准')
+    assert call(admin,'GET','/approvals/'+request['id'])['status']=='APPROVED'
+    assert next(v for v in call(page,'GET','/software/'+sw)['versions'] if v['id']==version['id'])['status']=='RELEASED'
+    admin.screenshot(path=str(output/'software-approval-completed-rc235.png'),full_page=True)
+    print('PASS UI/software-two-user-submit-inbox-approve-exact-version-and-persisted-release',flush=True)
