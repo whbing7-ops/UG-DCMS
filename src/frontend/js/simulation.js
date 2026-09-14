@@ -15,7 +15,7 @@ export async function imaSimulation(ctx) {
       const button=el('button',{class:'btn primary',onclick:async()=>{
         button.disabled=true; feedback.textContent='正在建立模拟业务数据，请等待；请勿关闭服务。';
         try {
-          await api.post('/simulation/ima',{dataset_code:'SIM-IMA-V1'});
+          await api.post('/simulation/ima',{json:{dataset_code:'SIM-IMA-V1'}});
           await refresh();
         } catch(e) {
           feedback.textContent=e.message+'。可刷新页面核对导入结果后重试。';

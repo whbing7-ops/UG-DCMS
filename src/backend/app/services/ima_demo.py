@@ -101,7 +101,8 @@ def _actor(conn, suffix, role, admin, batch):
         VALUES(%s,%s,%s,%s) RETURNING id""", (username, MARK + 'IMA模拟' + suffix,
         hash_password(secrets.token_urlsafe(40)), admin['user_id']))
     execute(conn, 'INSERT INTO user_role(user_id,role_code) VALUES(%s,%s)', (row['id'],role))
-    return {'user_id':str(row['id']), 'username':username, 'client_ip':admin.get('client_ip')}
+    return {'user_id':str(row['id']), 'username':username, 'client_ip':admin.get('client_ip'),
+            'session_id':admin['session_id']}
 
 
 def _document(conn, key, title, kind, content, extension, mime, author, approver, keys, docs):

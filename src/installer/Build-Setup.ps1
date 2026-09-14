@@ -49,7 +49,7 @@ function Validate-InstallerSource {
     throw 'Upgrade-safe .env ACL repair is missing.'
   }
   $migrations = @(Get-ChildItem (Join-Path $root 'db\migrations\*.sql') -File | Sort-Object Name)
-  if($migrations.Count -ne 22){ throw "Expected 21 DB migrations, found $($migrations.Count)." }
+  if($migrations.Count -ne 22){ throw "Expected 22 DB migrations, found $($migrations.Count)." }
   for($i=1; $i -le $migrations.Count; $i++){
     $prefix = ('{0:D4}_' -f $i)
     if(-not $migrations[$i-1].Name.StartsWith($prefix)){ throw "Migration sequence broken at $prefix" }

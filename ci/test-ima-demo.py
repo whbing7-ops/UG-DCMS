@@ -22,7 +22,9 @@ creds=json.loads(Path(sys.argv[1]).read_text())
 admin,_=smoke.login(creds['admin_username'],creds['admin_password'])
 engineer,_=smoke.login(creds['username'],creds['password'])
 uid=admin.get('/auth/me')['id']
-actor={'user_id':uid,'username':creds['admin_username']}
+with transaction() as conn:
+    session_id=str(scalar(conn,'SELECT id FROM user_session WHERE user_id=%s ORDER BY issued_at DESC LIMIT 1',(uid,)))
+actor={'user_id':uid,'username':creds['admin_username'],'session_id':session_id}
 
 def snapshot(conn):
     out={}

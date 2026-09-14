@@ -34,7 +34,7 @@ def similar_search(conn: psycopg.Connection, primary_class_code: str,
     """
     qualifier_ids = qualifier_ids or []
     return fetch_all(conn, """
-        SELECT f.id, f.basic_drawing_number, f.family_name_cn, f.family_name_en,
+        SELECT f.id, f.basic_drawing_number, f.family_name_cn, f.family_name_en, f.classification_note,
                f.status, f.family_definition, f.allowed_variation, f.excluded_variation,
                pc.code AS physical_class_code, pc.name_cn AS physical_class_name,
                ct.code AS core_term_code, ct.name_cn AS core_term_name,
@@ -248,7 +248,7 @@ def get_family(conn: psycopg.Connection, family_id: str) -> dict | None:
 def list_families(conn: psycopg.Connection, primary_class_code: str | None = None,
                   status: str | None = None, q: str | None = None) -> list[dict]:
     return fetch_all(conn, """
-        SELECT f.id, f.basic_drawing_number, f.family_name_cn, f.family_name_en,
+        SELECT f.id, f.basic_drawing_number, f.family_name_cn, f.family_name_en, f.classification_note,
                f.primary_class_code, f.status, pc.code AS physical_class_code,
                ct.code AS core_term_code,
                (SELECT count(*) FROM part_number pn
