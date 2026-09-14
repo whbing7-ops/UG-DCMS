@@ -11,7 +11,6 @@ import * as V5 from "./views5.js";
 import { accounts, bomHub, roles } from "./manage.js";
 import { diagnostics, auditPage, backupPage } from "./extras.js";
 
-import { imaSimulation } from './simulation.js';
 import { designMaterials } from './design-materials.js';
 
 const root = document.getElementById("root");
@@ -32,7 +31,6 @@ const ROUTES = [
   ["/external-parts",      V5.externalParts],
   ["/software",            V5.software],
   ["/admin",               accounts],
-  ["/simulation-ima", imaSimulation],
   ["/bom", bomHub],
   ["/system-check", diagnostics],
   ["/audit",               auditPage],
@@ -66,7 +64,7 @@ const NAV = [
     ["#/quality", "数据质量", "◉"], ["#/reports", "统计", "▥"],
   ]},
   { group: "系统", items: [
-    ["#/simulation-ima", "IMA 模拟数据", "◈"], ["#/system-check", "系统自检", "⌁"], ["#/dictionary", "受控字典", "▦"], ["#/audit", "审计记录", "◷"], ["#/backup", "备份恢复", "↻"], ["#/admin", "系统管理", "⚙"],
+    ["#/system-check", "系统自检", "⌁"], ["#/dictionary", "受控字典", "▦"], ["#/audit", "审计记录", "◷"], ["#/backup", "备份恢复", "↻"], ["#/admin", "系统管理", "⚙"],
   ]},
 ];
 
@@ -161,7 +159,7 @@ function changePasswordView() {
 function shell(content) {
   const path = (location.hash.slice(1).split("?")[0]) || "/";
   const rail = el("aside", { class: "rail" },
-    el("div", { class: "brand" }, "UG-DCMS", el("small", {}, "设计构型管理 · rc2.38")),
+    el("div", { class: "brand" }, "UG-DCMS", el("small", {}, "设计构型管理 · rc2.39")),
     el("nav", { class: "nav" }, NAV.map(g => [
       el("h4", {}, g.group),
       g.items.map(([href, label, icon]) =>

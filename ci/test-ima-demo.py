@@ -14,7 +14,8 @@ from unittest.mock import patch
 
 from app import storage
 from app.db import transaction, fetch_all, fetch_one, scalar
-from app.services import ima_demo, applicability
+from app.services import ima_demo, applicability, data_backups
+import io, zipfile, urllib.request, urllib.error
 
 spec=importlib.util.spec_from_file_location('smoke',Path(__file__).with_name('full-functional-smoke.py'))
 smoke=importlib.util.module_from_spec(spec); spec.loader.exec_module(smoke)
@@ -37,10 +38,52 @@ def snapshot(conn):
 def disk():
     return {str(p):hashlib.sha256(p.read_bytes()).hexdigest() for p in storage._root().rglob('*') if p.is_file()}
 
-assert not admin.get('/simulation/ima')['imported']
-engineer.call('POST','/simulation/ima',{'dataset_code':'SIM-IMA-V1'},expected=(403,))
-smoke.Client().call('POST','/simulation/ima',{'dataset_code':'SIM-IMA-V1'},expected=(401,))
-admin.call('POST','/simulation/ima',{'dataset_code':'SIM-IMA-V1','actor_id':uid},expected=(422,))
+package=data_backups.create_package()
+package_path=Path('ima-evidence/UG-DCMS-IMA-Data-Backup-v1.zip')
+package_path.parent.mkdir(exist_ok=True);package_path.write_bytes(package)
+
+def upload(client=admin, content=package, confirmation='导入模拟数据', expected=200):
+    boundary='----DataBackupTest239'
+    body=(f'--{boundary}\r\nContent-Disposition: form-data; name="confirmation"\r\n\r\n{confirmation}\r\n'
+          f'--{boundary}\r\nContent-Disposition: form-data; name="file"; filename="ima.zip"\r\n'
+          'Content-Type: application/zip\r\n\r\n').encode()+content+f'\r\n--{boundary}--\r\n'.encode()
+    headers={'Content-Type':f'multipart/form-data; boundary={boundary}'}
+    if client.token: headers['Authorization']='Bearer '+client.token
+    req=urllib.request.Request(smoke.BASE+'/system/data-backups/import',data=body,headers=headers,method='POST')
+    try:
+        with urllib.request.urlopen(req,timeout=120) as response:
+            assert response.status==expected
+            return json.loads(response.read())
+    except urllib.error.HTTPError as exc:
+        detail=exc.read().decode()
+        assert exc.code==expected,(exc.code,detail)
+        return json.loads(detail)
+
+assert not admin.get('/system/backups')['data_import']['imported']
+smoke.Client().call('GET','/simulation/ima',expected=(404,))
+assert upload(engineer,expected=403)
+assert upload(smoke.Client(),expected=401)
+assert upload(confirmation='恢复UG-DCMS',expected=400)
+assert upload(content=b'broken zip',expected=400)
+assert upload(content=b'x'*(data_backups.MAX_BYTES+1),expected=400)
+# Even a package with a matching, attacker-recalculated manifest is rejected.
+with zipfile.ZipFile(io.BytesIO(package)) as z: entries={n:z.read(n) for n in z.namelist()}
+manifest=json.loads(entries['manifest.json']);payload=json.loads(entries['dataset.json'])
+payload['parts'][0][1]='未经支持的修改'
+entries['dataset.json']=json.dumps(payload).encode()
+manifest['payload_sha256']=hashlib.sha256(entries['dataset.json']).hexdigest()
+entries['manifest.json']=json.dumps(manifest).encode()
+buffer=io.BytesIO()
+with zipfile.ZipFile(buffer,'w') as z:
+    for name,value in entries.items():z.writestr(name,value)
+assert upload(content=buffer.getvalue(),expected=400)
+# Full restore format and path-bearing archives cannot reach data import.
+for entries in ({'manifest.json':b'{}','database.dump':b'PGDMP'},
+                {'manifest.json':b'{}','dataset.json':b'{}','../file':b'x'}):
+    buffer=io.BytesIO()
+    with zipfile.ZipFile(buffer,'w') as z:
+        for name,value in entries.items():z.writestr(name,value)
+    assert upload(content=buffer.getvalue(),expected=400)
 with transaction() as conn:
     before=snapshot(conn)
 before_files=disk()
@@ -76,7 +119,7 @@ with transaction() as conn:
 # An in-progress import is reported promptly from a second connection.
 with transaction() as conn:
     conn.execute('SELECT pg_advisory_xact_lock(811038)')
-    conflict=admin.call('POST','/simulation/ima',{'dataset_code':'SIM-IMA-V1'},expected=(400,))
+    conflict=upload(expected=400)
     assert '正在导入' in conflict['error']['message']
 print('PASS IMA permissions, fixed-identity collision and concurrency',flush=True)
 
@@ -89,11 +132,14 @@ with sync_playwright() as p:
     errors=[];page.on('pageerror',lambda error:errors.append(str(error)))
     page.goto('http://127.0.0.1:8080/')
     page.evaluate('(token)=>sessionStorage.setItem("dcms.token",token)',admin.token)
-    page.goto('http://127.0.0.1:8080/#/simulation-ima')
+    page.goto('http://127.0.0.1:8080/#/backup')
     page.reload()
-    expect(page.get_by_role('heading',name='IMA 模拟业务数据',exact=True)).to_be_visible()
-    with page.expect_response(lambda r:r.url.endswith('/simulation/ima') and r.request.method=='POST',timeout=120000) as response:
-        page.get_by_role('button',name='建立 IMA 模拟数据',exact=True).click()
+    expect(page.get_by_role('heading',name='系统备份与恢复',exact=True)).to_be_visible()
+    assert page.get_by_role('link',name='IMA模拟数据',exact=True).count()==0
+    page.get_by_label('数据备份包',exact=True).set_input_files(str(package_path))
+    page.get_by_label('数据导入确认文字',exact=True).fill('导入模拟数据')
+    with page.expect_response(lambda r:r.url.endswith('/system/data-backups/import') and r.request.method=='POST',timeout=120000) as response:
+        page.get_by_role('button',name='校验并导入数据',exact=True).click()
     assert response.value.status==200,response.value.text()
     try:
         expect(page.get_by_role('link',name='打开共用 BOM',exact=True)).to_be_visible(timeout=10000)
@@ -102,12 +148,7 @@ with sync_playwright() as p:
         print(page.locator('main').inner_text(),flush=True)
         raise
     page.screenshot(path=str(evidence/'ima-import.png'),full_page=True)
-    result=admin.get('/simulation/ima');m=result['receipt']['manifest']
-    with page.expect_download() as download:
-        page.get_by_role('button',name='下载冻结清单',exact=True).first.click()
-    downloaded=Path(download.value.path()).read_bytes()
-    assert hashlib.sha256(downloaded).hexdigest()==m['configurations']['A']['document']['sha256']
-    assert json.loads(downloaded)['notice'].startswith('【模拟数据】')
+    result=admin.get('/system/backups')['data_import'];m=result['receipt']['manifest']
     page.get_by_role('link',name='打开共用 BOM',exact=True).click()
     for variant in ('A','B'):
         page.get_by_label('构型上下文',exact=True).select_option('SIM-IMA-V1-'+variant)
@@ -117,22 +158,23 @@ with sync_playwright() as p:
         assert resolved['passed']
         expect(page.get_by_text('解析通过，共 '+str(resolved['line_count'])+' 行；排除 '+str(len(resolved['excluded']))+' 行。',exact=True)).to_be_visible()
     page.screenshot(path=str(evidence/'ima-bom-config-b.png'),full_page=True)
-    page.goto('http://127.0.0.1:8080/#/simulation-ima')
+    page.goto('http://127.0.0.1:8080/#/backup')
     page.get_by_role('link',name='查看顶层设计基线',exact=True).click()
     expect(page.get_by_text('【模拟数据】',exact=False).first).to_be_visible()
     page.screenshot(path=str(evidence/'ima-baseline.png'),full_page=True)
     page.goto('http://127.0.0.1:8080/#/family/'+m['parts']['IMA']['family_id'])
     expect(page.locator('.tb-name')).to_contain_text('【模拟数据】')
-    page.goto('http://127.0.0.1:8080/#/simulation-ima')
+    page.goto('http://127.0.0.1:8080/#/backup')
     page.get_by_role('link',name='查看模拟设计资料',exact=True).click()
     expect(page.get_by_role('heading',name='设计资料清单',exact=True)).to_be_visible()
     expect(page.get_by_text('SIM-IMA-V1-MANUAL',exact=True).first).to_be_visible()
     page.screenshot(path=str(evidence/'ima-design-materials.png'),full_page=True)
-    # Same UI is available read-only to engineering users.
+    # Engineering users view imported records through the normal business pages.
     page.evaluate('(token)=>sessionStorage.setItem("dcms.token",token)',engineer.token)
-    page.goto('http://127.0.0.1:8080/#/simulation-ima');page.reload()
-    expect(page.get_by_role('link',name='打开共用 BOM',exact=True)).to_be_visible()
-    assert page.get_by_role('button',name='建立 IMA 模拟数据',exact=True).count()==0
+    page.goto('http://127.0.0.1:8080/#/object/'+m['top_part_number']);page.reload()
+    expect(page.get_by_text('【模拟数据】IMA综合模块化航电设备',exact=False).first).to_be_visible()
+    page.goto('http://127.0.0.1:8080/#/backup')
+    expect(page.get_by_text('无系统备份权限',exact=True)).to_be_visible()
     assert not errors,errors
     browser.close()
 print('PASS IMA real browser import, navigation, download and read-only access',flush=True)
@@ -180,9 +222,9 @@ with transaction() as conn:
     conn.execute('ROLLBACK TO SAVEPOINT modify_draft')
     after=snapshot(conn)
     after_files=disk()
-assert admin.post('/simulation/ima',{'dataset_code':'SIM-IMA-V1'})==result
+assert upload()==result
 with transaction() as conn:
     assert snapshot(conn)==after,'repeat import mutated records'
 assert disk()==after_files
 print('PASS IMA original data preservation, 82 approvals, both configurations, shared quantities, fixed baselines and idempotency',flush=True)
-Path('ima-evidence/result.json').write_text(json.dumps({'passed':True,'counts':m['counts'],'top_part_number':m['top_part_number']},ensure_ascii=False,indent=2))
+Path('ima-evidence/result.json').write_text(json.dumps({'passed':True,'counts':m['counts'],'top_part_number':m['top_part_number'],'package_sha256':hashlib.sha256(package).hexdigest()},ensure_ascii=False,indent=2))

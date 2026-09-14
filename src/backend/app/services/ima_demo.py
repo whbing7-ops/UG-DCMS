@@ -21,74 +21,18 @@ from . import applicability, baselines, bom, externals, families, files
 CODE = 'SIM-IMA-V1'
 MARK = '【模拟数据】'
 NOTICE = MARK + '仅用于 UG-DCMS 业务演示，不可用于制造、试验符合性或装机；审批记录为模拟流程。'
-# key, Chinese name, physical class, controlled core term, level
-PARTS = [
-    ('IMA', 'IMA综合模块化航电设备', 'T2-14', 'T2-005', 'ASSEMBLY'),
-    ('CHASSIS', 'IMA机箱组件', 'T1-02', 'T1-013', 'ASSEMBLY'),
-    ('CPU', 'IMA计算模块', 'T2-13', 'T2-003', 'ASSEMBLY'),
-    ('POWER', 'IMA电源模块', 'T2-13', 'T2-003', 'ASSEMBLY'),
-    ('IO', 'IMA接口模块', 'T2-13', 'T2-003', 'ASSEMBLY'),
-    ('BACKPLANE', 'IMA背板组件', 'T2-02', 'T2-002', 'ASSEMBLY'),
-    ('CPU_A', 'IMA基础计算板', 'T2-02', 'T2-002', 'ASSEMBLY'),
-    ('CPU_B', 'IMA增强计算板', 'T2-02', 'T2-002', 'ASSEMBLY'),
-    ('PWR_CCA', 'IMA电源板', 'T2-02', 'T2-002', 'ASSEMBLY'),
-    ('IO_CCA', 'IMA接口板', 'T2-02', 'T2-002', 'ASSEMBLY'),
-    ('EXT_IO', 'IMA扩展接口板', 'T2-02', 'T2-002', 'ASSEMBLY'),
-    ('HARNESS', 'IMA电源线束', 'T3-02', 'T3-002', 'ASSEMBLY'),
-    ('HOUSING', 'IMA壳体', 'T1-02', 'T1-013', 'PART'),
-    ('COVER', 'IMA盖板', 'T1-01', 'T1-003', 'PART'),
-    ('BRACKET', 'IMA安装支架', 'T1-01', 'T1-006', 'PART'),
-    ('HEATSINK', 'IMA导热板', 'T1-01', 'T1-001', 'PART'),
-    ('PCB_CPU', 'IMA计算印制板', 'T2-01', 'T2-001', 'PART'),
-    ('PCB_PWR', 'IMA电源印制板', 'T2-01', 'T2-001', 'PART'),
-    ('PCB_IO', 'IMA接口印制板', 'T2-01', 'T2-001', 'PART'),
-]
-EXTERNALS = [
-    ('SCREW', '紧固螺钉', 'T1'), ('CONN', '连接器', 'T2'),
-    ('SOC', '计算处理器', 'T2'), ('FPGA', '可编程逻辑器件', 'T2'),
-    ('RAM', '存储器', 'T2'), ('DCDC', '电源转换器', 'T2'),
-    ('RES', '电阻器', 'T2'), ('CAP', '电容器', 'T2'), ('WIRE', '导线组件', 'T3'),
-]
-# parent, item, child, quantity, rule (None = common to A and B)
-LINES = [
-    ('IMA','10','CHASSIS',1,None), ('IMA','20','CPU',2,None),
-    ('IMA','30','POWER',2,None), ('IMA','40','IO',1,None),
-    ('IMA','50','BACKPLANE',1,None), ('IMA','60','HARNESS',2,None),
-    ('CHASSIS','10','HOUSING',1,None), ('CHASSIS','20','COVER',1,None),
-    ('CHASSIS','30','BRACKET',4,None), ('CHASSIS','40','SCREW',16,None),
-    ('CPU','10','CPU_A',1,'A'), ('CPU','10','CPU_B',1,'B'),
-    ('CPU','20','HEATSINK',1,None), ('CPU','30','SCREW',4,None),
-    ('POWER','10','PWR_CCA',1,None), ('POWER','20','HEATSINK',1,None),
-    ('POWER','30','SCREW',4,None),
-    ('IO','10','IO_CCA',1,None), ('IO','20','EXT_IO',1,'B'),
-    ('IO','30','SCREW',4,None),
-    ('BACKPLANE','10','PCB_IO',1,None), ('BACKPLANE','20','CONN',8,None),
-    ('BACKPLANE','30','CAP',12,None),
-    ('CPU_A','10','PCB_CPU',1,None), ('CPU_A','20','SOC',1,None),
-    ('CPU_A','30','RAM',2,None), ('CPU_A','40','CAP',24,None),
-    ('CPU_B','10','PCB_CPU',1,None), ('CPU_B','20','SOC',2,None),
-    ('CPU_B','30','RAM',4,None), ('CPU_B','40','CAP',32,None),
-    ('CPU_B','50','FPGA',1,None),
-    ('PWR_CCA','10','PCB_PWR',1,None), ('PWR_CCA','20','DCDC',2,None),
-    ('PWR_CCA','30','CAP',16,None), ('PWR_CCA','40','RES',12,None),
-    ('IO_CCA','10','PCB_IO',1,None), ('IO_CCA','20','FPGA',1,None),
-    ('IO_CCA','30','CONN',4,None), ('IO_CCA','40','RES',16,None),
-    ('EXT_IO','10','PCB_IO',1,None), ('EXT_IO','20','CONN',6,None),
-    ('EXT_IO','30','CAP',8,None),
-    ('HARNESS','10','WIRE',6,None), ('HARNESS','20','CONN',2,None),
-]
-SOFTWARE = [
-    ('PLATFORM','IMA平台软件','SOFTWARE',['CPU_A','CPU_B']),
-    ('IO_LOGIC','IMA接口逻辑','FIRMWARE',['IO_CCA','EXT_IO']),
-    ('POWER_MON','IMA电源监控软件','FIRMWARE',['PWR_CCA']),
-]
+
+def builtin_dataset():
+    from pathlib import Path
+    return json.loads((Path(__file__).resolve().parent.parent/'data'/'ima-v1.json').read_text(encoding='utf-8'))
 
 
 def status(conn):
+    data = builtin_dataset()
     receipt = fetch_one(conn, 'SELECT * FROM simulation_dataset WHERE dataset_code=%s', (CODE,))
     return {'dataset_code': CODE, 'notice': NOTICE, 'imported': receipt is not None,
-            'receipt': receipt, 'planned': {'parts':len(PARTS), 'externals':len(EXTERNALS),
-            'bom_lines':len(LINES), 'configurations':2, 'software':len(SOFTWARE)}}
+            'receipt': receipt, 'planned': {'parts':len(data['parts']), 'externals':len(data['externals']),
+            'bom_lines':len(data['bom_lines']), 'configurations':2, 'software':len(data['software'])}}
 
 
 def _mark_request(conn, req):
@@ -129,7 +73,7 @@ def _document(conn, key, title, kind, content, extension, mime, author, approver
     return doc
 
 
-def import_dataset(conn, admin):
+def import_dataset(conn, admin, dataset=None):
     # Non-blocking lock: double clicks get a clear response instead of consuming
     # all application connections while a large atomic import is in progress.
     if not scalar(conn, 'SELECT pg_try_advisory_xact_lock(811038)'):
@@ -142,7 +86,7 @@ def import_dataset(conn, admin):
         # A savepoint includes deferred constraint validation, so physical files
         # are cleaned on domain, DB and commit validation errors alike.
         with conn.transaction():
-            result = _populate(conn, admin, keys)
+            result = _populate(conn, admin, keys, dataset or builtin_dataset())
             conn.execute('SET CONSTRAINTS ALL IMMEDIATE')
             conn.execute('SET CONSTRAINTS ALL DEFERRED')
         return result
@@ -152,7 +96,8 @@ def import_dataset(conn, admin):
         raise
 
 
-def _populate(conn, admin, keys):
+def _populate(conn, admin, keys, dataset):
+    PARTS, EXTERNALS, LINES, SOFTWARE = (dataset[k] for k in ('parts','externals','bom_lines','software'))
     # Check all fixed namespaces before writing anything. Never reuse a
     # similarly named existing record, even if it looks like a demo record.
     for table, column in [('namespace','code'), ('design_file','file_number'),
@@ -192,17 +137,7 @@ def _populate(conn, admin, keys):
         code = pn['full_part_number']
         oid = str(scalar(conn, 'SELECT design_object_id FROM part_number WHERE id=%s', (pn['id'],)))
         parts[key] = {'part_number':code, 'id':str(pn['id']), 'object_id':oid, 'family_id':fid, 'name':MARK+name}
-        svg = f'''<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="660" viewBox="0 0 1000 660">
-<rect width="1000" height="660" fill="white"/><g font-family="sans-serif" fill="#172b4d">
-<text x="35" y="50" font-size="26">{escape(MARK+name)}</text>
-<text x="35" y="86" font-size="20">{code} / Rev.00 — SIMULATED DRAWING</text>
-<rect x="190" y="170" width="620" height="260" fill="#eef4fa" stroke="#172b4d" stroke-width="3"/>
-<circle cx="220" cy="200" r="10"/><circle cx="780" cy="200" r="10"/>
-<circle cx="220" cy="400" r="10"/><circle cx="780" cy="400" r="10"/>
-<text x="280" y="300" font-size="28">{escape(key)} · 示意外形</text>
-<text x="35" y="520" font-size="20">几何、比例和接口均为虚构；无制造尺寸或材料依据。</text>
-<text x="35" y="560" font-size="20" fill="#bb2222">模拟数据 — 不可用于制造、试验符合性或装机</text>
-<text x="35" y="610" font-size="18">UG-DCMS / SIM-IMA-V1 / 模拟设计定义附件</text></g></svg>'''
+        svg = dataset['drawing_template'].replace('{{NAME}}',escape(MARK+name)).replace('{{PART_NUMBER}}',code).replace('{{KEY}}',escape(key))
         doc = _document(conn, key+'-DWG', name+'示意图', 'DWG', svg.encode(), 'svg',
                         'image/svg+xml', author, approver, keys, docs)
         parts[key]['definition'] = doc
@@ -222,10 +157,10 @@ def _populate(conn, admin, keys):
         externals.approve_project_control(conn, str(control['id']), NOTICE, approver)
         external[key] = {'object_code':code, 'state_target':code+' TS1', 'state_id':str(st['id'])}
     contexts = {}
-    for config in ('A','B'):
+    for config, description in dataset['configurations'].items():
         contexts[config] = applicability.create_context(conn, code=CODE+'-'+config,
             name=MARK+'IMA构型'+config, attributes={'simulation':CODE,'ima_variant':config},
-            description=NOTICE+('基础计算配置' if config=='A' else '增强计算及扩展接口配置'), actor=author)
+            description=NOTICE+description, actor=author)
         applicability.create_rule(conn, code=CODE+'-ONLY-'+config, name=MARK+'仅IMA构型'+config,
             expression={'all':[{'field':'simulation','op':'eq','value':CODE},
                               {'field':'ima_variant','op':'eq','value':config}]}, description=NOTICE, actor=author)
