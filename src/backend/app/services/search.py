@@ -133,7 +133,7 @@ def _search_objects_precise(conn: psycopg.Connection, q: str, kinds: list[str],
 def _search_families(conn: psycopg.Connection, q: str, limit: int) -> list[dict]:
     return fetch_all(conn, """
         SELECT f.id::text, f.basic_drawing_number AS object_code,
-               f.family_name_cn AS display_name, 'BASIC_DRAWING_FAMILY' AS object_type,
+               CASE WHEN f.classification_note LIKE '【模拟数据】%%' THEN '【模拟数据】' ELSE '' END || f.family_name_cn AS display_name, 'BASIC_DRAWING_FAMILY' AS object_type,
                f.status AS lifecycle_status,
                CASE WHEN f.basic_drawing_number = %(q)s THEN 'EXACT' ELSE 'FUZZY' END
                  AS match_type,

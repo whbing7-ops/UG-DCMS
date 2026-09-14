@@ -31,7 +31,7 @@ export async function families(ctx, params) {
         rows, r => [
           el("td", { class: "mono" }, link(r.basic_drawing_number.startsWith("PENDING-")
             ? "（待发号）" : r.basic_drawing_number, "#/family/" + r.id)),
-          el("td", {}, r.family_name_cn),
+          el("td", {}, r.classification_note?.startsWith("【模拟数据】") ? "【模拟数据】" : "", r.family_name_cn),
           el("td", { class: "mono" }, r.primary_class_code),
           el("td", { class: "mono muted" }, r.physical_class_code),
           el("td", { class: "num" }, r.dash_count),
@@ -234,7 +234,7 @@ export async function familyDetail(ctx, params, id) {
       el("div", { class: "tb-head" },
         el("span", { class: "tb-code" }, fam.basic_drawing_number.startsWith("PENDING-")
           ? "（待发号）" : fam.basic_drawing_number),
-        el("span", { class: "tb-name" }, fam.family_name_cn)),
+        el("span", { class: "tb-name" }, fam.classification_note?.startsWith("【模拟数据】") ? "【模拟数据】" : "", fam.family_name_cn)),
       el("div", { class: "tb-grid" },
         cell("状态", statusText(fam.status)),
         cell("英文名称", fam.family_name_en, true),

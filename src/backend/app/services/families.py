@@ -273,7 +273,7 @@ def page_families(conn: psycopg.Connection, primary_class_code: str | None,
       AND (%s::text IS NULL OR f.status=%s)
       AND (%s::text IS NULL OR f.family_name_cn ILIKE %s OR f.basic_drawing_number ILIKE %s)"""
     total = scalar(conn, f"SELECT count(*) FROM basic_drawing_family f {where}", args) or 0
-    items = fetch_all(conn, f"""SELECT f.id,f.basic_drawing_number,f.family_name_cn,f.family_name_en,
+    items = fetch_all(conn, f"""SELECT f.id,f.basic_drawing_number,f.family_name_cn,f.family_name_en,f.classification_note,
       f.primary_class_code,f.status,pc.code AS physical_class_code,ct.code AS core_term_code,
       (SELECT count(*) FROM part_number pn WHERE pn.basic_drawing_family_id=f.id) AS dash_count
       FROM basic_drawing_family f JOIN physical_class pc ON pc.id=f.physical_class_id
