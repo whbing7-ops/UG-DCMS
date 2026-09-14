@@ -130,11 +130,15 @@ with sync_playwright() as p:
         **({'executable_path':os.environ['DCMS_BROWSER_PATH']} if os.environ.get('DCMS_BROWSER_PATH') else {}))
     page=browser.new_page(viewport={'width':1440,'height':1000})
     errors=[];page.on('pageerror',lambda error:errors.append(str(error)))
-    page.goto('http://127.0.0.1:8080/')
-    page.evaluate('(token)=>sessionStorage.setItem("dcms.token",token)',admin.token)
+    # Inject the session before app boot to avoid an aborted /auth/me clearing it.
+    page.add_init_script("sessionStorage.setItem('dcms.token',"+json.dumps(admin.token)+")")
     page.goto('http://127.0.0.1:8080/#/backup')
-    page.reload()
-    expect(page.get_by_role('heading',name='系统备份与恢复',exact=True)).to_be_visible()
+    try:
+        expect(page.get_by_role('heading',name='系统备份与恢复',exact=True)).to_be_visible()
+    except BaseException:
+        page.screenshot(path=str(evidence/'ima-open-failure.png'),full_page=True)
+        print({'page_errors':errors,'body':page.locator('body').inner_text()},flush=True)
+        raise
     assert page.get_by_role('link',name='IMA模拟数据',exact=True).count()==0
     page.get_by_label('数据备份包',exact=True).set_input_files(str(package_path))
     page.get_by_label('数据导入确认文字',exact=True).fill('导入模拟数据')
@@ -170,8 +174,11 @@ with sync_playwright() as p:
     expect(page.get_by_text('SIM-IMA-V1-MANUAL',exact=True).first).to_be_visible()
     page.screenshot(path=str(evidence/'ima-design-materials.png'),full_page=True)
     # Engineering users view imported records through the normal business pages.
-    page.evaluate('(token)=>sessionStorage.setItem("dcms.token",token)',engineer.token)
-    page.goto('http://127.0.0.1:8080/#/object/'+m['top_part_number']);page.reload()
+    page.close()
+    page=browser.new_page(viewport={'width':1440,'height':1000})
+    page.on('pageerror',lambda error:errors.append(str(error)))
+    page.add_init_script("sessionStorage.setItem('dcms.token',"+json.dumps(engineer.token)+")")
+    page.goto('http://127.0.0.1:8080/#/object/'+m['top_part_number'])
     expect(page.get_by_text('【模拟数据】IMA综合模块化航电设备',exact=False).first).to_be_visible()
     page.goto('http://127.0.0.1:8080/#/backup')
     expect(page.get_by_text('无系统备份权限',exact=True)).to_be_visible()

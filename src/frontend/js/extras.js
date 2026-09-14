@@ -138,7 +138,7 @@ export async function backupPage(ctx) {
           link('查看模拟设计资料','#/design-materials?q=SIM-IMA-V1','btn'))):null
     ]);
 
-    root.replaceChildren(el('h1',{},'系统备份与恢复'),
+    root.replaceChildren(...[el('h1',{},'系统备份与恢复'),
       el('p',{class:'sub'},'备份集同时包含PostgreSQL数据库和全部附件；恢复前自动生成恢复前备份。'),
       data.restore_status?.state==='COMPLETED' ? el('div',{class:'note ok'},
         el('b',{},'恢复完成（100%）'),el('div',{},data.restore_status.message),
@@ -162,7 +162,7 @@ export async function backupPage(ctx) {
           el('div',{class:'actions'},
             el('button',{class:'btn danger',onclick:async()=>{if(!window.confirm('确认立即重启UG-DCMS并恢复数据库和全部附件？'))return;try{const r=await api.post('/system/restore/apply');await monitorRestore({message:r.message});}catch(e){toast(e.message,'error')}}},'立即重启并执行恢复'),
             el('button',{class:'btn',onclick:async()=>{try{const r=await api.del('/system/restore');toast(r.message);await draw();}catch(e){toast(e.message,'error')}}},'取消待恢复任务'))) :
-          el('p',{class:'muted'},'备份包校验通过后，此处将出现“立即重启并执行恢复”按钮。'))));
+          el('p',{class:'muted'},'备份包校验通过后，此处将出现“立即重启并执行恢复”按钮。')))].filter(Boolean));
   }; await draw(); return root;
 }
 
