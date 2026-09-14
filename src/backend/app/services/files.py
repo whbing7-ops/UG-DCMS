@@ -508,3 +508,24 @@ def definitions_of(conn: psycopg.Connection, object_code: str) -> list[dict]:
          WHERE d.object_code = %s
          ORDER BY dl.relation_type, df.file_number
     """, (object_code,))
+
+
+def design_materials(conn, q, file_type_code, revision_status, current_only, page, page_size):
+    # One row per registered design attachment; software packages are separate objects.
+    q=q.strip()
+    like='%'+q.replace('\\','\\\\').replace('%','\\%').replace('_','\\_')+'%'
+    args=(q,like,like,like,like,file_type_code,file_type_code,revision_status,revision_status,current_only)
+    source="""FROM revision_attachment a
+      JOIN file_revision fr ON fr.id=a.file_revision_id
+      JOIN design_file df ON df.id=fr.design_file_id
+      JOIN file_type ft ON ft.code=df.file_type_code
+      WHERE (%s='' OR a.filename ILIKE %s OR df.file_number ILIKE %s OR df.title_cn ILIKE %s OR df.title_en ILIKE %s)
+        AND (%s='' OR df.file_type_code=%s) AND (%s='' OR fr.status=%s)
+        AND (NOT %s OR (df.current_released_revision_id=fr.id AND fr.status='RELEASED'))"""
+    total=scalar(conn,'SELECT count(*) '+source,args)
+    rows=fetch_all(conn,"""SELECT a.id,a.filename,a.attachment_role,a.size_bytes,a.uploaded_at,
+      fr.id AS revision_id,fr.revision_number,fr.status AS revision_status,
+      df.file_number,df.title_cn,df.file_type_code,df.status AS file_status,ft.name_cn AS file_type_name,
+      COALESCE(df.current_released_revision_id=fr.id AND fr.status='RELEASED',false) AS is_current
+      """+source+' ORDER BY a.uploaded_at DESC,a.id LIMIT %s OFFSET %s',args+(page_size,(page-1)*page_size))
+    return {'items':rows,'total':total,'page':page,'page_size':page_size}

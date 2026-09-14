@@ -258,10 +258,37 @@ with sync_playwright() as pw:
         with page.expect_download() as download:
             page.get_by_role('button',name='下载',exact=True).click()
         assert Path(download.value.path()).read_bytes()==content
+        revision_url=page.url
+        nav(page,'/design-materials')
+        expect(page.get_by_role('heading',name='设计资料清单',exact=True)).to_be_visible()
+        page.get_by_label('关键词',exact=True).fill(file_number)
+        page.get_by_role('button',name='查询',exact=True).click()
+        expect(page.get_by_role('cell',name='测试附件.txt',exact=True)).to_be_visible()
+        listing=call(page,'GET','/design-materials?q='+file_number+'&page_size=1')
+        assert listing['total']==1 and len(listing['items'])==1
+        assert not call(page,'GET','/design-materials?q='+file_number+'&page=2&page_size=1')['items']
+        assert 'storage_key' not in listing['items'][0]
+        response=page.request.get(base+'/api/v1/design-materials')
+        assert response.status==401
+        with page.expect_download() as listed_download:
+            page.get_by_role('button',name='下载',exact=True).click()
+        assert Path(listed_download.value.path()).read_bytes()==content
+        page.get_by_label('范围',exact=True).select_option('true')
+        page.get_by_role('button',name='查询',exact=True).click()
+        expect(page.get_by_text('没有符合条件的设计资料附件',exact=True)).to_be_visible()
+        page.get_by_label('范围',exact=True).select_option('false')
+        page.get_by_label('版次状态',exact=True).select_option('WORKING')
+        page.get_by_role('button',name='查询',exact=True).click()
+        expect(page.get_by_role('cell',name='测试附件.txt',exact=True)).to_be_visible()
+        page.screenshot(path=str(output/'design-materials-rc237.png'),full_page=True)
+        page.get_by_role('link',name='查看版次',exact=True).click()
+        expect(page).to_have_url(revision_url)
         page.get_by_role('button',name='删除附件').click(); reason(page); save(page)
         expect(page.get_by_text('还没有附件',exact=True)).to_be_visible()
         page.get_by_role('button',name='取消版次').click(); reason(page); save(page)
         expect(page.locator('.st-CANCELLED')).to_be_visible()
+        assert call(page,'GET','/design-materials?q='+file_number)['total']==0
+        mark('design-materials/search-pagination-auth-filter-download-navigation-delete-refresh')
         mark('files/create-revision-upload-Chinese-download-delete-cancel')
 
         page.goto(base+'/#/object/'+pn)

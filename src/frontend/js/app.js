@@ -11,6 +11,8 @@ import * as V5 from "./views5.js";
 import { accounts, bomHub, roles } from "./manage.js";
 import { diagnostics, auditPage, backupPage } from "./extras.js";
 
+import { designMaterials } from './design-materials.js';
+
 const root = document.getElementById("root");
 let ctx = null;
 let renderVersion = 0;
@@ -21,6 +23,7 @@ const ROUTES = [
   ["/search",              V1.search],
   ["/families",            V2.families],
   ["/family-new",          V2.familyNew],
+  ["/design-materials", designMaterials],
   ["/files",               V3.files],
   ["/quality",             V4.quality],
   ["/reports",             V4.reports],
@@ -51,6 +54,7 @@ const ROUTES = [
 const NAV = [
   { group: "设计数据", items: [
     ["#/", "概览", "⌂"], ["#/search", "查找", "⌕"], ["#/bom", "BOM 管理", "≡"], ["#/families", "设计族", "◫"], ["#/files", "设计文件", "▤"],
+    ["#/design-materials", "设计资料清单", "▧"],
     ["#/external-parts", "外部件", "◇"], ["#/software", "软件对象", "⬡"],
   ]},
   { group: "流程", items: [
@@ -155,7 +159,7 @@ function changePasswordView() {
 function shell(content) {
   const path = (location.hash.slice(1).split("?")[0]) || "/";
   const rail = el("aside", { class: "rail" },
-    el("div", { class: "brand" }, "UG-DCMS", el("small", {}, "设计构型管理 · rc2.36")),
+    el("div", { class: "brand" }, "UG-DCMS", el("small", {}, "设计构型管理 · rc2.37")),
     el("nav", { class: "nav" }, NAV.map(g => [
       el("h4", {}, g.group),
       g.items.map(([href, label, icon]) =>
