@@ -22,17 +22,17 @@ export async function imaSimulation(ctx) {
           button.disabled=false;
         }
       }},'建立 IMA 模拟数据');
-      result.append(panel('导入到当前系统',
+      result.append(panel('导入到当前系统',[
         el('p',{},'模拟审批使用两个专用模拟身份，导入完成即停用。全部数据统一标识“模拟数据”，不代表真实人员批准。'),
-        ctx.can('system_setting')?button:el('p',{},'请由系统管理员执行导入。'),feedback));
+        ctx.can('system_setting')?button:el('p',{},'请由系统管理员执行导入。'),feedback]));
       return;
     }
     const m=data.receipt.manifest;
     result.append(el('p',{class:'note',role:'status'},'导入已完成 · '+fmtDate(data.receipt.imported_at)),
-      panel('查看模拟产品',link(m.top_part_number+' · IMA设备','#/object/'+encodeURIComponent(m.top_part_number),'btn'),
+      panel('查看模拟产品',[link(m.top_part_number+' · IMA设备','#/object/'+encodeURIComponent(m.top_part_number),'btn'),
         ' ',link('打开共用 BOM','#/bom/'+encodeURIComponent(m.top_part_number),'btn primary'),
         ' ',link('查看顶层设计基线','#/baseline/'+m.baselines.IMA.id,'btn'),
-        ' ',link('查看模拟设计资料','#/design-materials?q=SIM-IMA-V1','btn')),
+        ' ',link('查看模拟设计资料','#/design-materials?q=SIM-IMA-V1','btn')]),
       tablePanel('两种构型的冻结结果',table([{label:'构型'},{label:'说明'},{label:'冻结快照'},{label:'操作'}],
         Object.entries(m.configurations),([key,c])=>[
           el('td',{},'【模拟数据】IMA构型'+key),el('td',{},key==='A'?'基础计算配置':'增强计算及扩展接口'),

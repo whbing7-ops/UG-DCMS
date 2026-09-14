@@ -95,7 +95,12 @@ with sync_playwright() as p:
     with page.expect_response(lambda r:r.url.endswith('/simulation/ima') and r.request.method=='POST',timeout=120000) as response:
         page.get_by_role('button',name='建立 IMA 模拟数据',exact=True).click()
     assert response.value.status==200,response.value.text()
-    expect(page.get_by_role('link',name='打开共用 BOM',exact=True)).to_be_visible(timeout=120000)
+    try:
+        expect(page.get_by_role('link',name='打开共用 BOM',exact=True)).to_be_visible(timeout=10000)
+    except BaseException:
+        page.screenshot(path=str(evidence/'ima-failure.png'),full_page=True)
+        print(page.locator('main').inner_text(),flush=True)
+        raise
     page.screenshot(path=str(evidence/'ima-import.png'),full_page=True)
     result=admin.get('/simulation/ima');m=result['receipt']['manifest']
     with page.expect_download() as download:
@@ -103,6 +108,16 @@ with sync_playwright() as p:
     downloaded=Path(download.value.path()).read_bytes()
     assert hashlib.sha256(downloaded).hexdigest()==m['configurations']['A']['document']['sha256']
     assert json.loads(downloaded)['notice'].startswith('【模拟数据】')
+    page.get_by_role('link',name='打开共用 BOM',exact=True).click()
+    for variant in ('A','B'):
+        page.get_by_label('构型上下文',exact=True).select_option('SIM-IMA-V1-'+variant)
+        with page.expect_response(lambda r:r.url.endswith('/resolve') and r.request.method=='POST') as resolved_response:
+            page.get_by_role('button',name='解析构型',exact=True).click()
+        resolved=resolved_response.value.json()
+        assert resolved['passed']
+        expect(page.get_by_text('解析通过，共 '+str(resolved['line_count'])+' 行；排除 '+str(len(resolved['excluded']))+' 行。',exact=True)).to_be_visible()
+    page.screenshot(path=str(evidence/'ima-bom-config-b.png'),full_page=True)
+    page.goto('http://127.0.0.1:8080/#/simulation-ima')
     page.get_by_role('link',name='查看顶层设计基线',exact=True).click()
     expect(page.get_by_text('【模拟数据】',exact=False).first).to_be_visible()
     page.screenshot(path=str(evidence/'ima-baseline.png'),full_page=True)
