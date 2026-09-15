@@ -7,9 +7,11 @@ function workQueue(data){
     ...data.returned.map(r=>({title:r.title,number:r.request_number,state:statusText(r.status)+'，待修改',url:`#/draft/${r.object_type}/${r.object_id}`}))];
   return el('div',{},
     el('div',{class:'actions'},link(`待我审批 ${data.inbox_count} 项`,'#/approvals','btn primary'),
+      link(`退回待修改 ${data.returned.length} 项`,'#/approvals','btn'),
       link(`待提交草稿 ${data.draft_count} 项`,'#/approvals','btn'),link('打开审批中心','#/approvals','btn')),
-    table([{label:'申请单'},{label:'事项'},{label:'状态'},{label:'操作'}],items,r=>[
+    table([{label:'申请单'},{label:'事项'},{label:'状态'},{label:'操作'}],items.slice(0,10),r=>[
       el('td',{},r.number),el('td',{},r.title),el('td',{},r.state),el('td',{},link('打开办理',r.url,'btn small'))])||empty('当前没有待审批或退回待修改的事项'),
+    items.length>10?el('p',{class:'muted'},'首页显示前10项，进入审批中心查看全部。'):null,
     data.drafts.length?el('details',{},el('summary',{},'我的待提交草稿（最近20项）'),
       data.drafts.map(r=>el('p',{},link(r.label+' · '+r.object_code,`#/draft/${r.object_type}/${r.id}`)))):null);
 }
@@ -23,7 +25,8 @@ function messageList(data){
 export async function personalDashboard(){
   const d=await api.get('/notifications/overview');
   return el('div',{},panel('我的待办事项',el('div',{'data-work-queue':'true'},workQueue(d))),
-    panel('审批消息',el('div',{'data-notification-list':'true'},messageList(d))),notificationSettings(d));
+    notificationSettings(d),
+    panel('审批消息',el('div',{'data-notification-list':'true',style:'max-height:440px;overflow:auto'},messageList(d))));
 }
 function notificationSettings(d){
   const code=el('input',{'aria-label':'通知助手绑定信息',readonly:true,style:'width:100%;display:none'});
