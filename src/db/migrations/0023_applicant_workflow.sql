@@ -51,3 +51,35 @@ FOR EACH ROW EXECUTE FUNCTION dcms_guard_step_round();
 CREATE OR REPLACE VIEW current_approval_step AS
 SELECT s.* FROM approval_step s
 WHERE s.submission_round=(SELECT r.submission_round FROM approval_request r WHERE r.id=s.approval_request_id);
+
+-- Older releases closed rejected requests without reopening their objects.
+-- Reconcile only unreleased objects still linked to a closed request.
+DO $$
+DECLARE target record;
+BEGIN
+    FOR target IN SELECT * FROM (VALUES
+      ('BASIC_DRAWING_FAMILY','basic_drawing_family','PENDING'),
+      ('FILE_REVISION','file_revision','WORKING'),
+      ('DESIGN_BASELINE','design_baseline','DRAFT'),
+      ('EXTERNAL_TECHNICAL_STATE','external_technical_state','DRAFT'),
+      ('EXTERNAL_PROJECT_CONTROL','external_part_project_control','DRAFT'),
+      ('SOFTWARE_VERSION','software_version','DRAFT')
+    ) AS t(kind,table_name,draft_status) LOOP
+        EXECUTE format($q$
+          INSERT INTO audit_log(username,action,object_type,object_id,old_value,new_value,reason)
+          SELECT 'SYSTEM','APPLICANT_WORKFLOW_UPGRADE',%L,t.id,
+            jsonb_build_object('status',t.status,'approval_request_id',t.approval_request_id),
+            jsonb_build_object('status',%L,'approval_request_id',NULL),
+            'rc2.40 恢复已关闭申请的草稿编辑能力，保留原申请及审批意见'
+          FROM %I t JOIN approval_request a ON a.id=t.approval_request_id
+          WHERE a.object_type=%L AND a.object_id=t.id AND a.status IN ('REJECTED','RETURNED','CANCELLED')
+            AND t.status IN ('PENDING','WORKING','DRAFT','IN_REVIEW','REJECTED')
+        $q$,target.kind,target.draft_status,target.table_name,target.kind);
+        EXECUTE format($q$
+          UPDATE %I t SET status=%L,approval_request_id=NULL FROM approval_request a
+          WHERE a.id=t.approval_request_id AND a.object_type=%L AND a.object_id=t.id
+            AND a.status IN ('REJECTED','RETURNED','CANCELLED')
+            AND t.status IN ('PENDING','WORKING','DRAFT','IN_REVIEW','REJECTED')
+        $q$,target.table_name,target.draft_status,target.kind);
+    END LOOP;
+END $$;

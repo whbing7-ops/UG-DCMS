@@ -135,7 +135,7 @@ export async function approvalDetail(ctx, params, id) {
         cell("结束时间", fmtDate(r.closed_at)))),
     el('p',{},'当前第 '+(r.submission_round||1)+' 轮',r.closure_reason?' · '+r.closure_reason:''),
     r.history?.length?panel('历次提交与审批',r.history.map(h=>el('details',{},
-      el('summary',{},'第 '+h.submission_round+' 轮 · '+statusText(h.snapshot.status)+' · '+fmtDate(h.snapshot.requested_at)),
+      el('summary',{},'第 '+h.submission_round+' 轮 · '+(h.snapshot.closure_action==='WITHDRAW'?'已撤回':statusText(h.snapshot.status))+' · '+fmtDate(h.snapshot.requested_at)),
       el('p',{},h.snapshot.closure_reason||''),
       (h.snapshot.steps||[]).map(s=>el('p',{},s.step_name+' · '+statusText(s.decision)+' · '+(s.comments||'')+' · '+fmtDate(s.acted_at)))))):null,
     String(r.requester_id)===String(ctx.user.id)?el('div',{class:'actions'},r.status==='PENDING'?requestActions(r):

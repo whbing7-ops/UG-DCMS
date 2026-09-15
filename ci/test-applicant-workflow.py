@@ -115,6 +115,14 @@ with sync_playwright() as playwright:
         a,b=release_paths[kind];admin.call('POST',a+oid+b,expected=(400,))
         req=submit(kind,oid);assert req['id']==rid and req['request_number']==number and req['submission_round']==2
         admin.post('/approvals/'+rid+'/reject?reason=本轮需修订')
+        # Reproduce the legacy rejected-object lock, then apply the real upgrade.
+        with transaction() as conn:
+            table,state,_=drafts.TYPES[kind]
+            conn.execute(f'UPDATE {table} SET approval_request_id=%s WHERE id=%s',(rid,oid))
+            migration=Path(__file__).resolve().parents[1]/'src/db/migrations/0023_applicant_workflow.sql'
+            conn.execute(migration.read_text())
+        assert engineer.get(path)['can_edit']
+        assert engineer.get('/approvals/'+rid)['status']=='REJECTED'
         page.goto('http://127.0.0.1:8080/#/approval/'+rid)
         page.get_by_role('link',name='编辑后重新提交',exact=True).click()
         page.get_by_label(label,exact=True).fill('【模拟数据】驳回后修改-'+kind)
