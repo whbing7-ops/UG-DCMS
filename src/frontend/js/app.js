@@ -88,6 +88,8 @@ function match(path) {
 
 /* ---------------- 登录 ---------------- */
 function loginView(msg) {
+  const desired=sessionStorage.getItem('dcms.afterLogin')||location.hash;
+  const afterLogin=/^#\/approval\/[0-9a-f-]{36}$/i.test(desired)?desired:'#/';
   const u = el("input", { autofocus: true, autocomplete: "username", "aria-label": "账户" });
   const p = el("input", { type: "password", autocomplete: "current-password", "aria-label": "当前口令" });
   const err = el("div", {});
@@ -98,7 +100,7 @@ function loginView(msg) {
       setToken(r.access_token);
       if (!(await boot())) return;
       if (r.user.must_change_password) { location.hash = "#/change-password"; }
-      else { location.hash = "#/"; }
+      else { sessionStorage.removeItem('dcms.afterLogin'); location.hash = afterLogin; }
       await render();
     } catch (e) {
       err.replaceChildren(el("div", { class: "note error" }, e.message,
@@ -177,7 +179,7 @@ function shell(content) {
       el("a", { href: "#", onclick: async e => {
         e.preventDefault();
         try { await api.logout(); } catch {}
-        stopNotifications(); setToken(null); ctx = null; location.hash = "#/login"; loginView("已退出登录。");
+        sessionStorage.removeItem('dcms.afterLogin'); stopNotifications(); setToken(null); ctx = null; location.hash = "#/login"; loginView("已退出登录。");
       } }, "退出登录")));
   clear(root).append(el("div", { class: "shell" }, rail, el("main", { class: "main" }, content)));
 }

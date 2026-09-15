@@ -78,6 +78,14 @@ with sync_playwright() as p:
     row.get_by_role('link',name='查看申请',exact=True).click()
     expect(page.get_by_text(req['request_number'],exact=True)).to_be_visible()
     assert engineer.get('/notifications/overview')['unread']==0
+    # A native notification can open a new browser tab without sessionStorage.
+    context=browser.new_context();deep=context.new_page()
+    deep.goto('http://127.0.0.1:8080/#/approval/'+rid)
+    deep.get_by_label('账户',exact=True).fill(creds['username']);deep.get_by_label('当前口令',exact=True).fill(creds['password'])
+    deep.get_by_role('button',name='登录',exact=True).click()
+    expect(deep.get_by_text(req['request_number'],exact=True)).to_be_visible()
+    assert deep.url.endswith('/approval/'+rid)
+    context.close()
     assert not errors,errors
     browser.close()
 # Expiry, logout, administrative revocation/disable and single-use pairing.
@@ -86,6 +94,15 @@ with transaction() as conn:conn.execute("UPDATE notification_device SET pair_exp
 anon.call('POST','/notifications/desktop/redeem',{'code':code},expected=(401,))
 admin.post('/notifications/disconnect');ad.call('GET','/notifications/desktop/poll',expected=(401,))
 engineer.post('/auth/logout');ed.call('GET','/notifications/desktop/poll',expected=(401,))
+# Disabling an account and expiring the linked session also stop delivery.
+active,_=smoke.login(creds['username'],creds['password']);disabled=bind(active)
+admin.patch('/admin/users/'+eid,{'is_active':False})
+disabled.call('GET','/notifications/desktop/poll',expected=(401,))
+admin.patch('/admin/users/'+eid,{'is_active':True})
+active,_=smoke.login(creds['username'],creds['password']);expired=bind(active)
+sid=active.get('/auth/me')['session_id']
+with transaction() as conn:conn.execute("UPDATE user_session SET expires_at=now()-interval '1 second' WHERE id=%s",(sid,))
+expired.call('GET','/notifications/desktop/poll',expected=(401,))
 # Event creation rolls back with its business transaction.
 with transaction() as conn:
     before=scalar(conn,'SELECT count(*) FROM notification')
