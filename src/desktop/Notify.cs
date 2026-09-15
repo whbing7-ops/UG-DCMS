@@ -103,7 +103,11 @@ sealed class NotifyForm:Form {
         catch(Exception){status.Text="暂时无法连接服务器，15秒后重试。消息会保留，恢复连接后继续提醒。";}
         finally{polling=false;}
     }
-    async Task Quit(){timer.Stop();closing=true;tray.Visible=false;tray.Dispose();if(client!=null)client.Dispose();await Task.FromResult(0);Close();}
+    async Task Quit(){
+        timer.Stop();closing=true;tray.Visible=false;tray.Dispose();
+        if(client!=null){try{if(client.Token!=null)await client.Call<object>("logout",new{});}catch{}client.Dispose();}
+        Close();
+    }
     [STAThread] public static int Main(string[] args){
         ServicePointManager.SecurityProtocol=SecurityProtocolType.Tls12;
         if(args.Length==3&&args[0]=="--http-test"){

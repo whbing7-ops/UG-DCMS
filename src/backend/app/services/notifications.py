@@ -14,7 +14,7 @@ VISIBLE = """(n.kind<>'PENDING' OR (r.status='PENDING' AND r.submission_round=n.
 def messages(conn,user_id,limit=30):
     return fetch_all(conn,f'''SELECT n.id,n.title,n.body,n.kind,n.created_at,n.read_at,n.request_id,
        '#/approval/'||n.request_id AS url FROM notification n JOIN approval_request r ON r.id=n.request_id
-       WHERE n.user_id=%s AND {VISIBLE} ORDER BY n.id DESC LIMIT %s''',(user_id,limit))
+       WHERE n.user_id=%s AND {VISIBLE} ORDER BY (n.read_at IS NOT NULL),n.id DESC LIMIT %s''',(user_id,limit))
 
 def unread(conn,user_id):
     return scalar(conn,f'''SELECT count(*) FROM notification n JOIN approval_request r ON r.id=n.request_id

@@ -30,3 +30,10 @@ def poll(conn:Conn,authorization:str|None=Header(default=None)):return svc.poll(
 @router.post('/desktop/ack')
 def ack(payload:Ids,conn:Conn,authorization:str|None=Header(default=None)):
     return svc.acknowledge(conn,svc.device(conn,authorization),payload.ids)
+
+@router.post('/desktop/logout')
+def desktop_logout(conn:Conn,authorization:str|None=Header(default=None)):
+    from ..db import execute
+    d=svc.device(conn,authorization)
+    execute(conn,'UPDATE notification_device SET revoked_at=now() WHERE id=%s',(d['id'],))
+    return {'ok':True}

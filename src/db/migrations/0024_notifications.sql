@@ -1,5 +1,5 @@
 -- Durable per-recipient messages; desktop delivery and user reading are separate.
-CREATE TABLE notification (
+CREATE TABLE IF NOT EXISTS notification (
  id bigserial PRIMARY KEY,
  user_id uuid NOT NULL REFERENCES app_user(id),
  request_id uuid NOT NULL REFERENCES approval_request(id),
@@ -14,8 +14,8 @@ CREATE TABLE notification (
  lease_owner uuid,
  UNIQUE(user_id,request_id,submission_round,kind)
 );
-CREATE INDEX idx_notification_user ON notification(user_id,id DESC);
-CREATE TABLE notification_device (
+CREATE INDEX IF NOT EXISTS idx_notification_user ON notification(user_id,id DESC);
+CREATE TABLE IF NOT EXISTS notification_device (
  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
  session_id uuid NOT NULL REFERENCES user_session(id),
  pair_hash text UNIQUE,
@@ -26,7 +26,7 @@ CREATE TABLE notification_device (
  revoked_at timestamptz
 );
 
-CREATE FUNCTION dcms_notify_pending() RETURNS trigger LANGUAGE plpgsql AS $$
+CREATE OR REPLACE FUNCTION dcms_notify_pending() RETURNS trigger LANGUAGE plpgsql AS $$
 DECLARE req approval_request;
 BEGIN
  SELECT * INTO req FROM approval_request WHERE id=NEW.approval_request_id;
@@ -40,10 +40,11 @@ BEGIN
  END IF;
  RETURN NEW;
 END $$;
+DROP TRIGGER IF EXISTS trg_notification_pending ON approval_step;
 CREATE TRIGGER trg_notification_pending AFTER INSERT OR UPDATE ON approval_step
 FOR EACH ROW EXECUTE FUNCTION dcms_notify_pending();
 
-CREATE FUNCTION dcms_notify_result() RETURNS trigger LANGUAGE plpgsql AS $$
+CREATE OR REPLACE FUNCTION dcms_notify_result() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
  IF NEW.status IS DISTINCT FROM OLD.status AND NEW.status IN ('APPROVED','REJECTED','RETURNED') THEN
    INSERT INTO notification(user_id,request_id,submission_round,kind,title,body)
@@ -53,6 +54,7 @@ BEGIN
  END IF;
  RETURN NEW;
 END $$;
+DROP TRIGGER IF EXISTS trg_notification_result ON approval_request;
 CREATE TRIGGER trg_notification_result AFTER UPDATE ON approval_request
 FOR EACH ROW EXECUTE FUNCTION dcms_notify_result();
 
