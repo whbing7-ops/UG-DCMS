@@ -108,7 +108,7 @@ with sync_playwright() as playwright:
         engineer.call('POST',path+'/submit',{'approver_user_id':admin_id},expected=(400,))
         admin.call('POST','/approvals/'+rid+'/withdraw?reason=foreign',expected=(403,))
         page.goto('http://127.0.0.1:8080/#/approval/'+rid)
-        with page.expect_response(lambda r:r.url.endswith('/withdraw')) as withdrawn:
+        with page.expect_response(lambda r:r.url.split('?')[0].endswith('/withdraw')) as withdrawn:
             page.get_by_role('button',name='撤回修改',exact=True).click()
         assert withdrawn.value.status==200,withdrawn.value.text()
         assert engineer.get(path)['can_edit']
@@ -123,11 +123,16 @@ with sync_playwright() as playwright:
         req=submit(kind,oid);assert req['id']==rid and req['submission_round']==3
         engineer.post('/approvals/'+rid+'/cancel?reason=取消后修订')
         req=submit(kind,oid);assert req['id']==rid and req['submission_round']==4
+        admin.post('/approvals/'+rid+'/return?reason=退回补充资料')
+        assert engineer.get(path)['can_edit']
+        req=submit(kind,oid);assert req['id']==rid and req['submission_round']==5
         detail=engineer.get('/approvals/'+rid)
-        assert [h['snapshot']['status'] for h in detail['history']]==['CANCELLED','REJECTED','CANCELLED']
+        assert [h['snapshot']['status'] for h in detail['history']]==['CANCELLED','REJECTED','CANCELLED','RETURNED']
         assert detail['history'][1]['snapshot']['steps'][0]['comments']=='本轮需修订'
         assert detail['history'][0]['snapshot']['payload']['submitted_object']['object'][field]=='【模拟数据】提交前最后修改-'+kind
         assert detail['payload']['submitted_object']['object'][field]=='【模拟数据】驳回后修改-'+kind
+        with transaction() as conn:
+            assert scalar(conn,'SELECT count(*) FROM approval_step WHERE approval_request_id=%s',(rid,))==5
         # A final decision and withdrawal race must never both succeed.
         if kind=='SOFTWARE_VERSION':
             def race(client,url):
@@ -162,6 +167,10 @@ with sync_playwright() as playwright:
     assert not errors,errors
     browser.close()
 with transaction() as conn:
+    conn.execute('SAVEPOINT step_guard')
+    try:conn.execute("DELETE FROM approval_step WHERE submission_round=1")
+    except Exception:conn.execute('ROLLBACK TO SAVEPOINT step_guard')
+    else:raise AssertionError('original approval steps can be deleted')
     conn.execute('SAVEPOINT history_guard')
     try:conn.execute("UPDATE approval_round_history SET snapshot='{}'::jsonb")
     except Exception:conn.execute('ROLLBACK TO SAVEPOINT history_guard')

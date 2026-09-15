@@ -127,7 +127,7 @@ def get_baseline(conn: psycopg.Connection, baseline_id: str) -> dict | None:
         SELECT db.*, pn.full_part_number, pn.formal_name_cn,
                aps.assignee_user_id AS approval_assignee_user_id
           FROM design_baseline db JOIN part_number pn ON pn.id = db.part_number_id
-          LEFT JOIN approval_step aps ON aps.approval_request_id=db.approval_request_id
+          LEFT JOIN current_approval_step aps ON aps.approval_request_id=db.approval_request_id
             AND aps.decision='PENDING'
          WHERE db.id = %s
     """, (baseline_id,))
@@ -450,7 +450,7 @@ def release(conn: psycopg.Connection, baseline_id: str, comments: str,
 
     # INV-025 由 trg_approval_separation 拦截自批
     execute(conn, """
-        UPDATE approval_step SET decision='APPROVED', decided_by=%s, acted_at=now(),
+        UPDATE current_approval_step SET decision='APPROVED', decided_by=%s, acted_at=now(),
                comments=%s WHERE approval_request_id=%s AND is_final
     """, (actor["user_id"], comments, bl["approval_request_id"]))
     execute(conn, "UPDATE approval_request SET status='APPROVED', closed_at=now() WHERE id=%s",

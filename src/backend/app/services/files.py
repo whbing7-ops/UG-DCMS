@@ -149,7 +149,7 @@ def get_revision(conn: psycopg.Connection, revision_id: str) -> dict | None:
         SELECT fr.*, df.file_number, df.title_cn, df.file_type_code,
                aps.assignee_user_id AS approval_assignee_user_id
           FROM file_revision fr JOIN design_file df ON df.id = fr.design_file_id
-          LEFT JOIN approval_step aps ON aps.approval_request_id=fr.approval_request_id
+          LEFT JOIN current_approval_step aps ON aps.approval_request_id=fr.approval_request_id
             AND aps.decision='PENDING'
          WHERE fr.id = %s
     """, (revision_id,))
@@ -209,7 +209,7 @@ def release_revision(conn: psycopg.Connection, revision_id: str, comments: str,
 
     # INV-025 由 trg_approval_separation 在此拦下自批
     execute(conn, """
-        UPDATE approval_step SET decision='APPROVED', decided_by=%s, acted_at=now(),
+        UPDATE current_approval_step SET decision='APPROVED', decided_by=%s, acted_at=now(),
                comments=%s WHERE approval_request_id=%s AND is_final
     """, (actor["user_id"], comments, rev["approval_request_id"]))
     execute(conn, "UPDATE approval_request SET status='APPROVED', closed_at=now() WHERE id=%s",

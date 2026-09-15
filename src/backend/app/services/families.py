@@ -196,7 +196,7 @@ def approve_family(conn: psycopg.Connection, family_id: str, comments: str,
 
     # INV-025 由数据库触发器强制; 这里的写入若违反会被直接拒绝
     execute(conn, """
-        UPDATE approval_step
+        UPDATE current_approval_step
            SET decision = 'APPROVED', decided_by = %s, acted_at = now(), comments = %s
          WHERE approval_request_id = %s AND is_final
     """, (actor["user_id"], comments, fam["approval_request_id"]))
@@ -234,7 +234,7 @@ def get_family(conn: psycopg.Connection, family_id: str) -> dict | None:
           JOIN physical_class pc ON pc.id = f.physical_class_id
           JOIN naming_core_term ct ON ct.id = f.core_term_id
           LEFT JOIN function_item fi ON fi.id = f.primary_function_id
-          LEFT JOIN approval_step aps ON aps.approval_request_id=f.approval_request_id
+          LEFT JOIN current_approval_step aps ON aps.approval_request_id=f.approval_request_id
             AND aps.decision='PENDING'
          WHERE f.id = %s
     """, (family_id,))

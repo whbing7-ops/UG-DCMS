@@ -64,7 +64,6 @@ def open_request(conn, *, kind, oid, request_type, code, title, actor, payload=N
         snapshot.pop('history',None)
         execute(conn,'INSERT INTO approval_round_history(approval_request_id,submission_round,snapshot) VALUES(%s,%s,%s::jsonb)',
             (prior['id'],prior['submission_round'],json.dumps(snapshot,ensure_ascii=False,default=str)))
-        execute(conn,'DELETE FROM approval_step WHERE approval_request_id=%s',(prior['id'],))
         return fetch_one(conn,"""UPDATE approval_request SET status='PENDING',requested_at=now(),closed_at=NULL,
             closure_action=NULL,closure_reason=NULL,submission_round=submission_round+1,title=%s,object_code=%s,payload=%s::jsonb
             WHERE id=%s RETURNING id,request_number,status,submission_round""",(title,code,content,prior['id']))
@@ -134,7 +133,7 @@ def require_assignee(conn: psycopg.Connection, request_id: str, actor_id: str) -
     req = lock_request(conn, request_id)
     if req['status'] != 'PENDING': raise ValueError('审批已结束或撤回，请刷新页面')
     step = fetch_one(conn, """
-        SELECT assignee_user_id FROM approval_step
+        SELECT assignee_user_id FROM current_approval_step
          WHERE approval_request_id=%s AND decision='PENDING'
          ORDER BY step_order LIMIT 1
     """, (request_id,))
@@ -159,7 +158,7 @@ def _base_query() -> str:
           JOIN app_user u ON u.id = ar.requester_id
           LEFT JOIN software_version sv ON ar.object_type='SOFTWARE_VERSION' AND sv.id=ar.object_id
           LEFT JOIN software_object so ON so.id=sv.software_object_id
-          LEFT JOIN approval_step s ON s.approval_request_id = ar.id
+          LEFT JOIN current_approval_step s ON s.approval_request_id = ar.id
                                    AND s.decision = 'PENDING'
           LEFT JOIN app_user du ON du.id = s.decided_by
     """
@@ -217,7 +216,7 @@ def get_request(conn: psycopg.Connection, request_id: str) -> dict | None:
                s.assignee_user_id, s.decision, s.comments, s.acted_at,
                u.username AS decided_by_username, au.username AS assignee_username,
                au.full_name AS assignee_name
-          FROM approval_step s LEFT JOIN app_user u ON u.id = s.decided_by
+          FROM current_approval_step s LEFT JOIN app_user u ON u.id = s.decided_by
           LEFT JOIN app_user au ON au.id=s.assignee_user_id
          WHERE s.approval_request_id = %s ORDER BY s.step_order
     """, (request_id,))
@@ -242,7 +241,7 @@ def _decide(conn: psycopg.Connection, request_id: str, decision: str,
 
     # 数据库触发器 trg_approval_separation 会在此拒绝申请人自批(INV-025)
     execute(conn, """
-        UPDATE approval_step SET decision=%s, decided_by=%s, acted_at=now(), comments=%s
+        UPDATE current_approval_step SET decision=%s, decided_by=%s, acted_at=now(), comments=%s
          WHERE id=%s
     """, (decision, actor["user_id"], comments, step["id"]))
 
@@ -329,7 +328,7 @@ def summary(conn: psycopg.Connection, user: dict) -> dict:
     return fetch_one(conn, """
         SELECT
           (SELECT count(*) FROM approval_request ar
-             JOIN approval_step s ON s.approval_request_id = ar.id AND s.decision='PENDING'
+             JOIN current_approval_step s ON s.approval_request_id = ar.id AND s.decision='PENDING'
             WHERE ar.status='PENDING' AND ar.requester_id <> %s
               AND ((s.assignee_user_id IS NOT NULL AND s.assignee_user_id=%s)
                    OR (s.assignee_user_id IS NULL AND s.required_role_code=ANY(%s)))) AS inbox,

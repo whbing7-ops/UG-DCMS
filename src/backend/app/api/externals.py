@@ -408,7 +408,7 @@ def send_back(request_id: str, conn: Conn,
 @router.post("/approvals/{request_id}/withdraw")
 def withdraw(request_id: str, conn: Conn, user: CurrentUser,
              reason: str = Query(..., min_length=1, max_length=500)):
-    """撤回自己发起且尚无人决定的申请。"""
+    """撤回自己发起且尚未最终批准的申请。"""
     try:
         return ap_svc.withdraw(conn, request_id, reason, user)
     except LookupError as e:

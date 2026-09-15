@@ -177,7 +177,7 @@ def get_external(conn: psycopg.Connection, object_code: str) -> dict | None:
                aps.assignee_user_id AS approval_assignee_user_id
           FROM external_part_project_control c
           LEFT JOIN app_user u ON u.id=c.approved_by
-          LEFT JOIN approval_step aps ON aps.approval_request_id=c.approval_request_id
+          LEFT JOIN current_approval_step aps ON aps.approval_request_id=c.approval_request_id
             AND aps.decision='PENDING'
          WHERE c.external_part_id=%s ORDER BY project_code
     """, (ep["id"],))
@@ -194,7 +194,7 @@ def technical_states(conn: psycopg.Connection, external_part_id: str) -> list[di
                  WHERE bi.external_technical_state_id = ets.id) AS baseline_refs
           FROM external_technical_state ets
           LEFT JOIN app_user u ON u.id = ets.accepted_by
-          LEFT JOIN approval_step aps ON aps.approval_request_id=ets.approval_request_id
+          LEFT JOIN current_approval_step aps ON aps.approval_request_id=ets.approval_request_id
             AND aps.decision='PENDING'
          WHERE ets.external_part_id = %s
          ORDER BY ets.state_sequence DESC
@@ -282,7 +282,7 @@ def accept_technical_state(conn: psycopg.Connection, state_id: str, comments: st
          WHERE id=%s
         RETURNING id, state_sequence, supplier_revision, status, accepted_at
     """, (actor["user_id"], comments, state_id))
-    execute(conn, """UPDATE approval_step SET decision='APPROVED', decided_by=%s,
+    execute(conn, """UPDATE current_approval_step SET decision='APPROVED', decided_by=%s,
       acted_at=now(), comments=%s WHERE approval_request_id=%s AND decision='PENDING'""",
       (actor["user_id"], comments, st["approval_request_id"]))
     execute(conn, "UPDATE approval_request SET status='APPROVED',closed_at=now() WHERE id=%s",
@@ -391,7 +391,7 @@ def approve_project_control(conn: psycopg.Connection, control_id: str, comments:
     if not c: raise LookupError("项目准入记录不存在")
     if c["status"]!="IN_REVIEW": raise ValueError("只有审核中状态可批准")
     approvals.require_assignee(conn,str(c["approval_request_id"]),str(actor["user_id"]))
-    execute(conn,"""UPDATE approval_step SET decision='APPROVED',decided_by=%s,
+    execute(conn,"""UPDATE current_approval_step SET decision='APPROVED',decided_by=%s,
       acted_at=now(),comments=%s WHERE approval_request_id=%s AND is_final""",
       (actor["user_id"],comments,c["approval_request_id"]))
     execute(conn,"UPDATE approval_request SET status='APPROVED',closed_at=now() WHERE id=%s",(c["approval_request_id"],))
@@ -468,7 +468,7 @@ def get_software(conn: psycopg.Connection, software_number: str) -> dict | None:
                (SELECT count(*) FROM baseline_item bi WHERE bi.software_version_id = sv.id)
                  AS baseline_refs
           FROM software_version sv
-          LEFT JOIN approval_step aps ON aps.approval_request_id=sv.approval_request_id
+          LEFT JOIN current_approval_step aps ON aps.approval_request_id=sv.approval_request_id
             AND aps.decision='PENDING'
          WHERE sv.software_object_id = %s
          ORDER BY sv.created_at DESC
@@ -656,7 +656,7 @@ def release_version(conn: psycopg.Connection, version_id: str, comments: str,
         UPDATE software_version SET status='RELEASED', released_at=now(), released_by=%s
          WHERE id=%s RETURNING id, version, build, status, released_at
     """, (actor["user_id"], version_id))
-    execute(conn,"""UPDATE approval_step SET decision='APPROVED',decided_by=%s,
+    execute(conn,"""UPDATE current_approval_step SET decision='APPROVED',decided_by=%s,
       acted_at=now(),comments=%s WHERE approval_request_id=%s AND decision='PENDING'""",
       (actor["user_id"],comments,sv["approval_request_id"]))
     execute(conn,"UPDATE approval_request SET status='APPROVED',closed_at=now() WHERE id=%s",
