@@ -11,6 +11,7 @@ import * as V5 from "./views5.js";
 import { accounts, bomHub, roles } from "./manage.js";
 import { diagnostics, auditPage, backupPage } from "./extras.js";
 
+import { draftEditor } from './drafts.js';
 import { designMaterials } from './design-materials.js';
 
 const root = document.getElementById("root");
@@ -19,6 +20,7 @@ let renderVersion = 0;
 
 /* 路由表。顺序即匹配顺序, 静态路径在前。 */
 const ROUTES = [
+  ["/draft/:kind/:id", draftEditor],
   ["/",                    V1.home],
   ["/search",              V1.search],
   ["/families",            V2.families],
@@ -159,7 +161,7 @@ function changePasswordView() {
 function shell(content) {
   const path = (location.hash.slice(1).split("?")[0]) || "/";
   const rail = el("aside", { class: "rail" },
-    el("div", { class: "brand" }, "UG-DCMS", el("small", {}, "设计构型管理 · rc2.39")),
+    el("div", { class: "brand" }, "UG-DCMS", el("small", {}, "设计构型管理 · rc2.40")),
     el("nav", { class: "nav" }, NAV.map(g => [
       el("h4", {}, g.group),
       g.items.map(([href, label, icon]) =>

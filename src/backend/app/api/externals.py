@@ -383,7 +383,7 @@ def get_request(request_id: str, conn: Conn, user: CurrentUser):
 def reject(request_id: str, conn: Conn,
            reason: str = Query(..., min_length=1, max_length=500),
            actor: dict = Depends(require(Perm.APPROVE))):
-    """拒绝。申请就此结束，申请人需另起新申请。"""
+    """驳回本轮，申请人可修改后再次提交。"""
     try:
         return ap_svc.reject(conn, request_id, reason, actor)
     except LookupError as e:
@@ -417,3 +417,13 @@ def withdraw(request_id: str, conn: Conn, user: CurrentUser,
         raise errors.forbidden(str(e))
     except ValueError as e:
         raise errors.bad_request(str(e))
+
+
+@router.post("/approvals/{request_id}/cancel")
+def cancel(request_id: str, conn: Conn, user: CurrentUser,
+           reason: str = Query(..., min_length=1, max_length=500)):
+    try:
+        return ap_svc.withdraw(conn, request_id, reason, user, cancel=True)
+    except LookupError as e: raise errors.not_found(str(e))
+    except PermissionError as e: raise errors.forbidden(str(e))
+    except ValueError as e: raise errors.bad_request(str(e))

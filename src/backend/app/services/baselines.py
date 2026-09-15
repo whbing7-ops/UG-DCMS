@@ -198,6 +198,8 @@ def add_item(conn: psycopg.Connection, baseline_id: str, *, item_type: str,
              target: str, item_role: str | None, notes: str | None,
              actor: dict) -> dict:
     """向 DRAFT 基线添加一项。target 用可读标识而非内部 ID, 便于脚本与导入使用。"""
+    from . import drafts
+    drafts.require_editable(conn,'DESIGN_BASELINE',baseline_id,actor)
     bl = fetch_one(conn, "SELECT status, baseline_code, approval_request_id FROM design_baseline WHERE id=%s",
                    (baseline_id,))
     if bl is None:
@@ -281,6 +283,8 @@ def remove_item(conn: psycopg.Connection, item_id: str, actor: dict) -> None:
     """, (item_id,))
     if row is None:
         raise LookupError("基线明细不存在")
+    from . import drafts
+    drafts.require_editable(conn,'DESIGN_BASELINE',str(row['design_baseline_id']),actor)
     if row["status"] != "DRAFT":
         raise ValueError(f"基线状态为 {row['status']}, 明细不可删除 (INV-011)")
     execute(conn, "DELETE FROM baseline_item WHERE id=%s", (item_id,))
@@ -393,6 +397,8 @@ def content_hash(conn: psycopg.Connection, baseline_id: str) -> str:
 # ---------------------------------------------------------------------
 def submit(conn: psycopg.Connection, baseline_id: str, approver_user_id: str,
            actor: dict) -> dict:
+    from . import drafts
+    drafts.require_editable(conn,'DESIGN_BASELINE',baseline_id,actor)
     bl = get_baseline(conn, baseline_id)
     if bl is None:
         raise LookupError("基线不存在")
@@ -405,15 +411,7 @@ def submit(conn: psycopg.Connection, baseline_id: str, approver_user_id: str,
     approver = approvals.require_approver(conn, approver_user_id, actor["user_id"],
                                           "CONFIGURATION_MANAGER")
 
-    request_number = approvals.next_request_number(conn)
-    req = fetch_one(conn, """
-        INSERT INTO approval_request (request_number, request_type, object_type,
-                                      object_id, object_code, title, requester_id)
-        VALUES (%s,'BASELINE_RELEASE','DESIGN_BASELINE',%s,%s,%s,%s)
-        RETURNING id, request_number
-    """, (request_number, baseline_id,
-          f"{bl['full_part_number']} {bl['baseline_code']}",
-          f"发布基线 {bl['full_part_number']} {bl['baseline_code']}", actor["user_id"]))
+    req = approvals.open_request(conn,kind='DESIGN_BASELINE',oid=baseline_id,request_type='BASELINE_RELEASE',code=f"{bl['full_part_number']} {bl['baseline_code']}",title=f"发布基线 {bl['full_part_number']} {bl['baseline_code']}",actor=actor)
     execute(conn, """
         INSERT INTO approval_step (approval_request_id, step_order, step_name,
                                    required_role_code, assignee_user_id, is_final)
@@ -440,6 +438,8 @@ def release(conn: psycopg.Connection, baseline_id: str, comments: str,
     全部在一个事务内; part_number 的归属校验是延迟约束触发器, 到事务提交时才判定,
     因此中间态(旧基线已让位、新基线尚未成为 current)不会被误判为违规。
     """
+    from . import drafts
+    drafts.lock_object(conn,'DESIGN_BASELINE',baseline_id)
     bl = get_baseline(conn, baseline_id)
     if bl is None:
         raise LookupError("基线不存在")
@@ -501,6 +501,8 @@ def release(conn: psycopg.Connection, baseline_id: str, comments: str,
 
 
 def cancel(conn: psycopg.Connection, baseline_id: str, reason: str, actor: dict) -> None:
+    from . import drafts
+    drafts.require_editable(conn,'DESIGN_BASELINE',baseline_id,actor)
     bl = fetch_one(conn, "SELECT status, baseline_code, approval_request_id FROM design_baseline WHERE id=%s",
                    (baseline_id,))
     if bl is None:

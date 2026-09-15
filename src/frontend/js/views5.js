@@ -1,3 +1,4 @@
+import {workflowState, applicantActions, requestActions, draftListing} from './drafts.js';
 /* 外部件、软件对象、审批中心。 */
 import { api } from "./api.js";
 import { editor } from "./manage.js";
@@ -44,6 +45,8 @@ function approvalObjectLink(r, label = "打开对象办理") {
     return link(label, "#/software/" + encodeURIComponent(r.software_number) +
       "?version_id=" + encodeURIComponent(r.object_id), "btn small");
 
+  if (["EXTERNAL_TECHNICAL_STATE","EXTERNAL_PROJECT_CONTROL"].includes(r.object_type))
+    return link(label,"#/external/"+encodeURIComponent(r.object_code),"btn small");
   const routes = { BASIC_DRAWING_FAMILY: "/family/", FILE_REVISION: "/revision/", DESIGN_BASELINE: "/baseline/" };
   const route = routes[r.object_type];
   return route && r.object_id ? link(label, "#" + route + encodeURIComponent(r.object_id), "btn small") : null;
@@ -51,9 +54,10 @@ function approvalObjectLink(r, label = "打开对象办理") {
 
 /* ==================== 审批中心 ==================== */
 export async function approvals(ctx) {
-  const [inbox, mine] = await Promise.all([
+  const [inbox, mine, drafts] = await Promise.all([
     api.get("/approvals/inbox"),
     api.get("/approvals/mine", { query: { include_closed: true } }),
+    api.get("/drafts/mine"),
   ]);
 
   // 动作路径写成显式常量而非拼接: 前后端契约测试会扫描前端源码里的 API 路径,
@@ -78,6 +82,7 @@ export async function approvals(ctx) {
     el("p", { class: "sub" },
       "待办中不含你自己发起的申请——同一个人不能既申请又批准。"),
 
+    draftListing(drafts),
     inbox.length ? tablePanel(`待我处理 ${inbox.length} 项`,
       table([{ label: "申请单", mono: 1 }, { label: "类型" }, { label: "对象", mono: 1 },
              { label: "申请人" }, { label: "提交时间" }, { label: "" }],
@@ -93,7 +98,7 @@ export async function approvals(ctx) {
               act(r.id, "return", "退回补充", "需要补充什么？申请人改完可再次提交") }, "退回"),
             " ",
             el("button", { class: "btn small danger", onclick: () =>
-              act(r.id, "reject", "拒绝", "为什么这件事不该做？拒绝后需另起新申请") }, "拒绝"))]))
+              act(r.id, "reject", "拒绝", "请填写驳回原因，申请人可修改后再次提交") }, "拒绝"))]))
       : empty("没有待你处理的审批"),
 
     tablePanel("我发起的申请",
@@ -103,11 +108,11 @@ export async function approvals(ctx) {
           el("td", { class: "mono" }, link(r.request_number, "#/approval/" + r.id)),
           el("td", {}, requestTypeText(r)),
           el("td", { class: "mono" }, r.object_code || "—"),
-          el("td", {}, status(r.status)),
+          el("td", {}, r.closure_action==='WITHDRAW'?'已撤回':status(r.status)),
           el("td", { class: "muted nowrap" }, fmtDate(r.requested_at)),
-          el("td", { class: "right" }, r.status === "PENDING"
-            ? el("button", { class: "btn small", onclick: () =>
-                act(r.id, "withdraw", "撤回", "为什么撤回？") }, "撤回") : null)])
+          el("td", { class: "right" }, approvalObjectLink(r), ' ',
+            ['RETURNED','REJECTED','CANCELLED'].includes(r.status)?link('编辑后重新提交',`#/draft/${r.object_type}/${r.object_id}`,'btn small'):null,
+            r.status==='PENDING'?requestActions(r):null)])
       || empty("你还没有发起过申请")));
 }
 
@@ -127,6 +132,13 @@ export async function approvalDetail(ctx, params, id) {
         cell("申请人", r.requester_name),
         cell("提交时间", fmtDate(r.requested_at)),
         cell("结束时间", fmtDate(r.closed_at)))),
+    el('p',{},'当前第 '+(r.submission_round||1)+' 轮',r.closure_reason?' · '+r.closure_reason:''),
+    r.history?.length?panel('历次提交与审批',r.history.map(h=>el('details',{},
+      el('summary',{},'第 '+h.submission_round+' 轮 · '+statusText(h.snapshot.status)+' · '+fmtDate(h.snapshot.requested_at)),
+      el('p',{},h.snapshot.closure_reason||''),
+      (h.snapshot.steps||[]).map(s=>el('p',{},s.step_name+' · '+statusText(s.decision)+' · '+(s.comments||'')+' · '+fmtDate(s.acted_at)))))):null,
+    String(r.requester_id)===String(ctx.user.id)?el('div',{class:'actions'},r.status==='PENDING'?requestActions(r):
+      ['RETURNED','REJECTED','CANCELLED'].includes(r.status)?link('编辑后重新提交',`#/draft/${r.object_type}/${r.object_id}`,'btn'):null):null,
     tablePanel("审批步骤",
       table([{ label: "步骤" }, { label: "名称" }, { label: "指定审批人" }, { label: "要求角色" },
              { label: "最终步骤" }, { label: "结论" }, { label: "处理人" },
@@ -207,6 +219,8 @@ export async function externalParts(ctx, params) {
 
 export async function externalDetail(ctx, params, code) {
   const ep = await api.get("/external-parts/" + encodeURIComponent(code));
+  const stateWorkflows=Object.fromEntries(await Promise.all(ep.technical_states.map(async x=>[x.id,await workflowState('EXTERNAL_TECHNICAL_STATE',x.id)])));
+  const projectWorkflows=Object.fromEntries(await Promise.all((ep.project_controls||[]).map(async x=>[x.id,await workflowState('EXTERNAL_PROJECT_CONTROL',x.id)])));
   const softwarePanel = await hardwareSoftwarePanel(code);
   const revIn = input({ class: "mono", placeholder: "供应商版本，如 C" });
   const docIn = input({ placeholder: "供应商文件号" });
@@ -251,7 +265,7 @@ export async function externalDetail(ctx, params, code) {
           el("td",{class:"mono"},p.project_code), el("td",{},status(p.status)),
           el("td",{},p.applicability||"—"), el("td",{},p.evaluation_basis||"—"),
           el("td",{},p.approved_by_name||"—"), el("td",{class:"muted"},fmtDate(p.approved_at)),
-          el('td',{class:'right'},p.status==='DRAFT'&&ctx.can('submit')?approvalSubmitButton('提交审批',`/external-project-controls/${p.id}/submit`,reload):p.status==='IN_REVIEW'&&ctx.can('approve')&&String(p.approval_assignee_user_id||'')===String(ctx.user.id)?el('button',{class:'btn small primary',onclick:async()=>{try{await api.post(`/external-project-controls/${p.id}/approve`);toast('项目准入已批准');reload();}catch(e){toastError(e)}}},'批准'):null)])) : null,
+          el('td',{class:'right'},applicantActions(ctx,projectWorkflows[p.id]),projectWorkflows[p.id].can_edit&&ctx.can('submit')?approvalSubmitButton('提交审批',`/external-project-controls/${p.id}/submit`,reload):p.status==='IN_REVIEW'&&ctx.can('approve')&&String(p.approval_assignee_user_id||'')===String(ctx.user.id)?el('button',{class:'btn small primary',onclick:async()=>{try{await api.post(`/external-project-controls/${p.id}/approve`);toast('项目准入已批准');reload();}catch(e){toastError(e)}}},'批准'):null)])) : null,
     ctx.can("draft_write") ? panel("登记新技术状态", el("div", { class: "inline-form" },
       field("供应商版本", revIn), field("供应商文件号", docIn), field("文件日期", dateIn),
       el("div", { style: "flex:0 0 auto" }, el("button", { class: "btn primary",
@@ -276,7 +290,7 @@ export async function externalDetail(ctx, params, code) {
           el("td", {}, status(s.status)),
           el("td", { class: "mono" }, s.accepted_by_username || "—"),
           el("td", { class: "num" }, s.baseline_refs),
-          el("td", { class: "right nowrap" }, s.status === "DRAFT" && ctx.can("submit")
+          el("td", { class: "right nowrap" }, applicantActions(ctx,stateWorkflows[s.id]), stateWorkflows[s.id].can_edit && ctx.can("submit")
             ? approvalSubmitButton("提交审批",`/external-states/${s.id}/submit`,reload)
             : s.status === "IN_REVIEW" && ctx.can("approve") && String(s.approval_assignee_user_id||'')===String(ctx.user.id)
             ? [el("button", { class: "btn small primary", onclick: async () => {
@@ -336,6 +350,7 @@ export async function software(ctx, params) {
 
 export async function softwareDetail(ctx, params, num) {
   const so = await api.get("/software/" + encodeURIComponent(num));
+  const workflows=Object.fromEntries(await Promise.all(so.versions.map(async x=>[x.id,await workflowState('SOFTWARE_VERSION',x.id)])));
   const selectedId=params.get('version_id');
   const versions=selectedId ? so.versions.filter(v=>String(v.id)===selectedId) : so.versions;
   const vIn = input({ class: "mono", placeholder: "1.0.0" });
@@ -355,7 +370,7 @@ export async function softwareDetail(ctx, params, num) {
         cell("版本数", so.versions.length),
         cell("建立时间", fmtDate(so.created_at)))),
     el("div", { class: "note" },
-      "上传软件内容压缩包后，系统自动计算 SHA-256；审批和发布后交付包不可替换。"),
+      "上传软件内容压缩包后，系统自动计算 SHA-256；审核中交付包不可替换；撤回或驳回后可编辑、替换再提交，已发布版本保持冻结。"),
     selectedId ? el('div',{class:'note'},'当前显示指定软件版本。 ',
       link('查看全部软件版本','#/software/'+encodeURIComponent(num))) : null,
     selectedId && !versions.length ? empty('指定软件版本不存在','请返回软件对象查看版本清单。') : null,
@@ -380,7 +395,7 @@ export async function softwareDetail(ctx, params, num) {
           el("td", {}, status(v.status)),
           el("td", { class: "muted nowrap" }, fmtDate(v.released_at)),
           el("td", { class: "num" }, v.baseline_refs),
-          el("td", { class: "right" }, v.status === "DRAFT" && ctx.can("submit")
+          el("td", { class: "right" }, applicantActions(ctx,workflows[v.id]), workflows[v.id].can_edit && ctx.can("submit")
             ? approvalSubmitButton("提交审批",`/software-versions/${v.id}/submit`,reload)
             : v.status === "IN_REVIEW" && ctx.can("approve") && String(v.approval_assignee_user_id||'')===String(ctx.user.id)
             ? el("button", { class: "btn small primary", onclick: async () => {
@@ -389,5 +404,5 @@ export async function softwareDetail(ctx, params, num) {
                       toast("已发布"); reload(); }
                 catch (e) { toastError(e); } } }, "发布") : null)])
       || empty("还没有版本")),
-    versions.map(v=>softwareHardwarePanel(ctx,v,reload)));
+    versions.map(v=>softwareHardwarePanel(ctx,{...v,can_edit:workflows[v.id].can_edit},reload)));
 }

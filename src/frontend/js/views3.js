@@ -1,3 +1,4 @@
+import {workflowState, applicantActions} from './drafts.js';
 /* BOM、设计文件、基线、数据质量、报表、系统管理。 */
 import { api } from "./api.js";
 import { editLine, rulePanel, snapshotTools, createApplicability } from "./bom-tools.js";
@@ -314,8 +315,9 @@ export async function fileDetail(ctx, params, num) {
 }
 
 export async function revisionDetail(ctx, params, id) {
+  const workflow=await workflowState('FILE_REVISION',id);
   const r = await api.get("/revisions/" + id);
-  const editable = r.status === "WORKING";
+  const editable = workflow.can_edit;
   const fileIn = el("input", { type: "file" });
   const roleSel = select([
     { value: "RELEASED_PDF", label: "发布用 PDF" },
@@ -326,7 +328,8 @@ export async function revisionDetail(ctx, params, id) {
   ]);
 
   const acts = el("div", { class: "actions" });
-  if (r.status === "WORKING" && ctx.can("submit"))
+  acts.append(applicantActions(ctx,workflow));
+  if (workflow.can_edit && ctx.can("submit"))
     acts.append(approvalSubmitButton("提交审核", `/revisions/${id}/submit`, reload));
   if (r.status === "IN_REVIEW" && ctx.can("approve") && String(r.approval_assignee_user_id||'')===String(ctx.user.id))
     acts.append(el("button", { class: "btn primary", onclick: async () => {

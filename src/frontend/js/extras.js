@@ -14,7 +14,7 @@ export function reasonAction(label, path, after, method = 'post') {
   } }, label);
 }
 
-export function approvalSubmitButton(label, path, after, requiredRole = 'APPROVER') {
+export function approvalSubmitButton(label, path, after, requiredRole = 'APPROVER', beforeSubmit = null) {
   return el('button', { class: 'btn', onclick: async () => {
     try {
       const candidates = await api.get('/approvals/candidates', { query: { required_role: requiredRole } });
@@ -26,6 +26,7 @@ export function approvalSubmitButton(label, path, after, requiredRole = 'APPROVE
       editor(label, el('div', {}, field('审批人', approver),
         el('p', { class: 'muted' }, '仅显示启用、具备审批权限且不是发起人本人的账户。')),
       async () => {
+        if(beforeSubmit) await beforeSubmit();
         await api.post(path, { json: { approver_user_id: approver.value } });
         toast('已提交给所选审批人'); await after();
       }, { submit: '确认提交' });

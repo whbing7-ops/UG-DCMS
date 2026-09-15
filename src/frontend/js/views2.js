@@ -1,3 +1,4 @@
+import {workflowState, applicantActions} from './drafts.js';
 /* 设计族向导、发号、BOM、文件、基线、质量、管理。 */
 import { api } from "./api.js";
 import { transferActions } from "./master-transfer.js";
@@ -198,6 +199,7 @@ export async function familyNew() {
 
 /* ==================== 设计族详情 ==================== */
 export async function familyDetail(ctx, params, id) {
+  const workflow=await workflowState('BASIC_DRAWING_FAMILY',id);
   const fam = await api.get("/families/" + id);
   const [dashes, numbers] = await Promise.all([
     api.get(`/families/${id}/dashes`),
@@ -208,8 +210,9 @@ export async function familyDetail(ctx, params, id) {
     el("b", {}, l), el("span", { class: mono ? "mono" : null }, v ?? "—"));
 
   const acts = el("div", { class: "actions" });
+  acts.append(applicantActions(ctx,workflow));
   if (fam.status === "PENDING") {
-    if (ctx.can("submit") && !fam.approval_request_id)
+    if (ctx.can("submit") && workflow.can_edit)
       acts.append(approvalSubmitButton("提交审批", `/families/${id}/submit`, reload));
     if (ctx.can("approve") && String(fam.approval_assignee_user_id||'')===String(ctx.user.id))
       acts.append(el("button", { class: "btn primary", onclick: async () => {

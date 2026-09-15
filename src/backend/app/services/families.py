@@ -143,6 +143,8 @@ def submit_family(conn: psycopg.Connection, family_id: str, approver_user_id: st
     (申请人不得作为最终批准人)的数据库触发器真正参与进来 —— 权限分离若只写在
     应用层, 绕过应用直连数据库就失效了。
     """
+    from . import drafts
+    drafts.require_editable(conn,'BASIC_DRAWING_FAMILY',family_id,actor)
     fam = get_family(conn, family_id)
     if fam is None:
         raise LookupError("设计族不存在")
@@ -153,16 +155,7 @@ def submit_family(conn: psycopg.Connection, family_id: str, approver_user_id: st
     from . import approvals
     approver = approvals.require_approver(conn, approver_user_id, actor["user_id"])
 
-    request_number = approvals.next_request_number(conn)
-    req = fetch_one(conn, """
-        INSERT INTO approval_request
-            (request_number, request_type, object_type, object_id, object_code,
-             title, requester_id)
-        VALUES (%s, 'BASIC_DRAWING_NUMBER', 'BASIC_DRAWING_FAMILY', %s, %s, %s, %s)
-        RETURNING id, request_number, status
-    """, (request_number, family_id, fam["family_name_cn"],
-          f"新建设计族: {fam['family_name_cn']}", actor["user_id"]))
-
+    req = approvals.open_request(conn,kind='BASIC_DRAWING_FAMILY',oid=family_id,request_type='BASIC_DRAWING_NUMBER',code=fam['family_name_cn'],title=f"新建设计族: {fam['family_name_cn']}",actor=actor)
     execute(conn, """
         INSERT INTO approval_step
             (approval_request_id, step_order, step_name, required_role_code,
@@ -189,6 +182,8 @@ def approve_family(conn: psycopg.Connection, family_id: str, comments: str,
     审批决定先写, 让 trg_approval_separation 有机会在此拦下"自己批自己"(INV-025);
     通过之后才发号, 保证被否决的族不占号。
     """
+    from . import drafts
+    drafts.lock_object(conn,'BASIC_DRAWING_FAMILY',family_id)
     fam = get_family(conn, family_id)
     if fam is None:
         raise LookupError("设计族不存在")

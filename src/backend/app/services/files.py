@@ -157,6 +157,8 @@ def get_revision(conn: psycopg.Connection, revision_id: str) -> dict | None:
 
 def submit_revision(conn: psycopg.Connection, revision_id: str, approver_user_id: str,
                     actor: dict) -> dict:
+    from . import drafts
+    drafts.require_editable(conn,'FILE_REVISION',revision_id,actor)
     rev = get_revision(conn, revision_id)
     if rev is None:
         raise LookupError("版次不存在")
@@ -167,16 +169,7 @@ def submit_revision(conn: psycopg.Connection, revision_id: str, approver_user_id
     from . import approvals
     approver = approvals.require_approver(conn, approver_user_id, actor["user_id"])
 
-    request_number = approvals.next_request_number(conn)
-    req = fetch_one(conn, """
-        INSERT INTO approval_request
-            (request_number, request_type, object_type, object_id, object_code,
-             title, requester_id)
-        VALUES (%s,'FILE_REVISION_RELEASE','FILE_REVISION',%s,%s,%s,%s)
-        RETURNING id, request_number
-    """, (request_number, revision_id,
-          f"{rev['file_number']} Rev.{rev['revision_number']}",
-          f"发布 {rev['file_number']} Rev.{rev['revision_number']}", actor["user_id"]))
+    req = approvals.open_request(conn,kind='FILE_REVISION',oid=revision_id,request_type='FILE_REVISION_RELEASE',code=f"{rev['file_number']} Rev.{rev['revision_number']}",title=f"发布 {rev['file_number']} Rev.{rev['revision_number']}",actor=actor)
     execute(conn, """
         INSERT INTO approval_step (approval_request_id, step_order, step_name,
                                    required_role_code, assignee_user_id, is_final)
@@ -204,6 +197,8 @@ def release_revision(conn: psycopg.Connection, revision_id: str, comments: str,
     发布后本版次内容即冻结(INV-007), 上一发布版次转为 SUPERSEDED。
     **不触碰任何 P/N 的 current_baseline_id** — INV-014。
     """
+    from . import drafts
+    drafts.lock_object(conn,'FILE_REVISION',revision_id)
     rev = get_revision(conn, revision_id)
     if rev is None:
         raise LookupError("版次不存在")
@@ -255,6 +250,8 @@ def release_revision(conn: psycopg.Connection, revision_id: str, comments: str,
 
 def cancel_revision(conn: psycopg.Connection, revision_id: str, reason: str,
                     actor: dict) -> None:
+    from . import drafts
+    drafts.require_editable(conn,'FILE_REVISION',revision_id,actor)
     rev = get_revision(conn, revision_id)
     if rev is None:
         raise LookupError("版次不存在")
@@ -288,6 +285,8 @@ def upload_attachment(conn: psycopg.Connection, revision_id: str, *, role: str,
                       filename: str, mime_type: str, content: bytes,
                       actor: dict) -> dict:
     """为工作版次上传附件。已发布版次由 trg_revision_attachment_guard 拒绝。"""
+    from . import drafts
+    drafts.require_editable(conn,'FILE_REVISION',revision_id,actor)
     rev = get_revision(conn, revision_id)
     if rev is None:
         raise LookupError("版次不存在")
@@ -356,6 +355,8 @@ def delete_attachment(conn: psycopg.Connection, attachment_id: str, actor: dict,
     """, (attachment_id,))
     if row is None:
         raise LookupError("附件不存在")
+    from . import drafts
+    drafts.require_editable(conn,'FILE_REVISION',str(row['file_revision_id']),actor)
     # 已发布版次的删除由数据库触发器拒绝; 这里先给出可读提示
     if row["rev_status"] != "WORKING":
         raise ValueError(f"版次状态为 {row['rev_status']}, 附件不得删除；退回后方可修改")

@@ -251,6 +251,8 @@ def accept_technical_state(conn: psycopg.Connection, state_id: str, comments: st
     接受新状态时, 上一个已接受状态转为 SUPERSEDED —— 同一外部件同时只应有一个
     「当前认可版本」, 否则引用时无从判断该用哪个。
     """
+    from . import drafts
+    drafts.lock_object(conn,'EXTERNAL_TECHNICAL_STATE',state_id)
     st = fetch_one(conn, """
         SELECT ets.*, ep.external_part_number, d.object_code
           FROM external_technical_state ets
@@ -305,6 +307,8 @@ def accept_technical_state(conn: psycopg.Connection, state_id: str, comments: st
 
 def submit_technical_state(conn: psycopg.Connection, state_id: str,
                            approver_user_id: str, actor: dict) -> dict:
+    from . import drafts
+    drafts.require_editable(conn,'EXTERNAL_TECHNICAL_STATE',state_id,actor)
     from . import approvals
     st=fetch_one(conn,"""SELECT ets.*,d.object_code FROM external_technical_state ets
       JOIN external_part ep ON ep.id=ets.external_part_id
@@ -312,11 +316,7 @@ def submit_technical_state(conn: psycopg.Connection, state_id: str,
     if not st: raise LookupError("技术状态不存在")
     if st["status"]!="DRAFT": raise ValueError("只有草稿技术状态可提交")
     approver=approvals.require_approver(conn,approver_user_id,actor["user_id"])
-    number=approvals.next_request_number(conn)
-    req=fetch_one(conn,"""INSERT INTO approval_request(request_number,request_type,object_type,
-      object_id,object_code,title,requester_id) VALUES(%s,'EXTERNAL_TS_ACCEPT',
-      'EXTERNAL_TECHNICAL_STATE',%s,%s,%s,%s) RETURNING id,request_number""",
-      (number,state_id,st["object_code"],f"接受外部件技术状态 {st['object_code']} TS{st['state_sequence']}",actor["user_id"]))
+    req = approvals.open_request(conn,kind='EXTERNAL_TECHNICAL_STATE',oid=state_id,request_type='EXTERNAL_TS_ACCEPT',code=st['object_code'],title=f"接受外部件技术状态 {st['object_code']} TS{st['state_sequence']}",actor=actor)
     execute(conn,"""INSERT INTO approval_step(approval_request_id,step_order,step_name,
       required_role_code,assignee_user_id,is_final) VALUES(%s,1,'技术状态接受',%s,%s,true)""",
       (req["id"],approver["role_code"],approver["id"]))
@@ -360,6 +360,8 @@ def add_project_control(conn: psycopg.Connection, object_code: str, project_code
 
 def submit_project_control(conn: psycopg.Connection, control_id: str,
                            approver_user_id: str, actor: dict) -> dict:
+    from . import drafts
+    drafts.require_editable(conn,'EXTERNAL_PROJECT_CONTROL',control_id,actor)
     from . import approvals
     c=fetch_one(conn,"""SELECT c.*,d.object_code FROM external_part_project_control c
       JOIN external_part ep ON ep.id=c.external_part_id
@@ -372,14 +374,7 @@ def submit_project_control(conn: psycopg.Connection, control_id: str,
     accepted=scalar(conn,"SELECT count(*) FROM external_technical_state WHERE external_part_id=%s AND status='ACCEPTED'",(c["external_part_id"],))
     if not accepted: raise ValueError("至少有一个已接受的供应商技术状态后才能提交项目准入")
     approver=approvals.require_approver(conn,approver_user_id,actor["user_id"])
-    request_number=approvals.next_request_number(conn)
-    req=fetch_one(conn,"""INSERT INTO approval_request(request_number,request_type,
-      object_type,object_id,object_code,title,requester_id,payload)
-      VALUES(%s,'EXTERNAL_PROJECT_APPROVAL','EXTERNAL_PROJECT_CONTROL',%s,%s,%s,%s,%s::jsonb)
-      RETURNING id,request_number""",(request_number,control_id,c["object_code"],
-      f"外部件项目准入 {c['project_code']} {c['object_code']}",actor["user_id"],
-      json.dumps({"project_code":c["project_code"],"applicability":c["applicability"],
-                  "evaluation_basis":c["evaluation_basis"]},ensure_ascii=False)))
+    req = approvals.open_request(conn,kind='EXTERNAL_PROJECT_CONTROL',oid=control_id,request_type='EXTERNAL_PROJECT_APPROVAL',code=c['object_code'],title=f"外部件项目准入 {c['project_code']} {c['object_code']}",actor=actor)
     execute(conn,"""INSERT INTO approval_step(approval_request_id,step_order,step_name,
       required_role_code,assignee_user_id,is_final) VALUES(%s,1,'项目准入批准',%s,%s,true)""",
       (req["id"],approver["role_code"],approver["id"]))
@@ -389,6 +384,8 @@ def submit_project_control(conn: psycopg.Connection, control_id: str,
 
 def approve_project_control(conn: psycopg.Connection, control_id: str, comments: str,
                             actor: dict) -> dict:
+    from . import drafts
+    drafts.lock_object(conn,'EXTERNAL_PROJECT_CONTROL',control_id)
     from . import approvals
     c=fetch_one(conn,"SELECT * FROM external_part_project_control WHERE id=%s",(control_id,))
     if not c: raise LookupError("项目准入记录不存在")
@@ -511,6 +508,8 @@ def hardware_candidates(conn: psycopg.Connection, query: str, limit: int) -> lis
 def add_hardware_compatibility(conn: psycopg.Connection, version_id: str,
                                hardware_object_code: str, hardware_version: str,
                                applicability_note: str | None, actor: dict) -> dict:
+    from . import drafts
+    drafts.require_editable(conn,'SOFTWARE_VERSION',version_id,actor)
     sv=fetch_one(conn,"SELECT id,status FROM software_version WHERE id=%s FOR UPDATE",(version_id,))
     if sv is None: raise LookupError("软件版本不存在")
     if sv["status"] != "DRAFT": raise ValueError("只有草稿软件版本可以维护适装硬件")
@@ -541,6 +540,8 @@ def delete_hardware_compatibility(conn: psycopg.Connection, compatibility_id: st
       JOIN design_object d ON d.id=c.hardware_design_object_id WHERE c.id=%s FOR UPDATE OF sv""",
       (compatibility_id,))
     if row is None: raise LookupError("适装硬件关系不存在")
+    from . import drafts
+    drafts.require_editable(conn,'SOFTWARE_VERSION',str(row['software_version_id']),actor)
     if row["status"] != "DRAFT": raise ValueError("只有草稿软件版本可以删除适装硬件")
     execute(conn,"DELETE FROM software_hardware_compatibility WHERE id=%s",(compatibility_id,))
     audit.write(conn,action="SOFTWARE_HARDWARE_DELETE",user_id=str(actor["user_id"]),
@@ -627,6 +628,8 @@ def get_version_package(conn: psycopg.Connection, version_id: str) -> dict | Non
 def release_version(conn: psycopg.Connection, version_id: str, comments: str,
                     actor: dict) -> dict:
     """发布软件版本。发布后 hash 冻结(与文件版次同理), 上一个发布版转 SUPERSEDED。"""
+    from . import drafts
+    drafts.lock_object(conn,'SOFTWARE_VERSION',version_id)
     sv = fetch_one(conn, """
         SELECT sv.*, so.software_number, so.id AS so_id FROM software_version sv
           JOIN software_object so ON so.id = sv.software_object_id WHERE sv.id = %s FOR UPDATE OF sv
@@ -679,6 +682,8 @@ def release_version(conn: psycopg.Connection, version_id: str, comments: str,
 
 def submit_version(conn: psycopg.Connection, version_id: str,
                    approver_user_id: str, actor: dict) -> dict:
+    from . import drafts
+    drafts.require_editable(conn,'SOFTWARE_VERSION',version_id,actor)
     from . import approvals
     sv=fetch_one(conn,"""SELECT sv.*,so.software_number FROM software_version sv
       JOIN software_object so ON so.id=sv.software_object_id WHERE sv.id=%s FOR UPDATE OF sv""",(version_id,))
@@ -690,11 +695,7 @@ def submit_version(conn: psycopg.Connection, version_id: str,
     if compatibility is None:
         raise ValueError("提交前必须至少登记一个可加载硬件件号及硬件版本")
     approver=approvals.require_approver(conn,approver_user_id,actor["user_id"])
-    number=approvals.next_request_number(conn)
-    req=fetch_one(conn,"""INSERT INTO approval_request(request_number,request_type,object_type,
-      object_id,object_code,title,requester_id) VALUES(%s,'CHANGE_PACKAGE','SOFTWARE_VERSION',
-      %s,%s,%s,%s) RETURNING id,request_number""",(number,version_id,
-      f"{sv['software_number']} {sv['version']}",f"发布软件版本 {sv['software_number']} {sv['version']}",actor["user_id"]))
+    req = approvals.open_request(conn,kind='SOFTWARE_VERSION',oid=version_id,request_type='CHANGE_PACKAGE',code=f"{sv['software_number']} {sv['version']}",title=f"发布软件版本 {sv['software_number']} {sv['version']}",actor=actor)
     execute(conn,"""INSERT INTO approval_step(approval_request_id,step_order,step_name,
       required_role_code,assignee_user_id,is_final) VALUES(%s,1,'软件版本发布',%s,%s,true)""",
       (req["id"],approver["role_code"],approver["id"]))
