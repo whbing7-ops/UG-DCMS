@@ -47,7 +47,7 @@ def create(kind):
         engineer.upload('/revisions/'+rev['id']+'/attachments','drawing.txt','【模拟数据】图纸'.encode(),role='PRIMARY_NATIVE')
         return rev['id']
     if kind=='DESIGN_BASELINE':
-        return engineer.post('/parts/'+root_pn+'/baselines',dict(reason='【模拟数据】审批基线',scope_note='测试范围',project_code=label,copy_from_current=True))['id']
+        return engineer.post('/parts/'+root_pn+'/baselines',dict(reason='【模拟数据】审批基线',scope_note='测试范围',project_code='SIM-IMA-V1',copy_from_current=True))['id']
     if kind=='EXTERNAL_TECHNICAL_STATE':
         return engineer.post('/external-parts/'+ext_code+'/states',{'supplier_revision':label})['id']
     if kind=='EXTERNAL_PROJECT_CONTROL':
@@ -160,7 +160,10 @@ with sync_playwright() as playwright:
     engineer.upload(path+'/package','replacement.zip',payload)
     v=engineer.get(path)['values'];assert v['hash_sha256']==hashlib.sha256(payload).hexdigest()
     assert engineer.download('/software-versions/'+oid+'/package/download')==payload
+    retained=submit('SOFTWARE_VERSION',oid)
+    engineer.post('/approvals/'+retained['id']+'/withdraw?reason=删除前撤回')
     engineer.delete(path)
+    assert engineer.get('/approvals/'+retained['id'])['object_deleted']
     page.goto('http://127.0.0.1:8080/#/approvals')
     expect(page.get_by_role('heading',name='我的待提交草稿',exact=True)).to_be_visible()
     page.screenshot(path=str(out/'my-applications.png'),full_page=True)

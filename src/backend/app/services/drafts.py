@@ -99,8 +99,8 @@ def list_mine(conn,actor):
         for row in fetch_all(conn,f'''SELECT t.* FROM {table} t
             LEFT JOIN LATERAL (SELECT requester_id FROM approval_request a
                 WHERE a.object_type=%s AND a.object_id=t.id ORDER BY requested_at DESC,id DESC LIMIT 1) a ON true
-            WHERE t.status=%s AND t.approval_request_id IS NULL AND COALESCE(a.requester_id,t.created_by)=%s
-            ORDER BY t.created_at DESC LIMIT 200''',(kind,state,actor['user_id'])):
+            WHERE (t.status=%s OR (%s='EXTERNAL_TECHNICAL_STATE' AND t.status='REJECTED')) AND t.approval_request_id IS NULL AND COALESCE(a.requester_id,t.created_by)=%s
+            ORDER BY t.created_at DESC LIMIT 200''',(kind,state,kind,actor['user_id'])):
             code,url,parent=location(conn,kind,row)
             rows.append(dict(object_type=kind,id=str(row['id']),label=label,object_code=code,object_url=url,created_at=row['created_at']))
     return sorted(rows,key=lambda r:r['created_at'],reverse=True)
@@ -154,6 +154,7 @@ def delete(conn,kind,oid,actor):
     if kind=='FILE_REVISION': execute(conn,'DELETE FROM revision_attachment WHERE file_revision_id=%s',(oid,))
     if kind=='DESIGN_BASELINE': execute(conn,'DELETE FROM baseline_item WHERE design_baseline_id=%s',(oid,))
     execute(conn,f'DELETE FROM {TYPES[kind][0]} WHERE id=%s',(oid,))
+    execute(conn,"UPDATE approval_request SET payload=payload || jsonb_build_object('draft_deleted_at',now()) WHERE object_type=%s AND object_id=%s",(kind,oid))
     write_audit(conn,kind,oid,actor,'DRAFT_DELETE',row)
     return {'deleted':True,'parent_url':parent}
 

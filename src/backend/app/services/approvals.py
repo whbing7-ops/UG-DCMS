@@ -148,6 +148,7 @@ def _base_query() -> str:
         SELECT ar.id, ar.request_number, ar.request_type, ar.object_type, ar.object_id,
                ar.object_code, ar.title, ar.status, ar.requested_at, ar.closed_at,
                ar.submission_round, ar.closure_action, ar.closure_reason,
+               (ar.payload->>'draft_deleted_at') IS NOT NULL AS object_deleted,
                u.username AS requester_username, u.full_name AS requester_name,
                ar.requester_id, so.software_number,
                s.id AS step_id, s.step_order, s.step_name, s.required_role_code,
@@ -211,6 +212,7 @@ def get_request(conn: psycopg.Connection, request_id: str) -> dict | None:
     """, (request_id,))
     if req is None:
         return None
+    req['object_deleted']=bool((req.get('payload') or {}).get('draft_deleted_at'))
     req["steps"] = fetch_all(conn, """
         SELECT s.id, s.step_order, s.step_name, s.required_role_code, s.is_final,
                s.assignee_user_id, s.decision, s.comments, s.acted_at,

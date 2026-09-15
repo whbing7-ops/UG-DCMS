@@ -41,6 +41,7 @@ function softwareApprovalButton(ctx, r) {
 }
 
 function approvalObjectLink(r, label = "打开对象办理") {
+  if(r.object_deleted)return el("span",{class:"muted"},"草稿已删除，审批历史保留");
   if (r.object_type === "SOFTWARE_VERSION" && r.software_number && r.object_id)
     return link(label, "#/software/" + encodeURIComponent(r.software_number) +
       "?version_id=" + encodeURIComponent(r.object_id), "btn small");
@@ -111,7 +112,7 @@ export async function approvals(ctx) {
           el("td", {}, r.closure_action==='WITHDRAW'?'已撤回':status(r.status)),
           el("td", { class: "muted nowrap" }, fmtDate(r.requested_at)),
           el("td", { class: "right" }, approvalObjectLink(r), ' ',
-            ['RETURNED','REJECTED','CANCELLED'].includes(r.status)?link('编辑后重新提交',`#/draft/${r.object_type}/${r.object_id}`,'btn small'):null,
+            !r.object_deleted&&['RETURNED','REJECTED','CANCELLED'].includes(r.status)?link('编辑后重新提交',`#/draft/${r.object_type}/${r.object_id}`,'btn small'):null,
             r.status==='PENDING'?requestActions(r):null)])
       || empty("你还没有发起过申请")));
 }
@@ -127,7 +128,7 @@ export async function approvalDetail(ctx, params, id) {
         el("span", { class: "tb-name" }, r.title)),
       el("div", { class: "tb-grid" },
         cell("类型", requestTypeText(r)),
-        cell("状态", statusText(r.status)),
+        cell("状态", r.closure_action==='WITHDRAW'?'已撤回':statusText(r.status)),
         cell("对象", r.object_code, true),
         cell("申请人", r.requester_name),
         cell("提交时间", fmtDate(r.requested_at)),
@@ -138,7 +139,7 @@ export async function approvalDetail(ctx, params, id) {
       el('p',{},h.snapshot.closure_reason||''),
       (h.snapshot.steps||[]).map(s=>el('p',{},s.step_name+' · '+statusText(s.decision)+' · '+(s.comments||'')+' · '+fmtDate(s.acted_at)))))):null,
     String(r.requester_id)===String(ctx.user.id)?el('div',{class:'actions'},r.status==='PENDING'?requestActions(r):
-      ['RETURNED','REJECTED','CANCELLED'].includes(r.status)?link('编辑后重新提交',`#/draft/${r.object_type}/${r.object_id}`,'btn'):null):null,
+      !r.object_deleted&&['RETURNED','REJECTED','CANCELLED'].includes(r.status)?link('编辑后重新提交',`#/draft/${r.object_type}/${r.object_id}`,'btn'):null):null,
     tablePanel("审批步骤",
       table([{ label: "步骤" }, { label: "名称" }, { label: "指定审批人" }, { label: "要求角色" },
              { label: "最终步骤" }, { label: "结论" }, { label: "处理人" },
