@@ -1,11 +1,14 @@
+import {workflowState, applicantActions} from './drafts.js';
 /* 设计族向导、发号、BOM、文件、基线、质量、管理。 */
 import { api } from "./api.js";
+import { transferActions } from "./master-transfer.js";
 import { editor } from "./manage.js";
 import { approvalSubmitButton } from "./extras.js";
 import {
   el, table, tablePanel, panel, empty, status, statusText, field, input, select,
   toast, toastError, fmtDate, link, askReason, pageControls,
 } from "./ui.js";
+const reload = () => window.dispatchEvent(new HashChangeEvent("hashchange"));
 
 /* ==================== 设计族列表与向导 ==================== */
 export async function families(ctx, params) {
@@ -15,6 +18,8 @@ export async function families(ctx, params) {
   const searchIn = input({ value: q, placeholder: "搜索基本图号或名称" });
   return el("div", {},
     el("h1", {}, "设计族"),
+    transferActions(ctx, "families"),
+    transferActions(ctx, "parts"),
     el("p", { class: "sub" }, "基本图号对应一个设计族。族内用 Dash 号区分具体规格。"),
     panel("查询", el("div", { class: "inline-form" }, field("关键词", searchIn),
       el("button", { class: "btn", onclick: () => { location.hash = "#/families?" + new URLSearchParams({ q: searchIn.value.trim(), page: 1 }); } }, "查询"))),
@@ -27,7 +32,7 @@ export async function families(ctx, params) {
         rows, r => [
           el("td", { class: "mono" }, link(r.basic_drawing_number.startsWith("PENDING-")
             ? "（待发号）" : r.basic_drawing_number, "#/family/" + r.id)),
-          el("td", {}, r.family_name_cn),
+          el("td", {}, r.classification_note?.startsWith("【模拟数据】") ? "【模拟数据】" : "", r.family_name_cn),
           el("td", { class: "mono" }, r.primary_class_code),
           el("td", { class: "mono muted" }, r.physical_class_code),
           el("td", { class: "num" }, r.dash_count),
@@ -38,12 +43,13 @@ export async function families(ctx, params) {
 /** 新建设计族向导。相似族检索是必经步骤，不提供跳过入口——
     基本图号一经分配即永不复用，建错族的代价远高于多花几分钟检索。 */
 export async function familyNew() {
-  const [pcs, terms, quals, fns, levels] = await Promise.all([
+  const [pcs, terms, quals, fns, levels, classes] = await Promise.all([
     api.get("/dictionary/physical-class"),
     api.get("/dictionary/core-term"),
     api.get("/dictionary/qualifier"),
     api.get("/dictionary/function-item"),
     api.get("/dictionary/object-level"),
+    api.get("/families/class-options"),
   ]);
 
   const state = { cls: "T1", searched: false };
@@ -53,7 +59,11 @@ export async function familyNew() {
   const previewEl = el("div", {});
   const similarEl = el("div", {});
 
-  const clsSel = select(["T1", "T2", "T3"].map(c => ({ value: c, label: c + " 类" })));
+  const clsSel = select(classes.map(c => ({ value: c.code, disabled: !c.available,
+    label: `${c.code} ${c.name_cn}${c.available ? "" : "（不可选：" + c.reason + "）"}` })));
+  clsSel.value = classes.find(c => c.available)?.code || "";
+  const classNotes = el("div", {class:"muted class-notes"}, classes.filter(c => !c.available)
+    .map(c => el("div", {}, `${c.code} ${c.name_cn}：${c.reason}`)));
   const pcSel = select([]);
   const lvSel = select(levels.map(l => ({ value: l.code, label: l.name_cn })));
   const ctSel = select([]);
@@ -67,6 +77,7 @@ export async function familyNew() {
   const noteIn = el("textarea", { placeholder: "选用“其他”类时必填：为什么无法归入现有分类" });
 
   function refreshClassOptions() {
+    invalidateSearch();
     const c = clsSel.value;
     fill(pcSel, pcs.filter(p => p.primary_class_code === c)
       .map(p => ({ value: p.id, label: `${p.code} ${p.name_cn}` })));
@@ -121,6 +132,7 @@ export async function familyNew() {
   }
 
   const submitBtn = el("button", { class: "btn primary", disabled: true, onclick: submit }, "建立设计族");
+  function invalidateSearch() { state.searched = false; submitBtn.disabled = true; similarEl.replaceChildren(); renderSteps(); }
 
   async function submit() {
     try {
@@ -148,14 +160,14 @@ export async function familyNew() {
   }
 
   clsSel.addEventListener("change", refreshClassOptions);
-  [ctSel, q1Sel, q2Sel].forEach(s => s.addEventListener("change", preview));
+  [pcSel, ctSel, q1Sel, q2Sel].forEach(s => s.addEventListener("change", () => { invalidateSearch(); preview(); }));
   refreshClassOptions();
   renderSteps();
 
   formEl.append(
     panel("分类与命名", el("div", {},
       el("div", { class: "grid2" },
-        field("一级技术类别", clsSel),
+        el("div", {}, field("一级技术类别", clsSel), classNotes),
         field("二级物理分类", pcSel),
         field("对象层级", lvSel),
         field("核心实体词", ctSel),
@@ -187,6 +199,7 @@ export async function familyNew() {
 
 /* ==================== 设计族详情 ==================== */
 export async function familyDetail(ctx, params, id) {
+  const workflow=await workflowState('BASIC_DRAWING_FAMILY',id);
   const fam = await api.get("/families/" + id);
   const [dashes, numbers] = await Promise.all([
     api.get(`/families/${id}/dashes`),
@@ -197,8 +210,9 @@ export async function familyDetail(ctx, params, id) {
     el("b", {}, l), el("span", { class: mono ? "mono" : null }, v ?? "—"));
 
   const acts = el("div", { class: "actions" });
+  acts.append(applicantActions(ctx,workflow));
   if (fam.status === "PENDING") {
-    if (ctx.can("submit") && !fam.approval_request_id)
+    if (ctx.can("submit") && workflow.can_edit)
       acts.append(approvalSubmitButton("提交审批", `/families/${id}/submit`, reload));
     if (ctx.can("approve") && String(fam.approval_assignee_user_id||'')===String(ctx.user.id))
       acts.append(el("button", { class: "btn primary", onclick: async () => {
@@ -217,14 +231,13 @@ export async function familyDetail(ctx, params, id) {
       await api.post(`/families/${id}/numbers/${Number(dash.value)}/skip`, { query: { reason: reason.value.trim() } }); toast("已登记跳号"); reload();
     });
   } }, "登记跳号"));
-  const reload = () => window.dispatchEvent(new HashChangeEvent("hashchange"));
 
   return el("div", {},
     el("div", { class: "titleblock" },
       el("div", { class: "tb-head" },
         el("span", { class: "tb-code" }, fam.basic_drawing_number.startsWith("PENDING-")
           ? "（待发号）" : fam.basic_drawing_number),
-        el("span", { class: "tb-name" }, fam.family_name_cn)),
+        el("span", { class: "tb-name" }, fam.classification_note?.startsWith("【模拟数据】") ? "【模拟数据】" : "", fam.family_name_cn)),
       el("div", { class: "tb-grid" },
         cell("状态", statusText(fam.status)),
         cell("英文名称", fam.family_name_en, true),
@@ -232,9 +245,10 @@ export async function familyDetail(ctx, params, id) {
         cell("二级分类", fam.physical_class_code, true),
         cell("核心实体词", fam.core_term_code, true),
         cell("主功能", fam.primary_function_code, true),
-        cell("对象层级", fam.object_level_code),
+        cell("对象层级", {PART:'零件',ASSEMBLY:'组件'}[fam.object_level_code] || fam.object_level_code),
         cell("批准时间", fmtDate(fam.approved_at)))),
     acts,
+    transferActions(ctx, "parts", id),
 
     panel("族定义", el("div", {},
       el("p", {}, fam.family_definition),

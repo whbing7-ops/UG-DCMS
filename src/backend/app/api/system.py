@@ -14,10 +14,10 @@ from pydantic import BaseModel, Field
 
 from ..db import fetch_all, fetch_one, scalar
 from ..txroute import TransactionalRoute
-from ..deps import Conn, CurrentUser, require
+from ..deps import Conn, CurrentUser, require, require_password_changed
 from ..rbac import Perm
 from .. import audit, errors
-from ..services import backups
+from ..services import backups, data_backups, ima_demo
 
 router = APIRouter(tags=["系统"], route_class=TransactionalRoute)
 
@@ -94,13 +94,28 @@ def backup_list(conn: Conn, actor: dict = Depends(require(Perm.SYSTEM_SETTING)))
     marker=Path(backups._root())/"pending-restore.json"
     pending=json.loads(marker.read_text(encoding="utf-8")) if marker.exists() else None
     return {"schedule": backups.schedule(), "backups": backups.list_backups(),
-            "restore_pending": pending, "restore_status":backups.restore_status()}
+            "restore_pending": pending, "restore_status":backups.restore_status(),
+            "data_import": ima_demo.status(conn)}
 
 
 @router.get("/system/restore/status")
 def restore_status():
     """恢复期间数据库和登录会话可能暂不可用，因此状态探针不依赖数据库或认证。"""
     return backups.restore_status()
+
+
+@router.post('/system/data-backups/import')
+def import_data_backup(conn: Conn, file: UploadFile=File(...), confirmation: str=Form(...),
+                       actor: dict=Depends(require(Perm.SYSTEM_SETTING)),
+                       changed: dict=Depends(require_password_changed)):
+    # Run domain/storage work in a worker thread, with a bounded in-memory read.
+    content = file.file.read(data_backups.MAX_BYTES + 1)
+    try:
+        return data_backups.import_package(conn, actor, content, confirmation)
+    except (ValueError, LookupError, FileExistsError) as exc:
+        raise errors.bad_request(str(exc))
+    except OSError:
+        raise errors.bad_request('附件写入失败，本次导入已回滚；请检查存储空间和目录写入权限后重试')
 
 
 @router.get("/system/restore/logs/{filename}")

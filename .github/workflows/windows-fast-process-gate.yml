@@ -4,9 +4,8 @@ on:
   workflow_dispatch:
   push:
     paths:
-      - 'src/windows/**'
-      - 'src/installer/**'
-      - 'src/frontend/**'
+      - 'src/**'
+      - 'ci/test-notify-desktop.py'
       - 'ci/full-functional-smoke.py'
       - '.github/workflows/windows-fast-process-gate.yml'
 
@@ -38,3 +37,10 @@ jobs:
           Get-ChildItem src\frontend\js\*.js | ForEach-Object { Get-Content $_.FullName -Raw | node --input-type=module --check; if($LASTEXITCODE -ne 0){ throw "JavaScript ES module parse failure: $($_.Name)" } }
           python src\installer\verify_installer_source.py
           python -m py_compile ci\full-functional-smoke.py
+      - name: Compile and exercise Windows notification assistant
+        shell: powershell
+        run: |
+          powershell -NoProfile -ExecutionPolicy Bypass -File src/desktop/Build-Notify.ps1
+          if($LASTEXITCODE -ne 0){throw 'Notification assistant compilation failed'}
+          python ci/test-notify-desktop.py src/desktop/output/UG-DCMS-Notify-rc2.41.exe
+          if($LASTEXITCODE -ne 0){throw 'Notification assistant checks failed'}

@@ -30,7 +30,7 @@ class SimilarSearchRequest(BaseModel):
 class FamilyCreateRequest(BaseModel):
     primary_class_code: str
     physical_class_id: str
-    object_level_code: str
+    object_level_code: str = Field(pattern='^(PART|ASSEMBLY)$')
     core_term_id: str
     qualifier_1_id: str | None = None
     qualifier_2_id: str | None = None
@@ -45,7 +45,7 @@ class FamilyCreateRequest(BaseModel):
 class DashCreateRequest(BaseModel):
     formal_name_cn: str = Field(min_length=1, max_length=128)
     formal_name_en: str = Field(min_length=1, max_length=128)
-    object_level_code: str
+    object_level_code: str = Field(pattern='^(PART|ASSEMBLY)$')
     difference_summary: str = Field(min_length=1, max_length=500)
     requested_dash: int | None = Field(default=None, ge=1, le=999)
 
@@ -92,6 +92,11 @@ def list_families(conn: Conn, user: CurrentUser,
     if page is not None:
         return fam_svc.page_families(conn, primary_class_code, status, q, page, page_size)
     return fam_svc.list_families(conn, primary_class_code, status, q)
+
+
+@router.get("/families/class-options")
+def family_class_options(conn: Conn, user: CurrentUser):
+    return fam_svc.class_options(conn)
 
 
 @router.get("/families/{family_id}")
@@ -217,8 +222,10 @@ def basic_drawing_numbers(conn: Conn, user: CurrentUser,
                           primary_class_code: str | None = None):
     rows = numbering.occupied_numbers(conn, "BASIC_DRAWING", None)
     if primary_class_code:
-        prefix = numbering.CLASS_PREFIX.get(primary_class_code, "")
-        rows = [r for r in rows if r["allocated_number"].startswith(prefix)]
+        if primary_class_code not in numbering.CLASS_PREFIX:
+            raise errors.bad_request("请选择 T1、T2 或 T3 类别")
+        prefix = numbering.CLASS_PREFIX[primary_class_code]
+        rows = [r for r in rows if r["allocated_number"].startswith((prefix, 'UG' + primary_class_code))]
     return {"occupied": rows[:500], "occupied_total": len(rows), "display_limit": 500,
-            "next_sequence": numbering.next_available(
-                conn, "BASIC_DRAWING", None, numbering.BASIC_MIN, numbering.BASIC_MAX)}
+            "next_sequence": numbering.next_basic(conn, primary_class_code) if primary_class_code else None,
+            "next_by_class": {c: numbering.next_basic(conn, c) for c in numbering.CLASS_PREFIX}}

@@ -1,3 +1,4 @@
+import {workflowState, applicantActions} from './drafts.js';
 /* BOM、设计文件、基线、数据质量、报表、系统管理。 */
 import { api } from "./api.js";
 import { editLine, rulePanel, snapshotTools, createApplicability } from "./bom-tools.js";
@@ -69,6 +70,8 @@ export async function bom(ctx, params, code) {
       "自引用和任意层级的循环会被系统拒绝——数量、项号、位号属于装配关系，不属于零件本身。"))) :
     el("div",{class:"note warn"},"当前账户只有查看权限，不能新增、编辑或删除 BOM 子件。请由系统管理员分配“设计工程师”或“构型管理员”角色。");
 
+  if (ctx.can("draft_write")) addRow.classList.add("bom-add-panel");
+  childIn.addEventListener("keydown", e => { if(e.key === "Escape") { ++searchSequence; clearTimeout(searchTimer); childResults.replaceChildren(); } });
   const issues = validation.errors.length || validation.warnings.length
     ? el("div", { class: validation.errors.length ? "note error" : "note warn" },
         validation.errors.length ? "以下问题会阻止生成快照：" : "以下内容请确认：",
@@ -179,7 +182,7 @@ function importForm(code) {
             const r = await api.upload("/import/bom/preview", { parent_object_code: code }, fileIn.files[0]);
             out.replaceChildren(previewResult(r));
           } catch (e) { toastError(e); } } }, "预览"),
-        el("button", { class: "btn", onclick: () => api.download("/import/bom/template", "bom_template.csv").catch(toastError) }, "下载模板"))),
+        el("button", { class: "btn", onclick: () => api.download("/import/bom/template?format=xlsx", "bom_template.xlsx").catch(toastError) }, "下载模板"))),
     out);
 }
 
@@ -312,8 +315,9 @@ export async function fileDetail(ctx, params, num) {
 }
 
 export async function revisionDetail(ctx, params, id) {
+  const workflow=await workflowState('FILE_REVISION',id);
   const r = await api.get("/revisions/" + id);
-  const editable = r.status === "WORKING";
+  const editable = workflow.can_edit;
   const fileIn = el("input", { type: "file" });
   const roleSel = select([
     { value: "RELEASED_PDF", label: "发布用 PDF" },
@@ -324,7 +328,8 @@ export async function revisionDetail(ctx, params, id) {
   ]);
 
   const acts = el("div", { class: "actions" });
-  if (r.status === "WORKING" && ctx.can("submit"))
+  acts.append(applicantActions(ctx,workflow));
+  if (workflow.can_edit && ctx.can("submit"))
     acts.append(approvalSubmitButton("提交审核", `/revisions/${id}/submit`, reload));
   if (r.status === "IN_REVIEW" && ctx.can("approve") && String(r.approval_assignee_user_id||'')===String(ctx.user.id))
     acts.append(el("button", { class: "btn primary", onclick: async () => {

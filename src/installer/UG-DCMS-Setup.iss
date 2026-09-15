@@ -1,5 +1,5 @@
-﻿#define MyAppName "UG-DCMS"
-#define MyAppVersion "1.0.0-rc2.32"
+#define MyAppName "UG-DCMS"
+#define MyAppVersion "1.0.0-rc2.41"
 #define MyAppPublisher "UG"
 #define MyAppURL "http://localhost:8080"
 
@@ -16,7 +16,7 @@ PrivilegesRequired=admin
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 OutputDir=output
-OutputBaseFilename=UG-DCMS-Setup-1.0.0-rc2.32
+OutputBaseFilename=UG-DCMS-Setup-1.0.0-rc2.41
 Compression=lzma2/ultra64
 SolidCompression=yes
 WizardStyle=modern
@@ -30,6 +30,8 @@ Source: "..\backend\*"; DestDir: "{app}\payload\backend"; Flags: ignoreversion r
 Source: "..\frontend\*"; DestDir: "{app}\payload\frontend"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "..\db\*"; DestDir: "{app}\payload\db"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "..\windows\*"; DestDir: "{app}\windows"; Flags: ignoreversion recursesubdirs createallsubdirs
+
+Source: "..\desktop\output\UG-DCMS-Notify-rc2.41.exe"; DestDir: "{app}\windows"; Flags: ignoreversion
 
 [Dirs]
 Name: "{app}\data\files"; Permissions: users-modify
@@ -45,6 +47,8 @@ Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile
 [Icons]
 Name: "{group}\UG-DCMS"; Filename: "{cmd}"; Parameters: "/c start """" ""http://localhost:8080"""
 Name: "{commondesktop}\UG-DCMS"; Filename: "{cmd}"; Parameters: "/c start """" ""http://localhost:8080"""
+
+Name: "{group}\UG-DCMS 通知助手"; Filename: "{app}\windows\UG-DCMS-Notify-rc2.41.exe"
 
 [Code]
 var

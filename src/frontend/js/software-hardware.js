@@ -42,7 +42,7 @@ export async function hardwareSoftwarePanel(code) {
 
 export function softwareHardwarePanel(ctx, version, reload) {
   const rows=version.compatible_hardware || [];
-  const editable=version.status==='DRAFT' && ctx.can('draft_write');
+  const editable=version.status==='DRAFT' && version.can_edit!==false && ctx.can('draft_write');
   const listing=table([{label:'硬件件号'},{label:'名称'},{label:'类型／来源'},
     {label:'硬件版本'},{label:'适用说明'},{label:'操作'}],rows,r=>[
     el('td',{},link(r.external_part_number || r.object_code,'#/object/'+encodeURIComponent(r.object_code))),

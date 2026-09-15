@@ -1,3 +1,4 @@
+import {startNotifications,stopNotifications} from './notifications.js';
 /* 应用入口: 会话、导航、哈希路由。
    不引入前端框架, 也不用打包工具 —— 部署环境是内网工作站, 很可能不通外网,
    任何 CDN 依赖都会让页面在现场打不开。原生 ES 模块由浏览器直接加载。 */
@@ -11,16 +12,21 @@ import * as V5 from "./views5.js";
 import { accounts, bomHub, roles } from "./manage.js";
 import { diagnostics, auditPage, backupPage } from "./extras.js";
 
+import { draftEditor } from './drafts.js';
+import { designMaterials } from './design-materials.js';
+
 const root = document.getElementById("root");
 let ctx = null;
 let renderVersion = 0;
 
 /* 路由表。顺序即匹配顺序, 静态路径在前。 */
 const ROUTES = [
+  ["/draft/:kind/:id", draftEditor],
   ["/",                    V1.home],
   ["/search",              V1.search],
   ["/families",            V2.families],
   ["/family-new",          V2.familyNew],
+  ["/design-materials", designMaterials],
   ["/files",               V3.files],
   ["/quality",             V4.quality],
   ["/reports",             V4.reports],
@@ -51,6 +57,7 @@ const ROUTES = [
 const NAV = [
   { group: "设计数据", items: [
     ["#/", "概览", "⌂"], ["#/search", "查找", "⌕"], ["#/bom", "BOM 管理", "≡"], ["#/families", "设计族", "◫"], ["#/files", "设计文件", "▤"],
+    ["#/design-materials", "设计资料清单", "▧"],
     ["#/external-parts", "外部件", "◇"], ["#/software", "软件对象", "⬡"],
   ]},
   { group: "流程", items: [
@@ -81,6 +88,8 @@ function match(path) {
 
 /* ---------------- 登录 ---------------- */
 function loginView(msg) {
+  const desired=sessionStorage.getItem('dcms.afterLogin')||location.hash;
+  const afterLogin=/^#\/approval\/[0-9a-f-]{36}$/i.test(desired)?desired:'#/';
   const u = el("input", { autofocus: true, autocomplete: "username", "aria-label": "账户" });
   const p = el("input", { type: "password", autocomplete: "current-password", "aria-label": "当前口令" });
   const err = el("div", {});
@@ -91,7 +100,7 @@ function loginView(msg) {
       setToken(r.access_token);
       if (!(await boot())) return;
       if (r.user.must_change_password) { location.hash = "#/change-password"; }
-      else { location.hash = "#/"; }
+      else { sessionStorage.removeItem('dcms.afterLogin'); location.hash = afterLogin; }
       await render();
     } catch (e) {
       err.replaceChildren(el("div", { class: "note error" }, e.message,
@@ -155,7 +164,7 @@ function changePasswordView() {
 function shell(content) {
   const path = (location.hash.slice(1).split("?")[0]) || "/";
   const rail = el("aside", { class: "rail" },
-    el("div", { class: "brand" }, "UG-DCMS", el("small", {}, "设计构型管理 · rc2.32")),
+    el("div", { class: "brand" }, "UG-DCMS", el("small", {}, "设计构型管理 · rc2.41")),
     el("nav", { class: "nav" }, NAV.map(g => [
       el("h4", {}, g.group),
       g.items.map(([href, label, icon]) =>
@@ -163,13 +172,14 @@ function shell(content) {
           el("span",{class:"nav-icon","aria-hidden":"true"},icon),el("span",{},label))),
     ])),
     el("div", { class: "whoami" },
+      el("a",{href:"#/", "data-notification-badge":"true"},"待办与消息"),
       el("div", {}, ctx.user.full_name),
       el("div", { class: "muted" }, (ctx.user.roles || []).map(r => roles[r] || r).join("、")),
       el("a", { href: "#/change-password" }, "修改密码"),
       el("a", { href: "#", onclick: async e => {
         e.preventDefault();
         try { await api.logout(); } catch {}
-        setToken(null); ctx = null; location.hash = "#/login"; loginView("已退出登录。");
+        sessionStorage.removeItem('dcms.afterLogin'); stopNotifications(); setToken(null); ctx = null; location.hash = "#/login"; loginView("已退出登录。");
       } }, "退出登录")));
   clear(root).append(el("div", { class: "shell" }, rail, el("main", { class: "main" }, content)));
 }
@@ -215,8 +225,10 @@ async function boot() {
       perms: new Set(me.permissions || []),
       can(p) { return this.perms.has(p); },
     };
+    startNotifications(me);
     return true;
   } catch {
+    stopNotifications();
     setToken(null);
     loginView();
     return false;

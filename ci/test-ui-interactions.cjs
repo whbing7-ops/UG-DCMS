@@ -4,7 +4,7 @@ const { chromium } = require(process.env.DCMS_PLAYWRIGHT || 'playwright');
 const assert = require('node:assert/strict');
 (async () => {
  const http=require('node:http'),fs=require('node:fs'),path=require('node:path');
- const frontend=path.resolve(__dirname,'frontend');
+ const frontend=path.resolve(__dirname,'../src/frontend');
  const server=http.createServer((req,res)=>{
   const file=path.resolve(frontend,'.'+new URL(req.url,'http://localhost').pathname.replace(/\/$/,'/index.html'));
   if(!file.startsWith(frontend+path.sep)||!fs.existsSync(file)){res.writeHead(404);res.end();return;}
@@ -132,7 +132,7 @@ const assert = require('node:assert/strict');
  await page.getByText('解析通过，共 1 行；排除 0 行。').waitFor();
  const downloadPromise=page.waitForEvent('download');
  await page.getByRole('button',{name:'下载模板'}).click();
- assert.equal((await downloadPromise).suggestedFilename(),'bom_template.csv');
+ assert.equal((await downloadPromise).suggestedFilename(),'bom_template.xlsx');
  await page.screenshot({path:'bom-ui.png',fullPage:true});
  await page.setViewportSize({width:390,height:844});
  assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'Mobile page overflows horizontally');
@@ -153,7 +153,7 @@ const assert = require('node:assert/strict');
    {id:'new',status:'RELEASED',baseline_sequence:3},
    {id:'middle',status:'SUPERSEDED',baseline_sequence:2},
   ];
-  const ctx={can:()=>false};
+  const ctx={can:()=>false,user:{id:'fixture-user'}};
   try {
    api.get=async path=>path.endsWith('/validate')?{errors:[],warnings:[]}:path.startsWith('/parts/')?records:{status:'CANCELLED',items:[]};
    const list=await baselines(ctx,{},'PN');
@@ -172,8 +172,8 @@ const assert = require('node:assert/strict');
     }
    }
    for(const allowed of [false,true]) {
-    api.get=async path=>path.endsWith('/validate')?{errors:[],warnings:[]}:{status:'IN_REVIEW',items:[]};
-    const view=await baselineDetail({can:()=>allowed},{},'bl');
+    api.get=async path=>path.endsWith('/validate')?{errors:[],warnings:[]}:{status:'IN_REVIEW',items:[],approval_assignee_user_id:'fixture-user'};
+    const view=await baselineDetail({can:()=>allowed,user:{id:'fixture-user'}},{},'bl');
     if(view.textContent.includes('批准发布')!==allowed) throw Error('Baseline approval permission rendering');
    }
    return true;

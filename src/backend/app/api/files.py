@@ -40,6 +40,15 @@ class DefinitionLinkRequest(BaseModel):
     applicability_note: str | None = Field(default=None, max_length=500)
 
 
+@router.get("/design-materials")
+def design_materials(conn: Conn, user: CurrentUser,
+                     q: str = Query("", max_length=256), file_type_code: str = "",
+                     revision_status: str = Query("", pattern="^(|WORKING|IN_REVIEW|RELEASED|SUPERSEDED|CANCELLED)$"),
+                     current_only: bool = False, page: int = Query(1, ge=1),
+                     page_size: int = Query(50, ge=1, le=200)):
+    return file_svc.design_materials(conn, q, file_type_code, revision_status, current_only, page, page_size)
+
+
 # ---------------- 文件 ----------------
 @router.get("/files")
 def list_files(conn: Conn, user: CurrentUser,

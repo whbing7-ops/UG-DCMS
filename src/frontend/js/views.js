@@ -1,3 +1,4 @@
+import {personalDashboard} from './notifications.js';
 /* 各页面视图。每个视图返回一个 DOM 节点, 由 app.js 的路由挂载。 */
 import { api, ApiError } from "./api.js";
 import { definitionButton } from "./extras.js";
@@ -11,10 +12,11 @@ const q = (o) => Object.fromEntries(Object.entries(o).filter(([, v]) => v));
 
 /* ============================ 首页 ============================ */
 export async function home(ctx) {
-  const [dash, recent, issues] = await Promise.all([
+  const [dash, recent, issues, personal] = await Promise.all([
     api.get("/reports/dashboard"),
     api.get("/recent", { query: { limit: 10 } }),
     api.get("/quality/issues", { query: { severity: "ERROR", limit: 5 } }),
+    personalDashboard(),
   ]);
   const o = dash.objects, qy = dash.quality, ig = dash.integrity;
 
@@ -26,6 +28,7 @@ export async function home(ctx) {
     el("h1", {}, `你好，${ctx.user.full_name}`),
     el("p", { class: "sub" }, "设计构型管理系统。这里是当前需要注意的内容。"),
 
+    personal,
     qy.open_errors > 0 ? el("div", { class: "note error" },
       `有 ${qy.open_errors} 个阻止发布的数据质量问题待处置。`,
       el("div", {}, link("查看清单", "#/quality"))) : null,

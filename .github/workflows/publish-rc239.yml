@@ -1,0 +1,123 @@
+name: Publish verified rc2.39 installer
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/publish-rc239.yml'
+permissions:
+  contents: write
+  actions: read
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify exact source and completed validation runs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          for run in 34853928800 34853928764 34853928725; do
+            gh api "repos/$GH_REPO/actions/runs/$run" > run.json
+            python - <<'PY'
+          import json
+          r=json.load(open('run.json'))
+          assert r['head_sha']=='1240410e525ccef40abba9a56d28d5303641cc3d'
+          assert r['status']=='completed' and r['conclusion']=='success'
+          PY
+          done
+      - uses: actions/download-artifact@v4
+        with:
+          name: svgUG-DCMS-20260914-rc2.39
+          run-id: 34853928800
+          github-token: ${{ github.token }}
+          path: verified
+      - uses: actions/download-artifact@v4
+        with:
+          name: ima-evidence-rc239
+          run-id: 34853928800
+          github-token: ${{ github.token }}
+          path: evidence
+      - name: Verify installer digest and prepare public assets
+        run: |
+          python - <<'PY'
+          import hashlib, zipfile, json
+          from pathlib import Path
+          source=Path('verified/svgUG-DCMS-20260914-rc2.39.zip')
+          name='UG-DCMS-Setup-1.0.0-rc2.39.exe'
+          with zipfile.ZipFile(source) as z:
+              assert z.testzip() is None
+              assert z.namelist()==[name],z.namelist()
+              exe=z.read(name)
+              assert exe[:2]==b'MZ'
+              assert hashlib.sha256(exe).hexdigest()=='3c06da954d48dc4046cd926b18f5e790121ca6b7cb201193209560b41f6ca6e3'
+          Path(name).write_bytes(exe)
+          Path('UG-DCMS-Setup-rc2.39.zip').write_bytes(source.read_bytes())
+          package='UG-DCMS-IMA-Data-Backup-v1.zip'
+          payload=Path('evidence',package).read_bytes()
+          result=json.loads(Path('evidence/result.json').read_text())
+          assert result['passed'] is True
+          assert result['counts']==dict(parts=19,externals=9,bom_lines=45,software=3,documents=23,baselines=19,configurations=2)
+          assert hashlib.sha256(payload).hexdigest()==result['package_sha256']
+          Path(package).write_bytes(payload)
+          with zipfile.ZipFile(package) as z:
+              assert z.testzip() is None
+              m=json.loads(z.read('manifest.json'))
+              assert m['format']=='UG-DCMS-DATA-BACKUP' and m['dataset_code']=='SIM-IMA-V1'
+              assert hashlib.sha256(z.read('dataset.json')).hexdigest()==m['payload_sha256']
+          print('VERIFIED_DATA_PACKAGE_SHA256',result['package_sha256'])
+          assets=[name,'UG-DCMS-Setup-rc2.39.zip',package]
+          Path('SHA256SUMS.txt').write_text(''.join(hashlib.sha256(Path(p).read_bytes()).hexdigest()+'  '+p+'\n' for p in assets))
+          PY
+      - name: Publish public prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          cat > release-notes.md <<'EOF'
+          删除“IMA模拟数据”独立菜单。安装/升级不会自动写入模拟记录，安装包与数据包分别下载。
+          
+          使用：
+          1. 下载 UG-DCMS-Setup-rc2.39.zip，解压并运行其中 EXE；也可直接下载 EXE。
+          2. 另下载 UG-DCMS-IMA-Data-Backup-v1.zip，无需解压。
+          3. 管理员登录后进入“系统 → 备份恢复 → 导入数据备份包”，选择数据 ZIP，输入“导入模拟数据”，点击“校验并导入数据”。成功后可从该页打开 BOM、顶层设计基线及设计资料清单。
+          
+          数据包为增量逻辑备份：保存业务结构、两种构型、软件关联和模拟图纸模板。导入时按目标系统发号规则分配件号，生成含目标件号的附件、软件元数据包、冻结清单和模拟审批发布记录；不包含真实账户、密码或数据库转储。原有“恢复系统”用于整库替换，请使用新增的数据包导入区域。
+          
+          包含 19 个内部件、9 个外部件、45 条多层 BOM 行、A/B 两种构型、3 套软件、23 份模拟设计附件、82 个模拟审批和 19 条发布设计基线。所有模拟内容明确标识，模拟编制/批准身份独立且完成后停用，软件包不含可运行固件。
+          
+          保留已有业务记录和附件；重复导入不会重复创建，固定编号冲突时停止，导入失败回滚本批次。无需重启应用。
+          
+          自动化验证：PostgreSQL 非超级用户集成、浏览器备份上传与导入、BOM 两构型解析、基线和资料页、权限、损坏/超限/修改包拒绝、故障回滚、并发、原数据与附件保留、重复导入、全量备份恢复和既有界面回归。Windows 源码校验和 EXE 构建通过。
+          
+          未连接用户目标系统，未在用户电脑执行安装或数据导入。自动化测试通过和 Windows EXE 构建成功不代表用户电脑实际安装成功。PR #2 保持未合并。
+          
+          测试源代码：1240410e525ccef40abba9a56d28d5303641cc3d。
+          集成与构建：https://github.com/whbing7-ops/UG-DCMS/actions/runs/34853928800
+          界面回归：https://github.com/whbing7-ops/UG-DCMS/actions/runs/34853928764
+          Windows 源码检查：https://github.com/whbing7-ops/UG-DCMS/actions/runs/34853928725
+          
+          EOF
+          gh release create rc2.39 UG-DCMS-Setup-rc2.39.zip UG-DCMS-Setup-1.0.0-rc2.39.exe UG-DCMS-IMA-Data-Backup-v1.zip SHA256SUMS.txt --target 1240410e525ccef40abba9a56d28d5303641cc3d --title 'UG-DCMS rc2.39 — 独立IMA数据备份包' --prerelease --notes-file release-notes.md
+      - name: Verify anonymous public downloads
+        run: |
+          set -euo pipefail
+          mkdir public-downloads
+          cd public-downloads
+          for name in UG-DCMS-Setup-rc2.39.zip UG-DCMS-IMA-Data-Backup-v1.zip SHA256SUMS.txt; do
+            curl --fail --silent --show-error --location --retry 5 --retry-all-errors --retry-delay 2 "https://github.com/${{ github.repository }}/releases/download/rc2.39/$name" --output "$name"
+          done
+          python - <<'PY'
+          import zipfile
+          from pathlib import Path
+          with zipfile.ZipFile('UG-DCMS-Setup-rc2.39.zip') as z:
+              assert z.testzip() is None
+              name='UG-DCMS-Setup-1.0.0-rc2.39.exe'
+              assert z.namelist()==[name]
+              exe=z.read(name)
+              assert exe[:2]==b'MZ'
+              Path(name).write_bytes(exe)
+          with zipfile.ZipFile('UG-DCMS-IMA-Data-Backup-v1.zip') as z:
+              assert z.testzip() is None
+          PY
+          sha256sum --check SHA256SUMS.txt
