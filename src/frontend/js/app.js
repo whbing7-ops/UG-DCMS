@@ -1,3 +1,4 @@
+import {startNotifications,stopNotifications} from './notifications.js';
 /* 应用入口: 会话、导航、哈希路由。
    不引入前端框架, 也不用打包工具 —— 部署环境是内网工作站, 很可能不通外网,
    任何 CDN 依赖都会让页面在现场打不开。原生 ES 模块由浏览器直接加载。 */
@@ -161,7 +162,7 @@ function changePasswordView() {
 function shell(content) {
   const path = (location.hash.slice(1).split("?")[0]) || "/";
   const rail = el("aside", { class: "rail" },
-    el("div", { class: "brand" }, "UG-DCMS", el("small", {}, "设计构型管理 · rc2.40")),
+    el("div", { class: "brand" }, "UG-DCMS", el("small", {}, "设计构型管理 · rc2.41")),
     el("nav", { class: "nav" }, NAV.map(g => [
       el("h4", {}, g.group),
       g.items.map(([href, label, icon]) =>
@@ -169,13 +170,14 @@ function shell(content) {
           el("span",{class:"nav-icon","aria-hidden":"true"},icon),el("span",{},label))),
     ])),
     el("div", { class: "whoami" },
+      el("a",{href:"#/", "data-notification-badge":"true"},"待办与消息"),
       el("div", {}, ctx.user.full_name),
       el("div", { class: "muted" }, (ctx.user.roles || []).map(r => roles[r] || r).join("、")),
       el("a", { href: "#/change-password" }, "修改密码"),
       el("a", { href: "#", onclick: async e => {
         e.preventDefault();
         try { await api.logout(); } catch {}
-        setToken(null); ctx = null; location.hash = "#/login"; loginView("已退出登录。");
+        stopNotifications(); setToken(null); ctx = null; location.hash = "#/login"; loginView("已退出登录。");
       } }, "退出登录")));
   clear(root).append(el("div", { class: "shell" }, rail, el("main", { class: "main" }, content)));
 }
@@ -221,8 +223,10 @@ async function boot() {
       perms: new Set(me.permissions || []),
       can(p) { return this.perms.has(p); },
     };
+    startNotifications(me);
     return true;
   } catch {
+    stopNotifications();
     setToken(null);
     loginView();
     return false;

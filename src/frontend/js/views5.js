@@ -119,6 +119,7 @@ export async function approvals(ctx) {
 
 export async function approvalDetail(ctx, params, id) {
   const r = await api.get("/approvals/" + id);
+  await api.post("/notifications/read-request/"+id);
   const cell = (l, v, mono) => el("div", { class: "tb-cell" },
     el("b", {}, l), el("span", { class: mono ? "mono" : null }, v ?? "—"));
   return el("div", {},

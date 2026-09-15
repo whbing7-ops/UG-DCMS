@@ -12,7 +12,7 @@ from pathlib import Path
 
 from . import errors
 from .api import (admin, applicability, auth, baselines, bom, dictionary, externals, families,
-                  files, search, system, master_transfer, drafts)
+                  files, search, system, master_transfer, drafts, notifications)
 from .config import get_settings
 from .guards import RequestGuardMiddleware
 from .db import close_pool, init_pool
@@ -60,6 +60,7 @@ def create_app() -> FastAPI:
         return await errors.dcms_error_handler(request, errors.forbidden(str(exc)))
     app.add_exception_handler(PermissionError, ownership_error)
 
+    app.include_router(notifications.router, prefix=s.api_prefix)
     app.include_router(drafts.router, prefix=s.api_prefix)
     app.include_router(system.router, prefix=s.api_prefix)
     app.include_router(auth.router, prefix=s.api_prefix)
