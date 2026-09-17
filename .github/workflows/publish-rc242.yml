@@ -1,0 +1,97 @@
+name: Publish verified rc2.42 installer
+on:
+  workflow_dispatch:
+  push:
+    branches: ['fix/restore-cross-version-rc2.33']
+    paths: ['.github/workflows/publish-rc242.yml']
+permissions:
+  contents: write
+  actions: read
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify completed tests for exact source
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          for run in 35198142429 35198142531 35198142374; do
+            gh api "repos/$GH_REPO/actions/runs/$run" > run.json
+            python - <<'PY'
+          import json
+          r=json.load(open('run.json'))
+          assert r['head_sha']=='7f998f9480e858e819cad3e506726582196745ec'
+          assert r['status']=='completed' and r['conclusion']=='success'
+          PY
+          done
+      - uses: actions/download-artifact@v4
+        with:
+          name: svgUG-DCMS-20260917-rc2.42
+          run-id: 35198142429
+          github-token: ${{ github.token }}
+          path: verified
+      - name: Validate and package installer
+        run: |
+          python - <<'PY'
+          import hashlib,zipfile
+          from pathlib import Path
+          name='UG-DCMS-Setup-1.0.0-rc2.42.exe'
+          source=Path('verified/svgUG-DCMS-20260917-rc2.42.zip')
+          with zipfile.ZipFile(source) as z:
+              assert z.testzip() is None
+              assert z.namelist()==[name]
+              exe=z.read(name)
+              assert exe[:2]==b'MZ'
+              assert hashlib.sha256(exe).hexdigest()=='d63a331a1623fe8d3fb5bc79280c864fc7bf7dcfd373f46c765f1e53cfd4d03a'
+          Path(name).write_bytes(exe)
+          Path('UG-DCMS-Setup-rc2.42.zip').write_bytes(source.read_bytes())
+          assets=[name,'UG-DCMS-Setup-rc2.42.zip']
+          Path('SHA256SUMS.txt').write_text(''.join(hashlib.sha256(Path(p).read_bytes()).hexdigest()+'  '+p+'\n' for p in assets))
+          PY
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          cat > release-notes.md <<'EOF'
+          rc2.42：统一按钮尺寸、文字对齐与审批入口。
+
+          - 页面、表单与弹窗操作按钮统一为 38px；表格及紧凑行内操作统一为 32px。
+          - 链接式按钮与普通按钮使用相同字体行高、水平和垂直居中；共享组件不再造成同一操作区域大小不一，嵌套操作组不再多出顶部空隙。
+          - 审批入口明确显示“查看设计族／文件版次／设计基线／外部件／软件版本”，已完成审批不再标成“办理”。
+          - 首页待审批入口为“查看申请”，退回待修改入口为“编辑申请”。
+          - 首页通知助手下载改为 ZIP。通知助手本身仍为 rc2.41，可继续使用。
+
+          下载 UG-DCMS-Setup-rc2.42.zip，解压运行 EXE 升级。保留原有数据库、账户、附件与审批历史。本次无数据库迁移。
+          通知助手 ZIP：https://github.com/whbing7-ops/UG-DCMS/releases/download/rc2.41/UG-DCMS-Notify-rc2.41.zip
+          IMA 模拟数据仍单独导入：https://github.com/whbing7-ops/UG-DCMS/releases/download/rc2.41/UG-DCMS-IMA-Data-Backup-v1.zip
+
+          验证：浏览器检查六类审批对象、五种审批状态下的跳转目标；在 1440／1024／390px 宽度检查按钮高度、字号、文字居中与页面溢出，并保存截图。原有页面操作、PostgreSQL 备份恢复、审批和通知流程回归及 Windows 安装包构建均通过。
+          以上为自动化测试与构建结果，尚未在用户电脑执行本次升级。PR #2 仍未合并。
+
+          测试源码：7f998f9480e858e819cad3e506726582196745ec
+          安装包构建：https://github.com/whbing7-ops/UG-DCMS/actions/runs/35198142429
+          界面回归：https://github.com/whbing7-ops/UG-DCMS/actions/runs/35198142531
+          EOF
+          gh release create rc2.42 UG-DCMS-Setup-rc2.42.zip UG-DCMS-Setup-1.0.0-rc2.42.exe SHA256SUMS.txt --target 7f998f9480e858e819cad3e506726582196745ec --title 'UG-DCMS rc2.42 — 按钮尺寸与审批入口修正' --prerelease --notes-file release-notes.md
+      - name: Verify anonymous public ZIP download
+        run: |
+          set -euo pipefail
+          mkdir public-download
+          cd public-download
+          for name in UG-DCMS-Setup-rc2.42.zip SHA256SUMS.txt; do
+            curl --fail --silent --show-error --location --retry 5 --retry-all-errors --max-time 180 \
+              "https://github.com/${{ github.repository }}/releases/download/rc2.42/$name" --output "$name"
+          done
+          python - <<'PY'
+          import zipfile
+          from pathlib import Path
+          with zipfile.ZipFile('UG-DCMS-Setup-rc2.42.zip') as z:
+              assert z.testzip() is None
+              name='UG-DCMS-Setup-1.0.0-rc2.42.exe'
+              assert z.namelist()==[name]
+              Path(name).write_bytes(z.read(name))
+          PY
+          sha256sum --check SHA256SUMS.txt
