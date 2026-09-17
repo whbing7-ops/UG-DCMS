@@ -1,4 +1,4 @@
-name: UG-DCMS rc2.41 source integration and installer
+name: UG-DCMS rc2.42 source integration and installer
 
 on:
   workflow_dispatch:
@@ -15,7 +15,7 @@ on:
       - '.github/workflows/windows-installer-ci-v5.yml'
 
 concurrency:
-  group: ug-dcms-rc241
+  group: ug-dcms-rc242
   cancel-in-progress: true
 
 jobs:
@@ -105,7 +105,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ima-evidence-rc241
+          name: ima-evidence-rc242
           path: |
             ima-evidence/
             applicant-evidence/
@@ -148,7 +148,7 @@ jobs:
         run: |
           python src\installer\verify_installer_source.py
           powershell -NoProfile -ExecutionPolicy Bypass -File src\installer\Build-Setup.ps1
-          $setup='src\installer\output\UG-DCMS-Setup-1.0.0-rc2.41.exe'
+          $setup='src\installer\output\UG-DCMS-Setup-1.0.0-rc2.42.exe'
           if(-not(Test-Path $setup)){ throw 'installer missing' }
           if((Get-Item $setup).Length -lt 1000000){ throw 'installer unexpectedly small' }
           Get-FileHash $setup -Algorithm SHA256
@@ -160,12 +160,12 @@ jobs:
       - name: Package installer and source
         shell: powershell
         run: |
-          Compress-Archive -Path src\installer\output\UG-DCMS-Setup-1.0.0-rc2.41.exe -DestinationPath svgUG-DCMS-20260915-rc2.41.zip
+          Compress-Archive -Path src\installer\output\UG-DCMS-Setup-1.0.0-rc2.42.exe -DestinationPath svgUG-DCMS-20260917-rc2.42.zip
       - uses: actions/upload-artifact@v4
         with:
-          name: svgUG-DCMS-20260915-rc2.41
+          name: svgUG-DCMS-20260917-rc2.42
           path: |
-            src/installer/output/UG-DCMS-Setup-1.0.0-rc2.41.exe
+            src/installer/output/UG-DCMS-Setup-1.0.0-rc2.42.exe
             src/desktop/output/UG-DCMS-Notify-rc2.41.exe
             notify-self-test.txt
-            svgUG-DCMS-20260915-rc2.41.zip
+            svgUG-DCMS-20260917-rc2.42.zip

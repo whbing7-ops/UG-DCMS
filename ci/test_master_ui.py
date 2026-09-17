@@ -133,7 +133,7 @@ def run(page, admin, call, base, output):
     expect(row).to_contain_text('软件版本发布')
     expect(row.get_by_role('button',name='批准发布',exact=True)).to_be_visible()
     admin.screenshot(path=str(output/'software-approval-inbox-rc235.png'),full_page=True)
-    row.get_by_role('link',name='打开对象办理',exact=True).click()
+    row.get_by_role('link',name='查看软件版本',exact=True).click()
     expect(admin).to_have_url(re.compile('version_id='+version['id']))
     expect(admin.get_by_role('button',name='发布',exact=True)).to_be_visible()
     admin.goto(base+'/#/approval/'+request['id'])

@@ -40,7 +40,11 @@ function softwareApprovalButton(ctx, r) {
   }}, "批准发布");
 }
 
-function approvalObjectLink(r, label = "打开对象办理") {
+function approvalObjectLink(r) {
+  const labels = { BASIC_DRAWING_FAMILY: "查看设计族", FILE_REVISION: "查看文件版次",
+    DESIGN_BASELINE: "查看设计基线", EXTERNAL_TECHNICAL_STATE: "查看外部件",
+    EXTERNAL_PROJECT_CONTROL: "查看外部件", SOFTWARE_VERSION: "查看软件版本" };
+  const label = labels[r.object_type] || "查看业务对象";
   if(r.object_deleted)return el("span",{class:"muted"},"草稿已删除，审批历史保留");
   if (r.object_type === "SOFTWARE_VERSION" && r.software_number && r.object_id)
     return link(label, "#/software/" + encodeURIComponent(r.software_number) +
