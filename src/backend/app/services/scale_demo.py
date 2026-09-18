@@ -77,7 +77,7 @@ def _populate(conn,admin,keys,data):
     author=ima_demo._actor(conn,'编制人','ENGINEER',admin,batch,prefix='sim_scale',label='规模测试')
     approver=ima_demo._actor(conn,'批准人','CONFIGURATION_MANAGER',admin,batch,prefix='sim_scale',label='规模测试')
     execute(conn,"INSERT INTO namespace(code,name_cn,name_en,kind) VALUES(%s,%s,%s,'OTHER')",(CODE,MARK+'规模测试虚构供应来源','SIMULATED SCALE'))
-    parts,documents,ext,software,projects={},{},{},{},{}
+    parts,ext,software,projects={},{},{},{}
     docs=[];by_family=defaultdict(list)
     for key,family,p in data['parts']:by_family[family].append((key,p))
     controlled={t:{r['code']:str(r['id']) for r in fetch_all(conn,f"SELECT id,code FROM {t} WHERE status='ACTIVE'")}

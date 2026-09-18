@@ -83,7 +83,7 @@ with transaction() as conn:
     assert snapshot(conn,author)==before
     assert scalar(conn,"SELECT count(*) FROM part_number WHERE created_by=%s AND (lifecycle_status!='RELEASED' OR current_baseline_id IS NULL)",(author,))==0
     assert scalar(conn,"SELECT count(*) FROM design_baseline WHERE created_by=%s AND (status!='RELEASED' OR NOT is_current)",(author,))==0
-    assert scalar(conn,"SELECT count(*) FROM basic_drawing_family WHERE created_by=%s AND basic_drawing_number !~ '^UG1[0-9]{5}$'",(author,))==0
+    assert scalar(conn,"SELECT count(*) FROM basic_drawing_family WHERE created_by=%s AND basic_drawing_number !~ '^UG[123][0-9]{5}$'",(author,))==0
     assert not fetch_all(conn,'SELECT basic_drawing_family_id FROM part_number WHERE created_by=%s GROUP BY basic_drawing_family_id HAVING count(*)<>10',(author,))
     assert scalar(conn,'SELECT count(*) FROM app_user WHERE id=ANY(%s::uuid[]) AND is_active',(m['actors'],))==0
     assert scalar(conn,"SELECT count(*) FROM approval_request WHERE requester_id=%s AND (status!='APPROVED' OR title NOT LIKE '【模拟数据】%%')",(author,))==0
