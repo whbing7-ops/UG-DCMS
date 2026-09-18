@@ -8,7 +8,7 @@ import subprocess
 import threading
 import time
 from pathlib import Path
-from fastapi import APIRouter, Depends, File, Form, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, Response, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
@@ -17,7 +17,7 @@ from ..txroute import TransactionalRoute
 from ..deps import Conn, CurrentUser, require, require_password_changed
 from ..rbac import Perm
 from .. import audit, errors
-from ..services import backups, data_backups, ima_demo, scale_demo
+from ..services import backups, data_backups, ima_demo, scale_demo, import_jobs
 
 router = APIRouter(tags=["系统"], route_class=TransactionalRoute)
 
@@ -95,7 +95,7 @@ def backup_list(conn: Conn, actor: dict = Depends(require(Perm.SYSTEM_SETTING)))
     pending=json.loads(marker.read_text(encoding="utf-8")) if marker.exists() else None
     return {"schedule": backups.schedule(), "backups": backups.list_backups(),
             "restore_pending": pending, "restore_status":backups.restore_status(),
-            "data_import": ima_demo.status(conn), "scale_import": scale_demo.status(conn)}
+            "import_job": import_jobs.status(conn), "data_import": ima_demo.status(conn), "scale_import": scale_demo.status(conn)}
 
 
 @router.get("/system/restore/status")
@@ -104,13 +104,23 @@ def restore_status():
     return backups.restore_status()
 
 
+@router.get('/system/data-backups/status')
+def data_import_status(conn: Conn, actor: dict=Depends(require(Perm.SYSTEM_SETTING))):
+    return import_jobs.status(conn)
+
+
 @router.post('/system/data-backups/import')
-def import_data_backup(conn: Conn, file: UploadFile=File(...), confirmation: str=Form(...),
+def import_data_backup(conn: Conn, response: Response, tasks: BackgroundTasks, background: bool=Form(False), file: UploadFile=File(...), confirmation: str=Form(...),
                        actor: dict=Depends(require(Perm.SYSTEM_SETTING)),
                        changed: dict=Depends(require_password_changed)):
     # Run domain/storage work in a worker thread, with a bounded in-memory read.
     content = file.file.read(data_backups.MAX_BYTES + 1)
     try:
+        if background:
+            job_id, dataset = import_jobs.enqueue(conn, actor, content, confirmation)
+            tasks.add_task(import_jobs.run, job_id, dataset, dict(actor))
+            response.status_code = 202
+            return {'job_id': job_id, 'state': 'QUEUED'}
         return data_backups.import_package(conn, actor, content, confirmation)
     except (ValueError, LookupError, FileExistsError) as exc:
         raise errors.bad_request(str(exc))

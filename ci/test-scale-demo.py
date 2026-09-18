@@ -20,9 +20,10 @@ assert [len(data[k]) for k in ['families','parts','externals','software','projec
 assert len({p[0] for p in data['parts']})==10000
 assert data_backups.validate_package(data_backups.create_package())['dataset_code']==ima_demo.CODE
 
-def upload(client=admin,content=package,expected=200):
+def upload(client=admin,content=package,expected=200,background=False):
     b='----ScaleBackup243'
     body=(f'--{b}\r\nContent-Disposition: form-data; name="confirmation"\r\n\r\n导入模拟数据\r\n--{b}\r\nContent-Disposition: form-data; name="file"; filename="scale.zip"\r\nContent-Type: application/zip\r\n\r\n').encode()+content+f'\r\n--{b}--\r\n'.encode()
+    if background:body=(f'--{b}\r\nContent-Disposition: form-data; name="background"\r\n\r\ntrue\r\n').encode()+body
     req=urllib.request.Request(smoke.BASE+'/system/data-backups/import',data=body,method='POST',headers={'Authorization':'Bearer '+client.token,'Content-Type':'multipart/form-data; boundary='+b})
     try:
         with urllib.request.urlopen(req,timeout=2700) as r:
@@ -71,7 +72,36 @@ with transaction() as conn:
         try:scale_demo.import_dataset(conn,actor,data);raise AssertionError('collision accepted')
         except ValueError as exc:assert '前缀' in str(exc)
 print('PASS: trusted payload, permissions, prefix collision, concurrency and rollback with file cleanup',flush=True)
-started=time.monotonic();result=upload();elapsed=time.monotonic()-started
+started=time.monotonic();accepted=upload(expected=202,background=True)
+assert time.monotonic()-started<10,'Background acceptance blocks on full import'
+from playwright.sync_api import sync_playwright,expect
+with sync_playwright() as p:
+    browser=p.chromium.launch(headless=True,args=['--no-sandbox']);page=browser.new_page(viewport={'width':1500,'height':1100})
+    page.add_init_script("sessionStorage.setItem('dcms.token',"+json.dumps(admin.token)+")")
+    page.goto('http://127.0.0.1:8080/#/backup')
+    panel=page.locator('[data-import-progress]');expect(panel).to_be_visible()
+    expect(panel.get_by_text('正在导入',exact=True)).to_be_visible(timeout=15000)
+    expect(page.get_by_role('button',name='校验并导入数据',exact=True)).to_be_disabled()
+    page.reload();expect(page.locator('[data-import-progress]').get_by_text('正在导入',exact=True)).to_be_visible()
+    page.screenshot(path=str(out/'import-running-after-refresh.png'),full_page=True)
+    browser.close()
+progress_samples=[]
+while time.monotonic()-started<2700:
+    tick=time.monotonic();state=admin.get('/system/data-backups/status')
+    assert time.monotonic()-tick<5,'Same-session status polling is blocked'
+    assert state['id']==accepted['job_id']
+    assert state['state'] not in ('FAILED','INTERRUPTED'),state
+    progress_samples.append(state['progress'])
+    assert progress_samples==sorted(progress_samples),progress_samples
+    if state['state']=='COMPLETED':
+        assert state['progress']==100
+        break
+    assert state['progress']<100
+    time.sleep(5)
+else:raise AssertionError('Import did not finish within 45 minutes')
+assert len(set(progress_samples))>5,progress_samples
+result=admin.get('/system/backups')['scale_import'];elapsed=time.monotonic()-started
+print('PASS: background acceptance, same-session polling, real progress, refresh and committed completion',flush=True)
 assert result['imported'];receipt=result['receipt'];m=receipt['manifest'];author=m['actors'][0]
 with transaction() as conn:
     tables={'families':'basic_drawing_family','parts':'part_number','externals':'external_part','software':'software_object',
@@ -126,9 +156,10 @@ with sync_playwright() as p:
     page.goto('http://127.0.0.1:8080/#/backup')
     page.get_by_label('数据备份包',exact=True).set_input_files(str(path));page.get_by_label('数据导入确认文字',exact=True).fill('导入模拟数据')
     with page.expect_response(lambda r:r.url.endswith('/system/data-backups/import') and r.request.method=='POST') as response:page.get_by_role('button',name='校验并导入数据',exact=True).click()
-    assert response.value.status==200
+    assert response.value.status==202
+    expect(page.locator('[data-import-progress]').get_by_text('导入完成',exact=True)).to_be_visible(timeout=15000)
     expect(page.locator('[data-scale-import]')).to_be_visible()
     assert not errors,errors
     browser.close()
-(out/'result.json').write_text(json.dumps(dict(passed=True,counts=counts,approvals=requests,import_seconds=elapsed,package_sha256=hashlib.sha256(package).hexdigest(),projects=m['projects']),ensure_ascii=False,indent=2))
+(out/'result.json').write_text(json.dumps(dict(passed=True,counts=counts,approvals=requests,import_seconds=elapsed,progress_samples=progress_samples,package_sha256=hashlib.sha256(package).hexdigest(),projects=m['projects']),ensure_ascii=False,indent=2))
 print('PASS: real browser import entry, ten project links and baseline navigation',flush=True)

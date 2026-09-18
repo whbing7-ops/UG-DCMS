@@ -1,4 +1,5 @@
 import { api } from './api.js';
+import { importProgress } from './import-progress.js';
 import { el, link, field, input, select, panel, table, tablePanel, toast, empty, fmtDate, codeText } from './ui.js';
 import { editor } from './manage.js';
 import { recordView } from './bom-tools.js';
@@ -114,24 +115,18 @@ export async function backupPage(ctx) {
     const restoreFile=input({type:'file',accept:'.zip'}); const confirm=input({placeholder:'输入：恢复UG-DCMS'});
     const dataFile=input({type:'file',accept:'.zip','aria-label':'数据备份包'});
     const dataConfirm=input({placeholder:'输入：导入模拟数据','aria-label':'数据导入确认文字'});
-    const dataFeedback=el('p',{role:'status'});
+    let tracker;
     const importButton=el('button',{class:'btn primary',onclick:async()=>{
       if(!dataFile.files[0]) return toast('请选择数据备份包','error');
-      importButton.disabled=true; dataFeedback.textContent='正在校验并导入数据，大规模数据可能需要数分钟；请勿关闭服务或重复提交。';
-      try{
-        await api.upload('/system/data-backups/import',{confirmation:dataConfirm.value},dataFile.files[0]);
-        await draw();
-      }catch(e){
-        dataFeedback.textContent=e.message+'。可重新打开备份页核对结果后重试。';
-        importButton.disabled=false;
-      }
+      await tracker.submit(dataFile.files[0],dataConfirm.value);
     }},'校验并导入数据');
+    tracker=importProgress(data.import_job,draw,busy=>{importButton.disabled=busy;dataFile.disabled=busy;dataConfirm.disabled=busy;});
     const receipt=data.data_import?.receipt, m=receipt?.manifest;
     const scaleReceipt=data.scale_import?.receipt, scale=scaleReceipt?.manifest;
     const dataPanel=panel('导入数据备份包',[
       el('p',{},'选择配套 IMA 或十项目规模数据备份 ZIP，仅新增模拟业务记录，保留现有数据和附件。重复导入不会重复创建，无需重启服务。'),
       el('p',{class:'muted'},'十项目规模包：1000个设计族、10000个内部件号、500个软件、5000个外部件号；原IMA包仍可单独导入。'),
-      el('div',{class:'inline-form'},field('数据备份包',dataFile),field('确认文字',dataConfirm),importButton),dataFeedback,
+      el('div',{class:'inline-form'},field('数据备份包',dataFile),field('确认文字',dataConfirm),importButton),tracker.host,
       m?el('div',{class:'note ok'},
         el('p',{role:'status'},'数据导入已完成 · '+fmtDate(receipt.imported_at)+' · '+m.top_part_number),
         el('div',{class:'actions'},

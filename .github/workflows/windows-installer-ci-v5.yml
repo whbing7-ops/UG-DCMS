@@ -1,4 +1,4 @@
-name: UG-DCMS rc2.43 source integration and installer
+name: UG-DCMS rc2.44 source integration and installer
 
 on:
   workflow_dispatch:
@@ -12,11 +12,12 @@ on:
       - 'ci/test-applicant-workflow.py'
       - 'ci/test-notifications.py'
       - 'ci/test-scale-demo.py'
+      - 'ci/test-import-progress.py'
       - 'ci/test-notify-desktop.py'
       - '.github/workflows/windows-installer-ci-v5.yml'
 
 concurrency:
-  group: ug-dcms-rc243
+  group: ug-dcms-rc244
   cancel-in-progress: true
 
 jobs:
@@ -65,7 +66,7 @@ jobs:
             sha="$(sha256sum "$f" | cut -d' ' -f1)"
             psql -X -v ON_ERROR_STOP=1 -h 127.0.0.1 -U dcms -d dcms -c "INSERT INTO schema_migration(version,filename,sha256) VALUES ('$v','$(basename "$f")','$sha')"
           done
-          test "$(psql -XAt -h 127.0.0.1 -U dcms -d dcms -c 'select count(*) from schema_migration')" = 24
+          test "$(psql -XAt -h 127.0.0.1 -U dcms -d dcms -c 'select count(*) from schema_migration')" = 25
           # Model the field failure: 0014 objects exist while its ledger row was
           # not recorded. Reapplying must reconcile without deleting any data.
           psql -X -1 -v ON_ERROR_STOP=1 -h 127.0.0.1 -U dcms -d dcms -f src/db/migrations/0014_operational_workflow.sql
@@ -102,12 +103,13 @@ jobs:
           PYTHONPATH=src/backend python ci/test-ima-demo.py /tmp/ima-credentials.json
           PYTHONPATH=src/backend python ci/test-applicant-workflow.py /tmp/ima-credentials.json
           PYTHONPATH=src/backend python ci/test-notifications.py /tmp/ima-credentials.json
+          PYTHONPATH=src/backend python ci/test-import-progress.py /tmp/ima-credentials.json
           PYTHONPATH=src/backend python -u ci/test-scale-demo.py /tmp/ima-credentials.json
       - name: Upload IMA browser evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ima-evidence-rc243
+          name: ima-evidence-rc244
           path: |
             ima-evidence/
             applicant-evidence/
@@ -151,7 +153,7 @@ jobs:
         run: |
           python src\installer\verify_installer_source.py
           powershell -NoProfile -ExecutionPolicy Bypass -File src\installer\Build-Setup.ps1
-          $setup='src\installer\output\UG-DCMS-Setup-1.0.0-rc2.43.exe'
+          $setup='src\installer\output\UG-DCMS-Setup-1.0.0-rc2.44.exe'
           if(-not(Test-Path $setup)){ throw 'installer missing' }
           if((Get-Item $setup).Length -lt 1000000){ throw 'installer unexpectedly small' }
           Get-FileHash $setup -Algorithm SHA256
@@ -163,12 +165,12 @@ jobs:
       - name: Package installer and source
         shell: powershell
         run: |
-          Compress-Archive -Path src\installer\output\UG-DCMS-Setup-1.0.0-rc2.43.exe -DestinationPath svgUG-DCMS-20260918-rc2.43.zip
+          Compress-Archive -Path src\installer\output\UG-DCMS-Setup-1.0.0-rc2.44.exe -DestinationPath svgUG-DCMS-20260918-rc2.44.zip
       - uses: actions/upload-artifact@v4
         with:
-          name: svgUG-DCMS-20260918-rc2.43
+          name: svgUG-DCMS-20260918-rc2.44
           path: |
-            src/installer/output/UG-DCMS-Setup-1.0.0-rc2.43.exe
+            src/installer/output/UG-DCMS-Setup-1.0.0-rc2.44.exe
             src/desktop/output/UG-DCMS-Notify-rc2.41.exe
             notify-self-test.txt
-            svgUG-DCMS-20260918-rc2.43.zip
+            svgUG-DCMS-20260918-rc2.44.zip

@@ -144,7 +144,7 @@ with sync_playwright() as p:
     page.get_by_label('数据导入确认文字',exact=True).fill('导入模拟数据')
     with page.expect_response(lambda r:r.url.endswith('/system/data-backups/import') and r.request.method=='POST',timeout=120000) as response:
         page.get_by_role('button',name='校验并导入数据',exact=True).click()
-    assert response.value.status==200,response.value.text()
+    assert response.value.status==202,response.value.text()
     try:
         expect(page.get_by_role('link',name='打开共用 BOM',exact=True)).to_be_visible(timeout=10000)
     except BaseException:

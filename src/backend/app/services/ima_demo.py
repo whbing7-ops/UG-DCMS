@@ -73,7 +73,7 @@ def _document(conn, key, title, kind, content, extension, mime, author, approver
     return doc
 
 
-def import_dataset(conn, admin, dataset=None):
+def import_dataset(conn, admin, dataset=None, progress=None):
     # Non-blocking lock: double clicks get a clear response instead of consuming
     # all application connections while a large atomic import is in progress.
     if not scalar(conn, 'SELECT pg_try_advisory_xact_lock(811038)'):
@@ -86,7 +86,7 @@ def import_dataset(conn, admin, dataset=None):
         # A savepoint includes deferred constraint validation, so physical files
         # are cleaned on domain, DB and commit validation errors alike.
         with conn.transaction():
-            result = _populate(conn, admin, keys, dataset or builtin_dataset())
+            result = _populate(conn, admin, keys, dataset or builtin_dataset(), progress)
             conn.execute('SET CONSTRAINTS ALL IMMEDIATE')
             conn.execute('SET CONSTRAINTS ALL DEFERRED')
         return result
@@ -96,7 +96,8 @@ def import_dataset(conn, admin, dataset=None):
         raise
 
 
-def _populate(conn, admin, keys, dataset):
+def _populate(conn, admin, keys, dataset, progress=None):
+    emit = progress or (lambda *args: None)
     PARTS, EXTERNALS, LINES, SOFTWARE = (dataset[k] for k in ('parts','externals','bom_lines','software'))
     # Check all fixed namespaces before writing anything. Never reuse a
     # similarly named existing record, even if it looks like a demo record.
@@ -112,7 +113,8 @@ def _populate(conn, admin, keys, dataset):
     docs, parts, external, sw, snapshots, baselines_map = [], {}, {}, {}, {}, {}
     execute(conn, "INSERT INTO namespace(code,name_cn,name_en,kind) VALUES(%s,%s,%s,'OTHER')",
             (CODE, MARK+'IMA虚构供应来源', 'SIMULATED IMA'))
-    for key, name, physical, term, level in PARTS:
+    emit('设计族、件号及设计资料',0,len(PARTS),0,20)
+    for index,(key, name, physical, term, level) in enumerate(PARTS,1):
         function_code = ('F04-01' if key in ('CHASSIS','HOUSING','COVER') else
             'F01-03' if key=='BRACKET' else 'F07-01' if key=='HEATSINK' else
             'F09-01' if key in ('POWER','PWR_CCA','PCB_PWR') else 'F08-01' if key=='HARNESS' else
@@ -142,7 +144,9 @@ def _populate(conn, admin, keys, dataset):
                         'image/svg+xml', author, approver, keys, docs)
         parts[key]['definition'] = doc
         files.link_definition(conn, code, doc['file_number'], 'PRIMARY_DEFINITION', NOTICE, author)
-    for key, name, cls in EXTERNALS:
+        emit('设计族、件号及设计资料',index,len(PARTS),0,20)
+    emit('外部件及项目准入',0,len(EXTERNALS),20,20)
+    for index,(key, name, cls) in enumerate(EXTERNALS,1):
         code = CODE+'::'+CODE+'-'+key
         externals.create_external(conn, namespace_code=CODE, external_part_number=CODE+'-'+key,
             name_cn=MARK+name, name_en='SIMULATED '+key, manufacturer_code=None, external_class_code=cls,
@@ -156,6 +160,7 @@ def _populate(conn, admin, keys, dataset):
         _mark_request(conn, externals.submit_project_control(conn, str(control['id']), approver['user_id'], author))
         externals.approve_project_control(conn, str(control['id']), NOTICE, approver)
         external[key] = {'object_code':code, 'state_target':code+' TS1', 'state_id':str(st['id'])}
+        emit('外部件及项目准入',index,len(EXTERNALS),20,20)
     contexts = {}
     for config, description in dataset['configurations'].items():
         contexts[config] = applicability.create_context(conn, code=CODE+'-'+config,
@@ -164,14 +169,17 @@ def _populate(conn, admin, keys, dataset):
         applicability.create_rule(conn, code=CODE+'-ONLY-'+config, name=MARK+'仅IMA构型'+config,
             expression={'all':[{'field':'simulation','op':'eq','value':CODE},
                               {'field':'ima_variant','op':'eq','value':config}]}, description=NOTICE, actor=author)
-    for parent,item,child,qty,rule in LINES:
+    emit('建立多层 BOM',0,len(LINES),40,10)
+    for index,(parent,item,child,qty,rule) in enumerate(LINES,1):
         child_code = parts[child]['part_number'] if child in parts else external[child]['object_code']
         line = bom.add_line(conn, parts[parent]['object_id'], item_number=item, child_object_code=child_code,
             quantity=qty, unit_code='EA', reference_designator='SIM-'+parent+'-'+item,
             effectivity=MARK+('A/B共用' if not rule else '构型'+rule), notes=NOTICE, actor=author)
         if rule:
             applicability.assign_rule(conn, str(line['id']), CODE+'-ONLY-'+rule, author)
-    for key,name,kind,hardware in SOFTWARE:
+        emit('建立多层 BOM',index,len(LINES),40,10)
+    emit('软件及硬件关联',0,len(SOFTWARE),50,10)
+    for index,(key,name,kind,hardware) in enumerate(SOFTWARE,1):
         number=CODE+'-SW-'+key
         externals.create_software(conn, software_number=number, name_cn=MARK+name,
                                   name_en='SIMULATED '+key, software_type=kind, actor=author)
@@ -190,6 +198,7 @@ def _populate(conn, admin, keys, dataset):
         externals.release_version(conn,str(version['id']),NOTICE,approver)
         sw[key]={'software_number':number,'version_id':str(version['id']), 'target':number+' SIM-1.0.0',
                  'hardware':hardware,'sha256':version['hash_sha256']}
+        emit('软件及硬件关联',index,len(SOFTWARE),50,10)
     for key in dict.fromkeys(line[0] for line in LINES):
         snapshots[key]=bom.create_snapshot(conn,parts[key]['object_id'],author)
     resolved={}
@@ -202,7 +211,8 @@ def _populate(conn, admin, keys, dataset):
             json.dumps(payload,ensure_ascii=False,indent=2,default=str).encode(),'json','application/json',author,approver,keys,docs)
         resolved[config]={'snapshot':snap,'document':doc,'attributes':context['attributes']}
     # Child baselines before parent; every assembly locks its own Master BOM.
-    for key in reversed(parts):
+    emit('审批及发布设计基线',0,len(parts),60,39)
+    for index,key in enumerate(reversed(parts),1):
         p=parts[key]
         bl=baselines.create_baseline(conn,p['part_number'],NOTICE,author,project_code=CODE,scope_note=NOTICE)
         bid=str(bl['id'])
@@ -239,6 +249,7 @@ def _populate(conn, admin, keys, dataset):
         _mark_request(conn,baselines.submit(conn,bid,approver['user_id'],author))
         released=baselines.release(conn,bid,NOTICE,approver)
         baselines_map[key]={'id':bid,'part_number':p['part_number'],**released}
+        emit('审批及发布设计基线',index,len(parts),60,39)
     execute(conn,'UPDATE app_user SET is_active=false WHERE id=ANY(%s::uuid[])',(actors,))
     manifest={'notice':NOTICE,'parts':parts,'externals':external,'software':sw,'documents':docs,
               'baselines':baselines_map,'configurations':resolved,'actors':actors,

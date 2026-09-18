@@ -53,14 +53,14 @@ def status(conn):
     return dict(dataset_code=CODE,notice=NOTICE,planned=COUNTS,imported=receipt is not None,receipt=receipt)
 
 
-def import_dataset(conn,admin,dataset=None):
+def import_dataset(conn,admin,dataset=None,progress=None):
     if not scalar(conn,'SELECT pg_try_advisory_xact_lock(811038)'):raise ValueError('模拟数据正在导入，请稍后刷新备份页查看结果')
     existing=status(conn)
     if existing['imported']:return existing
     keys=[]
     try:
         with conn.transaction():
-            result=_populate(conn,admin,keys,dataset or builtin_dataset())
+            result=_populate(conn,admin,keys,dataset or builtin_dataset(),progress)
             conn.execute('SET CONSTRAINTS ALL IMMEDIATE')
             conn.execute('SET CONSTRAINTS ALL DEFERRED')
         return result
@@ -69,7 +69,8 @@ def import_dataset(conn,admin,dataset=None):
         raise
 
 
-def _populate(conn,admin,keys,data):
+def _populate(conn,admin,keys,data,progress=None):
+    emit=progress or (lambda *args: None)
     for table,column in [('namespace','code'),('design_file','file_number'),('software_object','software_number'),
         ('configuration_context','context_code'),('external_part','external_part_number'),
         ('external_part_project_control','project_code'),('design_baseline','project_code'),('basic_drawing_family','classification_note')]:
@@ -85,6 +86,7 @@ def _populate(conn,admin,keys,data):
     for key,family,p in data['parts']:by_family[family].append((key,p))
     controlled={t:{r['code']:str(r['id']) for r in fetch_all(conn,f"SELECT id,code FROM {t} WHERE status='ACTIVE'")}
                 for t in ['physical_class','naming_core_term','function_item']}
+    emit('设计族、件号及设计资料',0,1000,0,20)
     for index,(key,name,physical,term,func,level) in enumerate(data['families'],1):
         try:pc,ct,fn=controlled['physical_class'][physical],controlled['naming_core_term'][term],controlled['function_item'][func]
         except KeyError as exc:raise ValueError('所需受控分类或核心词已停用：'+str(exc)) from exc
@@ -106,11 +108,13 @@ def _populate(conn,admin,keys,data):
         for pk,_ in by_family[key]:
             parts[pk]['definition']=doc
             files.link_definition(conn,parts[pk]['part_number'],doc['file_number'],'PRIMARY_DEFINITION',NOTICE,author)
+        emit('设计族、件号及设计资料',index,1000,0,20)
         if index%100==0:log.warning('%s families %s/1000',CODE,index)
     for project in data['projects']:
         p=project['index'];root=parts[f'F0001-D{p:02d}']
         c=applicability.create_context(conn,code=project['code'],name=project['name'],attributes={'simulation':CODE,'project':project['code']},description=NOTICE,actor=author)
         projects[p]={**project,'root_part_number':root['part_number'],'context_id':str(c['id'])}
+    emit('外部件及项目准入',0,5000,20,20)
     for index,(key,name,cls,p) in enumerate(data['externals'],1):
         number=CODE+'-'+key;code=CODE+'::'+number
         externals.create_external(conn,namespace_code=CODE,external_part_number=number,name_cn=MARK+name,name_en='SIMULATED '+key,
@@ -124,8 +128,10 @@ def _populate(conn,admin,keys,data):
             ima_demo._mark_request(conn,externals.submit_project_control(conn,str(c['id']),approver['user_id'],author))
             externals.approve_project_control(conn,str(c['id']),NOTICE,approver)
         ext[key]=dict(object_code=code,target=code+' TS1',projects=uses)
+        emit('外部件及项目准入',index,5000,20,20)
         if index%500==0:log.warning('%s externals %s/5000',CODE,index)
-    for key,name,kind,p,hardware in data['software']:
+    emit('软件及硬件关联',0,500,40,5)
+    for index,(key,name,kind,p,hardware) in enumerate(data['software'],1):
         number=CODE+'-'+key
         externals.create_software(conn,software_number=number,name_cn=MARK+name,name_en='SIMULATED '+key,software_type=kind,actor=author)
         buf=io.BytesIO()
@@ -138,13 +144,17 @@ def _populate(conn,admin,keys,data):
         ima_demo._mark_request(conn,externals.submit_version(conn,str(v['id']),approver['user_id'],author))
         externals.release_version(conn,str(v['id']),NOTICE,approver)
         software[key]=dict(target=number+' SIM-1.0.0',projects=list(projects) if key=='S0001' else [p],hardware=hardware)
+        emit('软件及硬件关联',index,500,40,5)
     children=defaultdict(list)
-    for parent,item,child,qty in data['bom_lines']:
+    emit('建立多层 BOM',0,len(data['bom_lines']),45,15)
+    for index,(parent,item,child,qty) in enumerate(data['bom_lines'],1):
         code=parts[child]['part_number'] if child in parts else ext[child]['object_code']
         bom.add_line(conn,parts[parent]['object_id'],item_number=item,child_object_code=code,quantity=qty,unit_code='EA',
             reference_designator='SIM-'+item,effectivity=MARK+('项目共用' if item.startswith('COMMON') else '项目变型'),notes=NOTICE,actor=author)
         children[parent].append(child)
+        emit('建立多层 BOM',index,len(data['bom_lines']),45,15)
     # Child baselines first; common leaf P/Ns also release before any parent.
+    emit('审批及发布设计基线',0,len(parts),60,39)
     for index,key in enumerate(sorted(parts,key=lambda k:int(k[1:5]),reverse=True),1):
         p=parts[key];project=projects[p['project']]
         bl=baselines.create_baseline(conn,p['part_number'],NOTICE,author,project_code=project['code'],scope_note=NOTICE);bid=str(bl['id'])
@@ -164,6 +174,7 @@ def _populate(conn,admin,keys,data):
             add('FILE_REVISION',doc['target'],'SUPPORTING_DEFINITION');project['catalog_file']=doc['file_number'];project['baseline_id']=bid
         ima_demo._mark_request(conn,baselines.submit(conn,bid,approver['user_id'],author))
         baselines.release(conn,bid,NOTICE,approver);p['baseline_id']=bid
+        emit('审批及发布设计基线',index,len(parts),60,39)
         if index%1000==0:log.warning('%s released baselines %s/10000',CODE,index)
     actors=[author['user_id'],approver['user_id']]
     execute(conn,'UPDATE app_user SET is_active=false WHERE id=ANY(%s::uuid[])',(actors,))
