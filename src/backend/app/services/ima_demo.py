@@ -39,18 +39,18 @@ def _mark_request(conn, req):
     execute(conn, 'UPDATE approval_request SET title=%s||title WHERE id=%s', (MARK, req['id']))
 
 
-def _actor(conn, suffix, role, admin, batch):
-    username = f'sim_ima_{suffix}_{batch}'
+def _actor(conn, suffix, role, admin, batch, prefix="sim_ima", label="IMA模拟"):
+    username = f'{prefix}_{suffix}_{batch}'
     row = fetch_one(conn, """INSERT INTO app_user(username,full_name,password_hash,created_by)
-        VALUES(%s,%s,%s,%s) RETURNING id""", (username, MARK + 'IMA模拟' + suffix,
+        VALUES(%s,%s,%s,%s) RETURNING id""", (username, MARK + label + suffix,
         hash_password(secrets.token_urlsafe(40)), admin['user_id']))
     execute(conn, 'INSERT INTO user_role(user_id,role_code) VALUES(%s,%s)', (row['id'],role))
     return {'user_id':str(row['id']), 'username':username, 'client_ip':admin.get('client_ip'),
             'session_id':admin['session_id']}
 
 
-def _document(conn, key, title, kind, content, extension, mime, author, approver, keys, docs):
-    number = f'{CODE}-{key}'
+def _document(conn, key, title, kind, content, extension, mime, author, approver, keys, docs, prefix=CODE):
+    number = f'{prefix}-{key}'
     files.create_file(conn, file_number=number, file_type_code=kind,
                       title_cn=MARK+title, title_en='SIMULATED '+key, actor=author)
     rev = files.create_revision(conn, number, NOTICE, author)

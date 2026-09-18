@@ -17,7 +17,7 @@ from ..txroute import TransactionalRoute
 from ..deps import Conn, CurrentUser, require, require_password_changed
 from ..rbac import Perm
 from .. import audit, errors
-from ..services import backups, data_backups, ima_demo
+from ..services import backups, data_backups, ima_demo, scale_demo
 
 router = APIRouter(tags=["系统"], route_class=TransactionalRoute)
 
@@ -95,7 +95,7 @@ def backup_list(conn: Conn, actor: dict = Depends(require(Perm.SYSTEM_SETTING)))
     pending=json.loads(marker.read_text(encoding="utf-8")) if marker.exists() else None
     return {"schedule": backups.schedule(), "backups": backups.list_backups(),
             "restore_pending": pending, "restore_status":backups.restore_status(),
-            "data_import": ima_demo.status(conn)}
+            "data_import": ima_demo.status(conn), "scale_import": scale_demo.status(conn)}
 
 
 @router.get("/system/restore/status")

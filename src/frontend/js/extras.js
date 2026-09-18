@@ -117,7 +117,7 @@ export async function backupPage(ctx) {
     const dataFeedback=el('p',{role:'status'});
     const importButton=el('button',{class:'btn primary',onclick:async()=>{
       if(!dataFile.files[0]) return toast('请选择数据备份包','error');
-      importButton.disabled=true; dataFeedback.textContent='正在校验并导入数据，请等待；请勿关闭服务。';
+      importButton.disabled=true; dataFeedback.textContent='正在校验并导入数据，大规模数据可能需要数分钟；请勿关闭服务或重复提交。';
       try{
         await api.upload('/system/data-backups/import',{confirmation:dataConfirm.value},dataFile.files[0]);
         await draw();
@@ -127,16 +127,25 @@ export async function backupPage(ctx) {
       }
     }},'校验并导入数据');
     const receipt=data.data_import?.receipt, m=receipt?.manifest;
+    const scaleReceipt=data.scale_import?.receipt, scale=scaleReceipt?.manifest;
     const dataPanel=panel('导入数据备份包',[
-      el('p',{},'选择配套 IMA 模拟数据备份 ZIP，仅新增模拟业务记录，保留现有数据和附件。重复导入不会重复创建，无需重启服务。'),
-      el('p',{class:'muted'},'19个内部件、9个外部件、多层BOM、两种构型、软件关联、模拟附件、审批发布和设计基线。'),
+      el('p',{},'选择配套 IMA 或十项目规模数据备份 ZIP，仅新增模拟业务记录，保留现有数据和附件。重复导入不会重复创建，无需重启服务。'),
+      el('p',{class:'muted'},'十项目规模包：1000个设计族、10000个内部件号、500个软件、5000个外部件号；原IMA包仍可单独导入。'),
       el('div',{class:'inline-form'},field('数据备份包',dataFile),field('确认文字',dataConfirm),importButton),dataFeedback,
       m?el('div',{class:'note ok'},
         el('p',{role:'status'},'数据导入已完成 · '+fmtDate(receipt.imported_at)+' · '+m.top_part_number),
         el('div',{class:'actions'},
           link('打开共用 BOM','#/bom/'+encodeURIComponent(m.top_part_number),'btn'),
           link('查看顶层设计基线','#/baseline/'+m.baselines.IMA.id,'btn'),
-          link('查看模拟设计资料','#/design-materials?q=SIM-IMA-V1','btn'))):null
+          link('查看模拟设计资料','#/design-materials?q=SIM-IMA-V1','btn'))):null,
+      scale?el('div',{'data-scale-import':'true',class:'note ok'},
+        el('p',{role:'status'},'十项目规模数据导入已完成 · '+fmtDate(scaleReceipt.imported_at)),
+        el('p',{},`${scale.counts.families}个设计族 · ${scale.counts.parts}个内部件号 · ${scale.counts.software}个软件 · ${scale.counts.externals}个外部件号 · ${scale.counts.projects}个项目`),
+        el('div',{class:'table-scroll'},table([{label:'模拟项目'},{label:'根件号'},{label:'业务入口'}],scale.projects,p=>[
+          el('td',{},p.name,el('div',{class:'mono'},p.code)),el('td',{class:'mono'},p.root_part_number),
+          el('td',{},el('div',{class:'row-actions'},link('查看 BOM','#/bom/'+encodeURIComponent(p.root_part_number),'btn'),
+            link('查看基线','#/baseline/'+p.baseline_id,'btn')))])),
+        link('查看规模模拟资料','#/design-materials?q=SIM-SCALE-V1','btn')):null
     ]);
 
     root.replaceChildren(...[el('h1',{},'系统备份与恢复'),
