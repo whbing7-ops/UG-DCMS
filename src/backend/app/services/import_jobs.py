@@ -22,8 +22,8 @@ def status(conn):
         if fresh['id'] != job['id']:
             return fresh
         if fresh['state'] == 'RUNNING' or (fresh['state'] == 'QUEUED' and fresh['expired']):
-            receipt = fetch_one(conn, 'SELECT imported_at FROM simulation_dataset WHERE dataset_code=%s AND imported_at >= %s',
-                                (job['dataset_code'], job['started_at']))
+            receipt = fetch_one(conn, 'SELECT imported_at FROM simulation_dataset WHERE dataset_code=%s',
+                                (job['dataset_code'],))
             if receipt:
                 conn.execute("UPDATE data_import_job SET state='COMPLETED',stage='完成',progress=100,message='数据导入已完成',finished_at=clock_timestamp(),updated_at=clock_timestamp() WHERE id=%s", (job['id'],))
             else:
@@ -68,6 +68,7 @@ def run(job_id, dataset, actor):
             monitor.execute("""UPDATE data_import_job SET state='RUNNING',stage=%s,completed=%s,total=%s,
                 progress=%s,message=%s,updated_at=clock_timestamp() WHERE id=%s""",
                 (stage,completed,total,percent,stage,job_id))
+        committed = False
         try:
             with transaction() as conn:
                 if not scalar(conn, 'SELECT pg_try_advisory_xact_lock(%s)', (LOCK,)):
@@ -79,12 +80,17 @@ def run(job_id, dataset, actor):
                 module = scale_demo if dataset['dataset_code'] == scale_demo.CODE else ima_demo
                 module.import_dataset(conn,actor,dataset,progress=report)
                 report('提交事务',0,0,99,0)
+            committed = True
             # Never advertise 100% until the business transaction has committed.
             monitor.execute("""UPDATE data_import_job SET state='COMPLETED',stage='完成',progress=100,
                 message='数据导入已完成，可查看下方业务入口；重复导入不会新增同一批数据',
                 finished_at=clock_timestamp(),updated_at=clock_timestamp() WHERE id=%s""", (job_id,))
         except Exception as exc:
             log.exception('Data import job %s failed',job_id)
+            if committed:
+                # A lost status write must not misreport a committed import as rollback.
+                # status() reconciles the durable receipt on the next page load.
+                return
             message = (str(exc) if isinstance(exc,(ValueError,LookupError,FileExistsError)) else
                        '附件写入失败，请检查存储空间和目录写入权限' if isinstance(exc,OSError) else
                        '导入遇到异常，请联系管理员检查应用日志，任务编号：'+job_id)
