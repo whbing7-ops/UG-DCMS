@@ -29,7 +29,10 @@ def builtin_dataset():
         elif f<=10:name,pc,ct,fn,level='功能模块','T2-13','T2-003','F13-03','ASSEMBLY'
         elif f<=110:name,pc,ct,fn,level='接口电路板','T2-02','T2-002','F14-02','ASSEMBLY'
         else:name,pc,ct,fn=mechanical[(f-111)%5];level='PART'
-        fs.append([f'F{f:04d}',f'{name}{f:04d}',pc,ct,fn,level])
+        # Numeric labels such as 0304 accidentally match controlled material terms.
+        # Keep IDs numeric, but use Chinese ordinal digits in formal names.
+        ordinal=f'{f:04d}'.translate(str.maketrans('0123456789','零一二三四五六七八九'))
+        fs.append([f'F{f:04d}',name+ordinal,pc,ct,fn,level])
         ps.extend([[part(f,p),f'F{f:04d}',p] for p in range(1,11)])
     for p in range(1,11):
         for f in range(2,1001):lines.append([part(1 if f<=10 else 2+(f-11)//110,p),f'I{f:04d}',part(f,p),1])
