@@ -46,6 +46,8 @@ class Client:
                 return json.loads(raw) if raw else None
         except urllib.error.HTTPError as exc:
             detail = exc.read().decode("utf-8", "replace")
+            if exc.code in expected:
+                return json.loads(detail) if detail else None
             raise AssertionError(f"{method} {path}: HTTP {exc.code}: {detail}") from exc
 
     def get(self, path): return self.call("GET", path)
@@ -188,6 +190,32 @@ def main() -> None:
     check(approved["status"] == "ACTIVE", "family was not activated")
     results.append("family/search-create-submit-independent-approve-number")
 
+    # 构型管理员已有审批权限，必须能被选择并完成批准发号。
+    cm_me = cm.get('/auth/me')
+    cm_target = next(x for x in candidates if x['username'] == usernames['cm'])
+    check(len({x['id'] for x in candidates}) == len(candidates), 'duplicate approval candidates')
+    check(not any(x['id'] == cm_me['id'] for x in cm.get('/approvals/candidates')), 'self approval candidate leaked')
+    baseline_candidates = engineer.get('/approvals/candidates?required_role=CONFIGURATION_MANAGER')
+    check(not any(x['username'] == usernames['approver'] for x in baseline_candidates), 'baseline role restriction relaxed')
+    cm_family = engineer.post('/families', {
+        'primary_class_code': 'T1', 'physical_class_id': pc['id'],
+        'object_level_code': levels[0]['code'], 'core_term_id': term['id'],
+        'primary_function_id': funcs[0]['id'], 'family_definition': 'CI configuration manager approval',
+        'allowed_variation': 'size', 'excluded_variation': 'principle',
+        'new_family_reason': 'approval permissions regression',
+    })
+    # 页面打开后审批人被停用，服务端仍须拒绝提交，且不能留下半条审批。
+    admin.patch('/admin/users/' + cm_target['id'], {'is_active': False, 'reason': 'CI stale candidate'})
+    engineer.call('POST', f"/families/{cm_family['id']}/submit", {'approver_user_id': cm_target['id']}, expected=(400,))
+    check(engineer.get('/families/' + cm_family['id'])['approval_request_id'] is None, 'failed submit left an approval request')
+    admin.patch('/admin/users/' + cm_target['id'], {'is_active': True, 'reason': 'CI reenable'})
+    cm, _ = login(usernames['cm'], PASSWORDS['cm'][1])
+    engineer.post(f"/families/{cm_family['id']}/submit", {'approver_user_id': cm_target['id']})
+    cm_approved = cm.post(q(f"/families/{cm_family['id']}/approve", comments='CI configuration manager approval'))
+    check(cm_approved['status'] == 'ACTIVE', 'configuration manager approval did not activate family')
+    check(cm_approved['basic_drawing_number'] != approved['basic_drawing_number'], 'duplicate family number')
+    results.append('family/configuration-manager-approve-number-and-stale-candidate-rejection')
+
     parent = engineer.post(f"/families/{family['id']}/dashes", {
         "formal_name_cn": "CI演示成品", "formal_name_en": "CI DEMO ASSEMBLY",
         "object_level_code": levels[0]["code"], "difference_summary": "parent",
@@ -298,7 +326,7 @@ def main() -> None:
     namespaces = engineer.get("/dictionary/namespace")
     ext = engineer.post("/external-parts", {"namespace_code": namespaces[0]["code"],
         "external_part_number": "CI-EXT-" + STAMP, "name_cn": "CI外部件",
-        "external_class_code": "E08", "project_code": "CI-PROJECT-" + STAMP,
+        "external_class_code": "T2", "project_code": "CI-PROJECT-" + STAMP,
         "project_applicability": "CI 项目级准入测试",
         "project_evaluation_basis": "CI供应商规格及符合性资料"})
     external_candidates=engineer.get(q(
@@ -340,6 +368,9 @@ def main() -> None:
     after_delete = engineer.get(f"/bom/{parent['full_part_number']}")
     check(all(x["id"] != line_b["id"] for x in after_delete["lines"]), "BOM delete button contract failed")
     results.append("bom/delete-row")
+
+    from test_master_transfer import run as test_master_transfer
+    test_master_transfer(engineer, approver, cm, admin, target)
 
     print("FULL FUNCTIONAL SMOKE PASS")
     for name in results:

@@ -12,7 +12,7 @@ from pathlib import Path
 
 from . import errors
 from .api import (admin, applicability, auth, baselines, bom, dictionary, externals, families,
-                  files, search, system)
+                  files, search, system, master_transfer, drafts, notifications)
 from .config import get_settings
 from .guards import RequestGuardMiddleware
 from .db import close_pool, init_pool
@@ -56,7 +56,12 @@ def create_app() -> FastAPI:
     # 兜底: 万一仍有递归超限的路径, 也要落到 400 而不是 500
     app.add_exception_handler(RecursionError, errors.recursion_handler)
     app.add_exception_handler(psycopg.Error, errors.db_error_handler)
+    async def ownership_error(request, exc):
+        return await errors.dcms_error_handler(request, errors.forbidden(str(exc)))
+    app.add_exception_handler(PermissionError, ownership_error)
 
+    app.include_router(notifications.router, prefix=s.api_prefix)
+    app.include_router(drafts.router, prefix=s.api_prefix)
     app.include_router(system.router, prefix=s.api_prefix)
     app.include_router(auth.router, prefix=s.api_prefix)
     app.include_router(admin.router, prefix=s.api_prefix)
@@ -68,6 +73,7 @@ def create_app() -> FastAPI:
     app.include_router(baselines.router, prefix=s.api_prefix)
     app.include_router(search.router, prefix=s.api_prefix)
     app.include_router(externals.router, prefix=s.api_prefix)
+    app.include_router(master_transfer.router, prefix=s.api_prefix)
 
     # Windows 原生部署可由同一 FastAPI 进程直接托管前端，不依赖 Nginx/Docker。
     # Docker 部署仍由 Nginx 托管，不受影响。

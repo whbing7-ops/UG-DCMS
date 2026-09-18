@@ -1,0 +1,136 @@
+name: Publish verified rc2.41 installer
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/publish-rc241.yml'
+permissions:
+  contents: write
+  actions: read
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify exact source and completed validation runs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          for run in 34989395950 34989395800 34989395812; do
+            gh api "repos/$GH_REPO/actions/runs/$run" > run.json
+            python - <<'PY'
+          import json
+          r=json.load(open('run.json'))
+          assert r['head_sha']=='b6b96b054598d0346b27334c3540a3bdae0d0fc4'
+          assert r['status']=='completed' and r['conclusion']=='success'
+          PY
+          done
+      - uses: actions/download-artifact@v4
+        with:
+          name: svgUG-DCMS-20260915-rc2.41
+          run-id: 34989395950
+          github-token: ${{ github.token }}
+          path: verified
+      - uses: actions/download-artifact@v4
+        with:
+          name: ima-evidence-rc241
+          run-id: 34989395950
+          github-token: ${{ github.token }}
+          path: evidence
+      - name: Verify installer digest and prepare public assets
+        run: |
+          python - <<'PY'
+          import hashlib, zipfile, json
+          from pathlib import Path
+          source=Path('verified/svgUG-DCMS-20260915-rc2.41.zip')
+          name='UG-DCMS-Setup-1.0.0-rc2.41.exe'
+          with zipfile.ZipFile(source) as z:
+              assert z.testzip() is None
+              assert z.namelist()==[name],z.namelist()
+              exe=z.read(name)
+              assert exe[:2]==b'MZ'
+              assert hashlib.sha256(exe).hexdigest()=='c21b12023e6d38f24cddfd7b00fb0f6acfda99e61076cfdeb920e64c7c9095b8'
+          Path(name).write_bytes(exe)
+          Path('UG-DCMS-Setup-rc2.41.zip').write_bytes(source.read_bytes())
+          package='UG-DCMS-IMA-Data-Backup-v1.zip'
+          payload=Path('evidence/ima-evidence',package).read_bytes()
+          result=json.loads(Path('evidence/ima-evidence/result.json').read_text())
+          assert result['passed'] is True
+          assert result['counts']==dict(parts=19,externals=9,bom_lines=45,software=3,documents=23,baselines=19,configurations=2)
+          assert hashlib.sha256(payload).hexdigest()==result['package_sha256']
+          Path(package).write_bytes(payload)
+          with zipfile.ZipFile(package) as z:
+              assert z.testzip() is None
+              m=json.loads(z.read('manifest.json'))
+              assert m['format']=='UG-DCMS-DATA-BACKUP' and m['dataset_code']=='SIM-IMA-V1'
+              assert hashlib.sha256(z.read('dataset.json')).hexdigest()==m['payload_sha256']
+          print('VERIFIED_DATA_PACKAGE_SHA256',result['package_sha256'])
+          applicant=json.loads(Path('evidence/applicant-evidence/result.json').read_text())
+          assert applicant['passed'] is True
+          assert set(applicant['types'])=={'BASIC_DRAWING_FAMILY','FILE_REVISION','DESIGN_BASELINE','EXTERNAL_TECHNICAL_STATE','EXTERNAL_PROJECT_CONTROL','SOFTWARE_VERSION'}
+          notifications=json.loads(Path('evidence/notification-evidence/result.json').read_text())
+          assert notifications['passed'] is True and notifications['types']==6
+          assert Path('verified/notify-self-test.txt').read_text().startswith('PASS:')
+          helper='UG-DCMS-Notify-rc2.41.exe'
+          helper_bytes=Path('verified/src/desktop/output',helper).read_bytes()
+          assert helper_bytes[:2]==b'MZ'
+          assert hashlib.sha256(helper_bytes).hexdigest()=='8bdab9794efb311edbdc8389b82e1b0970b42c64fc15fc5140f0d8e918419b7d'
+          Path(helper).write_bytes(helper_bytes)
+          assets=[helper,name,'UG-DCMS-Setup-rc2.41.zip',package]
+          Path('SHA256SUMS.txt').write_text(''.join(hashlib.sha256(Path(p).read_bytes()).hexdigest()+'  '+p+'\n' for p in assets))
+          PY
+      - name: Publish public prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          cat > release-notes.md <<'EOF'
+          Windows 系统通知与登录待办（rc2.41）。
+          
+          - 登录首页显示待我审批、驳回/退回待修改、待提交草稿和审批消息；打开申请后对应消息标为已读。
+          - Windows 通知助手每15秒接收待审批、审批通过、驳回和退回消息。点击弹窗打开申请；如需重新登录，登录后继续进入原申请。多条消息合并提示并打开待办首页。
+          - 通知与审批同事务保存；撤回后不再提示已失效的待审批事项，重提按新轮次通知。断网重连会继续接收，助手重复领取不会反复弹相同消息；多台助手通过领取与确认避免同时重复投递。
+          
+          使用方法：
+          1. 下载 UG-DCMS-Setup-rc2.41.zip，解压运行其中 EXE，升级保留原有数据、账户及附件。
+          2. 在需要接收弹窗的每台 Windows 电脑运行 UG-DCMS-Notify-rc2.41.exe。服务器安装包已包含助手，也可从本发布页单独下载，在局域网电脑运行，无需安装数据库或 Python。
+          3. 登录网页，在首页“Windows 系统通知”中点击“生成绑定信息”，复制到助手并连接。绑定码5分钟内一次有效，仅授予该登录账户的通知读取权限，不授予审批权限、不增加登录会话。
+          4. 助手需保持运行，关闭窗口会收起到系统托盘；右键托盘图标可发送测试通知或退出。绑定的网页登录会话退出、到期、账户停用或点击首页“停用通知助手”后停止接收。重新登录后可重新绑定。
+          
+          助手不保存密码或网页登录令牌，不自动添加开机启动项。Windows 勿扰模式或关闭系统通知可能隐藏弹窗，消息仍保留在首页。本机 localhost 和局域网 HTTP 均可使用，无需修改浏览器安全设置。
+          
+          IMA 数据仍为单独的 UG-DCMS-IMA-Data-Backup-v1.zip，使用“系统 → 备份恢复 → 导入数据备份包”导入；升级不会自动写入模拟数据，不恢复独立 IMA 菜单。
+          
+          自动化验证：PostgreSQL 备份恢复/迁移、六类审批、原有业务、通知账户隔离、事务回滚、撤回重提、并发领取、重试确认、单次绑定、过期/退出/停用失效，以及真实浏览器登录首页和通知跳转均通过。Windows 安装包和助手 EXE 均构建成功，并实际执行了编译后助手的 HTTP 通信、中文载荷、托盘和系统通知 API 测试。
+          
+          CI 中系统通知 API 调用成功不代表用户电脑实际显示了弹窗。未连接用户目标系统，未在用户电脑执行安装、通知设置或数据导入。PR #2 仍未合并。
+          
+          测试源码：b6b96b054598d0346b27334c3540a3bdae0d0fc4。
+          集成与构建：https://github.com/whbing7-ops/UG-DCMS/actions/runs/34989395950
+          完整界面回归：https://github.com/whbing7-ops/UG-DCMS/actions/runs/34989395800
+          Windows 源码及通知助手测试：https://github.com/whbing7-ops/UG-DCMS/actions/runs/34989395812
+          EOF
+          gh release create rc2.41 UG-DCMS-Notify-rc2.41.exe UG-DCMS-Setup-rc2.41.zip UG-DCMS-Setup-1.0.0-rc2.41.exe UG-DCMS-IMA-Data-Backup-v1.zip SHA256SUMS.txt --target b6b96b054598d0346b27334c3540a3bdae0d0fc4 --title 'UG-DCMS rc2.41 — Windows通知与登录待办' --prerelease --notes-file release-notes.md
+      - name: Verify anonymous public downloads
+        run: |
+          set -euo pipefail
+          mkdir public-downloads
+          cd public-downloads
+          for name in UG-DCMS-Notify-rc2.41.exe UG-DCMS-Setup-rc2.41.zip UG-DCMS-IMA-Data-Backup-v1.zip SHA256SUMS.txt; do
+            curl --fail --silent --show-error --location --retry 5 --retry-all-errors --retry-delay 2 "https://github.com/${{ github.repository }}/releases/download/rc2.41/$name" --output "$name"
+          done
+          python - <<'PY'
+          import zipfile
+          from pathlib import Path
+          with zipfile.ZipFile('UG-DCMS-Setup-rc2.41.zip') as z:
+              assert z.testzip() is None
+              name='UG-DCMS-Setup-1.0.0-rc2.41.exe'
+              assert z.namelist()==[name]
+              exe=z.read(name)
+              assert exe[:2]==b'MZ'
+              Path(name).write_bytes(exe)
+          with zipfile.ZipFile('UG-DCMS-IMA-Data-Backup-v1.zip') as z:
+              assert z.testzip() is None
+          PY
+          sha256sum --check SHA256SUMS.txt

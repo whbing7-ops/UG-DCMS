@@ -128,17 +128,18 @@ input.mono, textarea.mono { font-family: var(--mono); }
 textarea { min-height: 68px; resize: vertical; }
 input:disabled, select:disabled { background: #f2f4f6; color: var(--ink-3); }
 .btn {
-  display: inline-block; padding: 6px 14px; font: 13px var(--sans); cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  vertical-align: middle; text-align: center; font: 13px/20px var(--sans); cursor: pointer;
   border: 1px solid var(--ink); background: var(--surface); color: var(--ink);
 }
 .btn:hover { background: var(--ink); color: var(--surface); }
 .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 .btn.primary:hover { background: #17395a; }
-.btn.small { padding: 3px 9px; font-size: 12px; }
 .btn.danger { border-color: var(--st-obsolete); color: var(--st-obsolete); }
 .btn.danger:hover { background: var(--st-obsolete); color: #fff; }
 .btn:disabled { opacity: .45; cursor: not-allowed; }
-.actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
+.actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
+.actions .actions { margin-top: 0; }
 .inline-form { display: flex; gap: 8px; align-items: flex-end; flex-wrap: wrap; }
 .inline-form > div { flex: 1 1 130px; }
 .inline-form label { margin-top: 0; }
@@ -244,10 +245,15 @@ tbody tr:hover { background:#f1f6fd; }
 .badge { display:inline-block; background:#eff4fb; color:#38577e; }
 .badges,.row-actions { display:flex; gap:6px; flex-wrap:wrap; }
 .row-actions { min-width:190px; }
-.btn { border-color:#cad6e5; border-radius:6px; padding:9px 16px; font-weight:500; min-height:36px; white-space:nowrap; }
+.btn { border-color:#cad6e5; border-radius:6px; padding:8px 14px; font-weight:500; min-height:38px; white-space:nowrap; flex-shrink:0; }
 .btn:hover { background:#eaf2ff; color:var(--accent); border-color:#93b4df; text-decoration:none; }
 .btn.primary { color:white; }
-.btn.small { min-height:30px; padding:4px 10px; }
+/* Size follows placement: page/form actions 38px, dense rows 32px.
+   Legacy .small on shared helpers must not shrink page-level actions. */
+td .btn,.row-actions .btn,.condition-row .btn,.whoami .btn {
+  min-height:32px; padding:5px 10px; font-size:12px;
+}
+.row-actions { align-items:center; }
 input,select,textarea { border-radius:6px; padding:9px 11px; min-height:38px; }
 input:focus,select:focus,textarea:focus { border-color:var(--accent); }
 input[type=checkbox],input[type=radio] { width:17px; min-height:17px; accent-color:var(--accent); }
@@ -280,7 +286,9 @@ label { font-size:13px; margin-bottom:6px; }
 .condition-row select { flex:0 1 110px; width:110px; }
 details > summary { cursor:pointer; color:var(--accent); }
 .part-picker { position:relative; min-width:300px; }
-.part-picker-results { position:absolute; z-index:30; left:0; right:0; top:42px; max-height:280px; overflow:auto; background:#fff; border:1px solid #b9cbe0; border-radius:8px; box-shadow:0 12px 28px #10243d2e; }
+.panel.bom-add-panel { overflow:visible; }
+.class-notes { font-size:12px; margin-top:8px; }
+.part-picker-results { position:absolute; z-index:30; left:0; width:max(100%, 440px); max-width:calc(100vw - 48px); top:42px; max-height:min(440px, 60vh); overflow:auto; background:#fff; border:1px solid #b9cbe0; border-radius:8px; box-shadow:0 12px 28px #10243d2e; }
 .part-picker-results:empty { display:none; }
 .part-picker-option { width:100%; display:grid; grid-template-columns:minmax(120px,.8fr) minmax(130px,1fr); gap:4px 12px; padding:10px 12px; text-align:left; border:0; border-bottom:1px solid #e5ebf3; background:#fff; color:var(--ink); cursor:pointer; }
 .part-picker-option:hover { background:#edf5ff; }
@@ -300,3 +308,8 @@ details > summary { cursor:pointer; color:var(--accent); }
   .grid2 { grid-template-columns:minmax(0,1fr); }
 }
 @media (max-width:560px) { .editor .grid2,.role-grid { grid-template-columns:minmax(0,1fr); } .page-heading { align-items:flex-start; } }
+
+/* Durable additive-import progress, also on narrow client screens. */
+[data-import-progress] progress{display:block;width:100%;height:18px;margin:12px 0;accent-color:var(--primary,#2563b8)}
+[data-import-progress] p{overflow-wrap:anywhere}
+[data-import-progress][hidden]{display:none}

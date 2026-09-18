@@ -149,7 +149,7 @@ def get_revision(conn: psycopg.Connection, revision_id: str) -> dict | None:
         SELECT fr.*, df.file_number, df.title_cn, df.file_type_code,
                aps.assignee_user_id AS approval_assignee_user_id
           FROM file_revision fr JOIN design_file df ON df.id = fr.design_file_id
-          LEFT JOIN approval_step aps ON aps.approval_request_id=fr.approval_request_id
+          LEFT JOIN current_approval_step aps ON aps.approval_request_id=fr.approval_request_id
             AND aps.decision='PENDING'
          WHERE fr.id = %s
     """, (revision_id,))
@@ -157,6 +157,8 @@ def get_revision(conn: psycopg.Connection, revision_id: str) -> dict | None:
 
 def submit_revision(conn: psycopg.Connection, revision_id: str, approver_user_id: str,
                     actor: dict) -> dict:
+    from . import drafts
+    drafts.require_editable(conn,'FILE_REVISION',revision_id,actor)
     rev = get_revision(conn, revision_id)
     if rev is None:
         raise LookupError("版次不存在")
@@ -167,21 +169,12 @@ def submit_revision(conn: psycopg.Connection, revision_id: str, approver_user_id
     from . import approvals
     approver = approvals.require_approver(conn, approver_user_id, actor["user_id"])
 
-    request_number = approvals.next_request_number(conn)
-    req = fetch_one(conn, """
-        INSERT INTO approval_request
-            (request_number, request_type, object_type, object_id, object_code,
-             title, requester_id)
-        VALUES (%s,'FILE_REVISION_RELEASE','FILE_REVISION',%s,%s,%s,%s)
-        RETURNING id, request_number
-    """, (request_number, revision_id,
-          f"{rev['file_number']} Rev.{rev['revision_number']}",
-          f"发布 {rev['file_number']} Rev.{rev['revision_number']}", actor["user_id"]))
+    req = approvals.open_request(conn,kind='FILE_REVISION',oid=revision_id,request_type='FILE_REVISION_RELEASE',code=f"{rev['file_number']} Rev.{rev['revision_number']}",title=f"发布 {rev['file_number']} Rev.{rev['revision_number']}",actor=actor)
     execute(conn, """
         INSERT INTO approval_step (approval_request_id, step_order, step_name,
                                    required_role_code, assignee_user_id, is_final)
-        VALUES (%s, 1, '版次批准', 'APPROVER', %s, true)
-    """, (req["id"], approver["id"]))
+        VALUES (%s, 1, '版次批准', %s, %s, true)
+    """, (req["id"], approver["role_code"], approver["id"]))
     execute(conn, """
         UPDATE file_revision SET status='IN_REVIEW', approval_request_id=%s,
                checked_by=%s, updated_by=%s WHERE id=%s
@@ -204,6 +197,8 @@ def release_revision(conn: psycopg.Connection, revision_id: str, comments: str,
     发布后本版次内容即冻结(INV-007), 上一发布版次转为 SUPERSEDED。
     **不触碰任何 P/N 的 current_baseline_id** — INV-014。
     """
+    from . import drafts
+    drafts.lock_object(conn,'FILE_REVISION',revision_id)
     rev = get_revision(conn, revision_id)
     if rev is None:
         raise LookupError("版次不存在")
@@ -214,7 +209,7 @@ def release_revision(conn: psycopg.Connection, revision_id: str, comments: str,
 
     # INV-025 由 trg_approval_separation 在此拦下自批
     execute(conn, """
-        UPDATE approval_step SET decision='APPROVED', decided_by=%s, acted_at=now(),
+        UPDATE current_approval_step SET decision='APPROVED', decided_by=%s, acted_at=now(),
                comments=%s WHERE approval_request_id=%s AND is_final
     """, (actor["user_id"], comments, rev["approval_request_id"]))
     execute(conn, "UPDATE approval_request SET status='APPROVED', closed_at=now() WHERE id=%s",
@@ -255,6 +250,8 @@ def release_revision(conn: psycopg.Connection, revision_id: str, comments: str,
 
 def cancel_revision(conn: psycopg.Connection, revision_id: str, reason: str,
                     actor: dict) -> None:
+    from . import drafts
+    drafts.require_editable(conn,'FILE_REVISION',revision_id,actor)
     rev = get_revision(conn, revision_id)
     if rev is None:
         raise LookupError("版次不存在")
@@ -288,6 +285,8 @@ def upload_attachment(conn: psycopg.Connection, revision_id: str, *, role: str,
                       filename: str, mime_type: str, content: bytes,
                       actor: dict) -> dict:
     """为工作版次上传附件。已发布版次由 trg_revision_attachment_guard 拒绝。"""
+    from . import drafts
+    drafts.require_editable(conn,'FILE_REVISION',revision_id,actor)
     rev = get_revision(conn, revision_id)
     if rev is None:
         raise LookupError("版次不存在")
@@ -356,6 +355,8 @@ def delete_attachment(conn: psycopg.Connection, attachment_id: str, actor: dict,
     """, (attachment_id,))
     if row is None:
         raise LookupError("附件不存在")
+    from . import drafts
+    drafts.require_editable(conn,'FILE_REVISION',str(row['file_revision_id']),actor)
     # 已发布版次的删除由数据库触发器拒绝; 这里先给出可读提示
     if row["rev_status"] != "WORKING":
         raise ValueError(f"版次状态为 {row['rev_status']}, 附件不得删除；退回后方可修改")
@@ -508,3 +509,24 @@ def definitions_of(conn: psycopg.Connection, object_code: str) -> list[dict]:
          WHERE d.object_code = %s
          ORDER BY dl.relation_type, df.file_number
     """, (object_code,))
+
+
+def design_materials(conn, q, file_type_code, revision_status, current_only, page, page_size):
+    # One row per registered design attachment; software packages are separate objects.
+    q=q.strip()
+    like='%'+q.replace('\\','\\\\').replace('%','\\%').replace('_','\\_')+'%'
+    args=(q,like,like,like,like,file_type_code,file_type_code,revision_status,revision_status,current_only)
+    source="""FROM revision_attachment a
+      JOIN file_revision fr ON fr.id=a.file_revision_id
+      JOIN design_file df ON df.id=fr.design_file_id
+      JOIN file_type ft ON ft.code=df.file_type_code
+      WHERE (%s='' OR a.filename ILIKE %s OR df.file_number ILIKE %s OR df.title_cn ILIKE %s OR df.title_en ILIKE %s)
+        AND (%s='' OR df.file_type_code=%s) AND (%s='' OR fr.status=%s)
+        AND (NOT %s OR (df.current_released_revision_id=fr.id AND fr.status='RELEASED'))"""
+    total=scalar(conn,'SELECT count(*) '+source,args)
+    rows=fetch_all(conn,"""SELECT a.id,a.filename,a.attachment_role,a.size_bytes,a.uploaded_at,
+      fr.id AS revision_id,fr.revision_number,fr.status AS revision_status,
+      df.file_number,df.title_cn,df.file_type_code,df.status AS file_status,ft.name_cn AS file_type_name,
+      COALESCE(df.current_released_revision_id=fr.id AND fr.status='RELEASED',false) AS is_current
+      """+source+' ORDER BY a.uploaded_at DESC,a.id LIMIT %s OFFSET %s',args+(page_size,(page-1)*page_size))
+    return {'items':rows,'total':total,'page':page,'page_size':page_size}

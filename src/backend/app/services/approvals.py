@@ -15,10 +15,12 @@ approval_request 表, 却没有「待我处理」这个入口。
 from __future__ import annotations
 
 import psycopg
+import json
 
 from .. import audit
 from ..db import execute, fetch_all, fetch_one
 from ..db import scalar
+from ..rbac import Perm, ROLE_PERMISSIONS
 
 REQUEST_TYPE_CN = {
     "BASIC_DRAWING_NUMBER": "新建设计族",
@@ -46,30 +48,80 @@ def next_request_number(conn: psycopg.Connection) -> str:
     return f"{prefix}{seq:06d}"
 
 
+def open_request(conn, *, kind, oid, request_type, code, title, actor, payload=None):
+    from . import drafts
+    row=drafts.require_editable(conn,kind,oid,actor)
+    prior=drafts.latest_request(conn,kind,oid)
+    submitted={'object':row}
+    if kind=='FILE_REVISION': submitted['attachments']=fetch_all(conn,'SELECT * FROM revision_attachment WHERE file_revision_id=%s',(oid,))
+    if kind=='SOFTWARE_VERSION': submitted['hardware']=fetch_all(conn,'SELECT * FROM software_hardware_compatibility WHERE software_version_id=%s',(oid,))
+    if kind=='DESIGN_BASELINE': submitted['items']=fetch_all(conn,'SELECT * FROM baseline_item WHERE design_baseline_id=%s',(oid,))
+    content=json.dumps({**(payload or {}),'submitted_object':submitted},ensure_ascii=False,default=str)
+    if prior:
+        if prior['status'] not in ('REJECTED','RETURNED','CANCELLED'):
+            raise ValueError('当前申请不可再次提交')
+        snapshot=get_request(conn,str(prior['id']))
+        snapshot.pop('history',None)
+        execute(conn,'INSERT INTO approval_round_history(approval_request_id,submission_round,snapshot) VALUES(%s,%s,%s::jsonb)',
+            (prior['id'],prior['submission_round'],json.dumps(snapshot,ensure_ascii=False,default=str)))
+        return fetch_one(conn,"""UPDATE approval_request SET status='PENDING',requested_at=now(),closed_at=NULL,
+            closure_action=NULL,closure_reason=NULL,submission_round=submission_round+1,title=%s,object_code=%s,payload=%s::jsonb
+            WHERE id=%s RETURNING id,request_number,status,submission_round""",(title,code,content,prior['id']))
+    return fetch_one(conn,"""INSERT INTO approval_request(request_number,request_type,object_type,object_id,object_code,title,requester_id,payload)
+        VALUES(%s,%s,%s,%s,%s,%s,%s,%s::jsonb) RETURNING id,request_number,status,submission_round""",
+        (next_request_number(conn),request_type,kind,oid,code,title,actor['user_id'],content))
+
+
+def lock_request(conn, request_id):
+    from . import drafts
+    req=fetch_one(conn,'SELECT * FROM approval_request WHERE id=%s',(request_id,))
+    if req is None: raise LookupError('审批申请不存在')
+    if req['object_type'] in drafts.TYPES:
+        drafts.lock_object(conn,req['object_type'],str(req['object_id']))
+    return fetch_one(conn,'SELECT * FROM approval_request WHERE id=%s FOR UPDATE',(request_id,))
+
+
+def approver_roles(required_role: str) -> list[str]:
+    # 一般审批按既有 APPROVE 权限选人；基线等专门角色要求仍严格匹配。
+    if required_role == "APPROVER":
+        return [str(role) for role, permissions in ROLE_PERMISSIONS.items()
+                if Perm.APPROVE in permissions]
+    if required_role not in ROLE_PERMISSIONS:
+        raise ValueError("审批角色无效")
+    return [required_role]
+
+
 def available_approvers(conn: psycopg.Connection, requester_id: str,
                         required_role: str = "APPROVER") -> list[dict]:
     """返回发起人当前可选择的审批人。
 
-    只列启用账户、具备所需角色且不是发起人本人。申请提交时会再次校验，
+    只列启用账户、具备所需权限或专门角色且不是发起人本人。申请提交时会再次校验，
     避免页面打开后人员被停用或角色被撤销造成越权提交。
     """
     return fetch_all(conn, """
         SELECT u.id::text, u.username, u.full_name, u.employee_no,
                ur.role_code
           FROM app_user u
-          JOIN user_role ur ON ur.user_id=u.id
-         WHERE u.is_active AND ur.role_code=%s AND u.id<>%s
+          JOIN LATERAL (
+            SELECT role_code FROM user_role WHERE user_id=u.id AND role_code=ANY(%s)
+             ORDER BY (role_code=%s) DESC, role_code LIMIT 1
+          ) ur ON true
+         WHERE u.is_active AND u.id<>%s
          ORDER BY u.full_name, u.username
-    """, (required_role, requester_id))
+    """, (approver_roles(required_role), required_role, requester_id))
 
 
 def require_approver(conn: psycopg.Connection, approver_user_id: str,
                      requester_id: str, required_role: str = "APPROVER") -> dict:
     row = fetch_one(conn, """
-        SELECT u.id, u.username, u.full_name
-          FROM app_user u JOIN user_role ur ON ur.user_id=u.id
-         WHERE u.id=%s AND u.is_active AND ur.role_code=%s
-    """, (approver_user_id, required_role))
+        SELECT u.id, u.username, u.full_name, ur.role_code
+          FROM app_user u
+          JOIN LATERAL (
+            SELECT role_code FROM user_role WHERE user_id=u.id AND role_code=ANY(%s)
+             ORDER BY (role_code=%s) DESC, role_code LIMIT 1
+          ) ur ON true
+         WHERE u.id=%s AND u.is_active
+    """, (approver_roles(required_role), required_role, approver_user_id))
     if row is None:
         raise ValueError("所选审批人已停用或不再具备审批权限，请重新选择")
     if str(row["id"]) == str(requester_id):
@@ -78,8 +130,10 @@ def require_approver(conn: psycopg.Connection, approver_user_id: str,
 
 
 def require_assignee(conn: psycopg.Connection, request_id: str, actor_id: str) -> None:
+    req = lock_request(conn, request_id)
+    if req['status'] != 'PENDING': raise ValueError('审批已结束或撤回，请刷新页面')
     step = fetch_one(conn, """
-        SELECT assignee_user_id FROM approval_step
+        SELECT assignee_user_id FROM current_approval_step
          WHERE approval_request_id=%s AND decision='PENDING'
          ORDER BY step_order LIMIT 1
     """, (request_id,))
@@ -93,15 +147,19 @@ def _base_query() -> str:
     return """
         SELECT ar.id, ar.request_number, ar.request_type, ar.object_type, ar.object_id,
                ar.object_code, ar.title, ar.status, ar.requested_at, ar.closed_at,
+               ar.submission_round, ar.closure_action, ar.closure_reason,
+               (ar.payload->>'draft_deleted_at') IS NOT NULL AS object_deleted,
                u.username AS requester_username, u.full_name AS requester_name,
-               ar.requester_id,
+               ar.requester_id, so.software_number,
                s.id AS step_id, s.step_order, s.step_name, s.required_role_code,
                s.assignee_user_id,
                s.is_final, s.decision, s.comments, s.acted_at,
                du.username AS decided_by_username
           FROM approval_request ar
           JOIN app_user u ON u.id = ar.requester_id
-          LEFT JOIN approval_step s ON s.approval_request_id = ar.id
+          LEFT JOIN software_version sv ON ar.object_type='SOFTWARE_VERSION' AND sv.id=ar.object_id
+          LEFT JOIN software_object so ON so.id=sv.software_object_id
+          LEFT JOIN current_approval_step s ON s.approval_request_id = ar.id
                                    AND s.decision = 'PENDING'
           LEFT JOIN app_user du ON du.id = s.decided_by
     """
@@ -146,26 +204,31 @@ def all_pending(conn: psycopg.Connection) -> list[dict]:
 
 def get_request(conn: psycopg.Connection, request_id: str) -> dict | None:
     req = fetch_one(conn, """
-        SELECT ar.*, u.username AS requester_username, u.full_name AS requester_name
+        SELECT ar.*, u.username AS requester_username, u.full_name AS requester_name, so.software_number
           FROM approval_request ar JOIN app_user u ON u.id = ar.requester_id
+          LEFT JOIN software_version sv ON ar.object_type='SOFTWARE_VERSION' AND sv.id=ar.object_id
+          LEFT JOIN software_object so ON so.id=sv.software_object_id
          WHERE ar.id = %s
     """, (request_id,))
     if req is None:
         return None
+    req['object_deleted']=bool((req.get('payload') or {}).get('draft_deleted_at'))
     req["steps"] = fetch_all(conn, """
         SELECT s.id, s.step_order, s.step_name, s.required_role_code, s.is_final,
                s.assignee_user_id, s.decision, s.comments, s.acted_at,
                u.username AS decided_by_username, au.username AS assignee_username,
                au.full_name AS assignee_name
-          FROM approval_step s LEFT JOIN app_user u ON u.id = s.decided_by
+          FROM current_approval_step s LEFT JOIN app_user u ON u.id = s.decided_by
           LEFT JOIN app_user au ON au.id=s.assignee_user_id
          WHERE s.approval_request_id = %s ORDER BY s.step_order
     """, (request_id,))
+    req['history'] = fetch_all(conn,'SELECT submission_round,snapshot,archived_at FROM approval_round_history WHERE approval_request_id=%s ORDER BY submission_round',(request_id,))
     return req
 
 
 def _decide(conn: psycopg.Connection, request_id: str, decision: str,
             comments: str, actor: dict) -> dict:
+    lock_request(conn, request_id)
     req = get_request(conn, request_id)
     if req is None:
         raise LookupError("审批申请不存在")
@@ -180,7 +243,7 @@ def _decide(conn: psycopg.Connection, request_id: str, decision: str,
 
     # 数据库触发器 trg_approval_separation 会在此拒绝申请人自批(INV-025)
     execute(conn, """
-        UPDATE approval_step SET decision=%s, decided_by=%s, acted_at=now(), comments=%s
+        UPDATE current_approval_step SET decision=%s, decided_by=%s, acted_at=now(), comments=%s
          WHERE id=%s
     """, (decision, actor["user_id"], comments, step["id"]))
 
@@ -222,7 +285,7 @@ def _reopen_object(conn: psycopg.Connection, req: dict) -> None:
 
 
 def reject(conn: psycopg.Connection, request_id: str, reason: str, actor: dict) -> dict:
-    """拒绝。申请就此结束, 申请人要另起一份新申请。"""
+    """驳回本轮；申请人可编辑原对象，在同一申请中再次提交。"""
     if not reason.strip():
         raise ValueError("拒绝必须写明理由")
     return _decide(conn, request_id, "REJECTED", reason, actor)
@@ -240,12 +303,9 @@ def send_back(conn: psycopg.Connection, request_id: str, reason: str, actor: dic
     return _decide(conn, request_id, "RETURNED", reason, actor)
 
 
-def withdraw(conn: psycopg.Connection, request_id: str, reason: str, actor: dict) -> dict:
-    """申请人撤回自己的申请。
-
-    只能撤回自己发起的, 且必须尚未有人作出决定 —— 已经有人批过的申请再撤回,
-    等于抹掉一次已经发生的审批行为。
-    """
+def withdraw(conn: psycopg.Connection, request_id: str, reason: str, actor: dict, cancel: bool = False) -> dict:
+    """最终批准前结束当前轮次，保留步骤和意见，恢复原对象编辑。"""
+    lock_request(conn, request_id)
     req = get_request(conn, request_id)
     if req is None:
         raise LookupError("审批申请不存在")
@@ -253,13 +313,10 @@ def withdraw(conn: psycopg.Connection, request_id: str, reason: str, actor: dict
         raise PermissionError("只能撤回自己发起的申请")
     if req["status"] != "PENDING":
         raise ValueError(f"申请状态为 {req['status']}, 不可撤回")
-    if any(s["decision"] != "PENDING" for s in req["steps"]):
-        raise ValueError("已有审批步骤作出决定, 不可撤回")
-
-    execute(conn, "UPDATE approval_request SET status='CANCELLED', closed_at=now() WHERE id=%s",
-            (request_id,))
+    execute(conn, "UPDATE approval_request SET status='CANCELLED', closed_at=now(), closure_action=%s, closure_reason=%s WHERE id=%s",
+            ("CANCEL" if cancel else "WITHDRAW", reason, request_id,))
     _reopen_object(conn, req)
-    audit.write(conn, action="APPROVAL_WITHDRAW", user_id=str(actor["user_id"]),
+    audit.write(conn, action="APPROVAL_CANCEL" if cancel else "APPROVAL_WITHDRAW", user_id=str(actor["user_id"]),
                 username=actor["username"], object_type="APPROVAL_REQUEST",
                 object_id=request_id, object_code=req["request_number"],
                 new_value={"status": "CANCELLED"}, reason=reason,
@@ -273,7 +330,7 @@ def summary(conn: psycopg.Connection, user: dict) -> dict:
     return fetch_one(conn, """
         SELECT
           (SELECT count(*) FROM approval_request ar
-             JOIN approval_step s ON s.approval_request_id = ar.id AND s.decision='PENDING'
+             JOIN current_approval_step s ON s.approval_request_id = ar.id AND s.decision='PENDING'
             WHERE ar.status='PENDING' AND ar.requester_id <> %s
               AND ((s.assignee_user_id IS NOT NULL AND s.assignee_user_id=%s)
                    OR (s.assignee_user_id IS NULL AND s.required_role_code=ANY(%s)))) AS inbox,

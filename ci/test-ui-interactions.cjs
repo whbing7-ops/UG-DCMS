@@ -4,7 +4,7 @@ const { chromium } = require(process.env.DCMS_PLAYWRIGHT || 'playwright');
 const assert = require('node:assert/strict');
 (async () => {
  const http=require('node:http'),fs=require('node:fs'),path=require('node:path');
- const frontend=path.resolve(__dirname,'frontend');
+ const frontend=path.resolve(__dirname,'../src/frontend');
  const server=http.createServer((req,res)=>{
   const file=path.resolve(frontend,'.'+new URL(req.url,'http://localhost').pathname.replace(/\/$/,'/index.html'));
   if(!file.startsWith(frontend+path.sep)||!fs.existsSync(file)){res.writeHead(404);res.end();return;}
@@ -132,7 +132,7 @@ const assert = require('node:assert/strict');
  await page.getByText('解析通过，共 1 行；排除 0 行。').waitFor();
  const downloadPromise=page.waitForEvent('download');
  await page.getByRole('button',{name:'下载模板'}).click();
- assert.equal((await downloadPromise).suggestedFilename(),'bom_template.csv');
+ assert.equal((await downloadPromise).suggestedFilename(),'bom_template.xlsx');
  await page.screenshot({path:'bom-ui.png',fullPage:true});
  await page.setViewportSize({width:390,height:844});
  assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'Mobile page overflows horizontally');
@@ -153,7 +153,7 @@ const assert = require('node:assert/strict');
    {id:'new',status:'RELEASED',baseline_sequence:3},
    {id:'middle',status:'SUPERSEDED',baseline_sequence:2},
   ];
-  const ctx={can:()=>false};
+  const ctx={can:()=>false,user:{id:'fixture-user'}};
   try {
    api.get=async path=>path.endsWith('/validate')?{errors:[],warnings:[]}:path.startsWith('/parts/')?records:{status:'CANCELLED',items:[]};
    const list=await baselines(ctx,{},'PN');
@@ -163,17 +163,24 @@ const assert = require('node:assert/strict');
    if((await baselines(ctx,{},'PN')).textContent.includes('比较最近两版')) throw Error('Comparison should require two published baselines');
    const cancelled=await baselineDetail(ctx,{},'cancel');
    if(!cancelled.textContent.includes('该基线已取消')||cancelled.textContent.includes('该基线已发布')) throw Error('Cancelled state misrepresented');
-   for(const [type,target] of [['BASIC_DRAWING_FAMILY','family'],['FILE_REVISION','revision'],['DESIGN_BASELINE','baseline']]) {
-    const r={id:'request',object_type:type,object_id:'target',steps:[],status:'PENDING'};
+   for(const [type,label,target] of [
+    ['BASIC_DRAWING_FAMILY','查看设计族','#/family/target'],
+    ['FILE_REVISION','查看文件版次','#/revision/target'],
+    ['DESIGN_BASELINE','查看设计基线','#/baseline/target'],
+    ['EXTERNAL_TECHNICAL_STATE','查看外部件','#/external/EXT-1'],
+    ['EXTERNAL_PROJECT_CONTROL','查看外部件','#/external/EXT-1'],
+    ['SOFTWARE_VERSION','查看软件版本','#/software/UGSW00001?version_id=target'],
+   ]) for(const state of ['PENDING','APPROVED','REJECTED','RETURNED','CANCELLED']) {
+    const r={id:'request',object_type:type,object_id:'target',object_code:'EXT-1',software_number:'UGSW00001',steps:[],status:state};
     api.get=async path=>path==='/approvals/inbox'?[r]:path==='/approvals/mine'?[]:r;
     for(const view of [await approvals(ctx),await approvalDetail(ctx,{},'request')]) {
-     const a=[...view.querySelectorAll('a')].find(a=>a.textContent==='打开对象办理');
-     if(a?.getAttribute('href')!=='#/'+target+'/target') throw Error('Approval target missing: '+type);
+     const a=[...view.querySelectorAll('a')].find(a=>a.textContent===label);
+     if(a?.getAttribute('href')!==target) throw Error('Approval target missing: '+type);
     }
    }
    for(const allowed of [false,true]) {
-    api.get=async path=>path.endsWith('/validate')?{errors:[],warnings:[]}:{status:'IN_REVIEW',items:[]};
-    const view=await baselineDetail({can:()=>allowed},{},'bl');
+    api.get=async path=>path.endsWith('/validate')?{errors:[],warnings:[]}:{status:'IN_REVIEW',items:[],approval_assignee_user_id:'fixture-user'};
+    const view=await baselineDetail({can:()=>allowed,user:{id:'fixture-user'}},{},'bl');
     if(view.textContent.includes('批准发布')!==allowed) throw Error('Baseline approval permission rendering');
    }
    return true;
@@ -181,6 +188,52 @@ const assert = require('node:assert/strict');
  });
  assert(reviewChecks);
  console.log('PASS: approval target links, published baseline selection, cancellation message, approval permission rendering.');
+ // Render the reported approved-family screen and measure actual button boxes.
+ // Shared draft/submit helpers reproduce the mixed-size buttons on other pages.
+ await page.evaluate(async()=>{
+  const {api}=await import('/js/api.js');
+  const {stopNotifications}=await import('/js/notifications.js');stopNotifications();
+  const {approvalDetail}=await import('/js/views5.js');
+  const {applicantActions}=await import('/js/drafts.js');
+  const {approvalSubmitButton}=await import('/js/extras.js');
+  const {el,link,panel,table}=await import('/js/ui.js');
+  const original=api.get;
+  const r={id:'request',object_type:'BASIC_DRAWING_FAMILY',object_id:'target',
+   request_number:'AR-2026-000001',request_type:'BASIC_DRAWING_NUMBER',title:'新建设计族：直流电源安装座',
+   object_code:'直流电源安装座',requester_id:'applicant',requester_name:'系统管理员',status:'APPROVED',submission_round:1,
+   requested_at:'2026-09-15T15:34:02',closed_at:'2026-09-15T15:36:24',
+   steps:[{step_order:1,step_name:'设计族批准',assignee_name:'演示-构型经理',assignee_username:'demo_config',
+    required_role_code:'CONFIGURATION_MANAGER',is_final:true,decision:'APPROVED',decided_by_username:'demo_config',comments:'同意新建',acted_at:'2026-09-15T15:36:24'}]};
+  try{
+   api.get=async()=>r;
+   const view=await approvalDetail({user:{id:'applicant'},can:()=>true},{},r.id);
+   const w={object_type:r.object_type,id:r.object_id,can_edit:true,request:{id:r.id}};
+   const actions=()=>el('div',{class:'actions'},applicantActions({can:()=>true},w),
+     approvalSubmitButton('提交审批','/test/submit',()=>{}),link('返回列表','#/families','btn'));
+   const states=el('div',{class:'actions'},el('button',{class:'btn primary'},'保存'),
+     el('button',{class:'btn danger'},'删除'),el('button',{class:'btn',disabled:true},'不可操作'));
+   view.append(panel('页面操作',actions()),panel('表格内操作',table([{label:'操作'}],[1],()=>[el('td',{},actions())])),panel('按钮状态',states));
+   document.querySelector('.main').replaceChildren(view);
+  }finally{api.get=original;}
+ });
+ fs.mkdirSync('ui-evidence',{recursive:true});
+ for(const width of [1440,1024,390]){
+  await page.setViewportSize({width,height:1000});
+  const failures=await page.locator('.main .btn').evaluateAll(nodes=>nodes.flatMap(n=>{
+   const rect=n.getBoundingClientRect(), style=getComputedStyle(n);
+   const expected=n.closest('td,.row-actions,.condition-row,.whoami')?32:38;
+   const range=document.createRange();range.selectNodeContents(n);const text=range.getBoundingClientRect();
+   const problems=[];
+   if(Math.abs(rect.height-expected)>1)problems.push('height '+rect.height+' expected '+expected);
+   if(style.fontSize!==(expected===32?'12px':'13px'))problems.push('font '+style.fontSize);
+   if(Math.abs(text.x+text.width/2-rect.x-rect.width/2)>2 || Math.abs(text.y+text.height/2-rect.y-rect.height/2)>3)problems.push('text is not centered');
+   return problems.map(x=>n.textContent+': '+x);
+  }));
+  assert.deepEqual(failures,[], 'Button layout at '+width+'px');
+  assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'Button page horizontal overflow at '+width);
+  await page.screenshot({path:'ui-evidence/buttons-'+width+'.png',fullPage:true});
+ }
+ console.log('PASS: six approval target types in five states; consistent page/table button dimensions and text centering at 1440/1024/390px.');
  assert.deepEqual(errors,[]);
  assert(requests.some(r=>r.p==='/admin/users/new/password-reset'));
  console.log('PASS: login, account create/edit/filter/disable/enable/reset/unlock/error, BOM search/rule/context/edit/resolve/delete, authenticated download, mobile layout.');

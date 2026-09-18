@@ -1,3 +1,4 @@
+import {workflowState, applicantActions} from './drafts.js';
 /* 基线、数据质量、报表、系统管理。 */
 import { api } from "./api.js";
 import { editor } from "./manage.js";
@@ -63,15 +64,17 @@ export async function baselines(ctx, params, pn) {
 
 /* ==================== 基线详情 ==================== */
 export async function baselineDetail(ctx, params, id) {
+  const workflow=await workflowState('DESIGN_BASELINE',id);
   const [bl, val] = await Promise.all([
     api.get("/baselines/" + id),
     api.get(`/baselines/${id}/validate`),
   ]);
-  const editable = bl.status === "DRAFT";
+  const editable = workflow.can_edit;
 
   const acts = el("div", { class: "actions" },
     link("返回基线列表", "#/baselines/" + encodeURIComponent(bl.full_part_number), "btn"));
-  if (bl.status === "DRAFT" && ctx.can("submit"))
+  acts.append(applicantActions(ctx,workflow));
+  if (workflow.can_edit && ctx.can("submit"))
     acts.append(approvalSubmitButton("提交审批", `/baselines/${id}/submit`, reload, 'CONFIGURATION_MANAGER'));
   if (bl.status === "IN_REVIEW" && ctx.can("baseline_release") && String(bl.approval_assignee_user_id||'')===String(ctx.user.id))
     acts.append(el("button", { class: "btn primary", onclick: async () => {
