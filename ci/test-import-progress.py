@@ -1,5 +1,6 @@
 """Failure/interruption status persists independently of rolled-back business rows."""
-import importlib.util,json,sys
+import importlib.util,json,sys,faulthandler
+faulthandler.dump_traceback_later(90,repeat=True)
 from pathlib import Path
 from unittest.mock import patch
 from app.db import transaction,scalar

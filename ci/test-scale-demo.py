@@ -91,6 +91,7 @@ while time.monotonic()-started<2700:
     assert time.monotonic()-tick<5,'Same-session status polling is blocked'
     assert state['id']==accepted['job_id']
     assert state['state'] not in ('FAILED','INTERRUPTED'),state
+    if not progress_samples or state['progress']!=progress_samples[-1]:print('Import progress:',state['state'],state['stage'],state['completed'],state['total'],state['progress'],flush=True)
     progress_samples.append(state['progress'])
     assert progress_samples==sorted(progress_samples),progress_samples
     if state['state']=='COMPLETED':

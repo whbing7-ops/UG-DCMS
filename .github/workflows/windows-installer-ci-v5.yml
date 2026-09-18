@@ -94,6 +94,7 @@ jobs:
           DCMS_BACKUP_ROOT: ${{ runner.temp }}/dcms-backups
           DCMS_FRONTEND_ROOT: ${{ github.workspace }}/src/frontend
           DCMS_BCRYPT_ROUNDS: 4
+          PGOPTIONS: "-c statement_timeout=120000 -c lock_timeout=30000"
           PYTHONPATH: src/backend
         run: |
           python -m uvicorn app.main:app --app-dir src/backend --host 127.0.0.1 --port 8080 > /tmp/ug-dcms.log 2>&1 &
