@@ -1,0 +1,122 @@
+name: Publish verified rc2.44 installer
+on:
+  workflow_dispatch:
+  push:
+    branches: ['fix/restore-cross-version-rc2.33']
+    paths: ['.github/workflows/publish-rc244.yml']
+permissions:
+  contents: write
+  actions: read
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify completed tests for exact source
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          for run in 35343349698 35343349642 35343349578; do
+            gh api "repos/$GH_REPO/actions/runs/$run" > run.json
+            python - <<'PY'
+          import json
+          r=json.load(open('run.json'))
+          assert r['head_sha']=='975541c7168e2635a5dbcef152fdf51c2ae7e04e'
+          assert r['status']=='completed' and r['conclusion']=='success'
+          PY
+          done
+      - uses: actions/download-artifact@v4
+        with:
+          name: svgUG-DCMS-20260918-rc2.44
+          run-id: 35343349698
+          github-token: ${{ github.token }}
+          path: verified
+      - uses: actions/download-artifact@v4
+        with:
+          name: ima-evidence-rc244
+          run-id: 35343349698
+          github-token: ${{ github.token }}
+          path: evidence
+      - name: Validate and package installer
+        run: |
+          python - <<'PY'
+          import hashlib,zipfile
+          from pathlib import Path
+          name='UG-DCMS-Setup-1.0.0-rc2.44.exe'
+          source=Path('verified/svgUG-DCMS-20260918-rc2.44.zip')
+          with zipfile.ZipFile(source) as z:
+              assert z.testzip() is None
+              assert z.namelist()==[name]
+              exe=z.read(name)
+              assert exe[:2]==b'MZ'
+              assert hashlib.sha256(exe).hexdigest()=='97635b68641c2d056de87bb4f3c0165602c0b3bef3f17779ea8b80caec1580fe'
+          Path(name).write_bytes(exe)
+          Path('UG-DCMS-Setup-rc2.44.zip').write_bytes(source.read_bytes())
+          package='UG-DCMS-10Projects-Data-Backup-v1.zip'
+          import json
+          result=json.loads(Path('evidence/scale-evidence/result.json').read_text())
+          assert result['passed'] is True
+          expected=dict(families=1000,parts=10000,software=500,externals=5000,projects=10,baselines=10000,documents=1010,bom_lines=15008,project_controls=5009,hardware_links=1010)
+          assert result['counts']==expected
+          assert result['approvals']==22519
+          payload=Path('evidence/scale-evidence',package).read_bytes()
+          assert hashlib.sha256(payload).hexdigest()==result['package_sha256']
+          Path(package).write_bytes(payload)
+          with zipfile.ZipFile(package) as z:
+              assert z.testzip() is None
+              m=json.loads(z.read('manifest.json'))
+              assert m['format']=='UG-DCMS-DATA-BACKUP' and m['dataset_code']=='SIM-SCALE-V1'
+              assert m['minimum_release']=='rc2.43'
+              assert result['package_sha256']=='31159939f8013ce897aa843f5819f2c9589cb2f4a01ebb3aed45a56ac4def1fe'
+              assert len(set(result['progress_samples']))>5
+              assert hashlib.sha256(z.read('dataset.json')).hexdigest()==m['payload_sha256']
+              Path('IMPORT-README-zh-CN.txt').write_bytes(z.read('导入说明.txt'))
+          assets=[name,'UG-DCMS-Setup-rc2.44.zip',package,'IMPORT-README-zh-CN.txt']
+          Path('SHA256SUMS.txt').write_text(''.join(hashlib.sha256(Path(p).read_bytes()).hexdigest()+'  '+p+'\n' for p in assets))
+          PY
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          cat > release-notes.md <<'EOF'
+          rc2.44：数据导入进度和状态提示。
+
+          - 上传并校验后后台执行，显示真实阶段、处理数量、百分比、耗时和最近更新时间。
+          - 刷新或离开页面后可返回备份恢复页继续查看；同一管理员账号的状态查询不被长任务锁住。
+          - 数据库提交后才显示100%和完成结果。失败记录原因及阶段，服务中断显示中断状态，支持排除原因后重新提交；运行中禁止重复导入。
+          - 完成提示写入中断时通过已提交导入记录核对结果，不误报回滚。
+          - 新增0025进度记录表，保留已有业务数据、账号、附件和审批历史；迁移可重复执行。
+
+          下载 UG-DCMS-Setup-rc2.44.zip，解压运行EXE升级。请等待正在进行的导入结束后再升级。
+          已成功导入的数据不需要再次导入。原rc2.43十项目ZIP保持逐字节兼容，本次附带同一个ZIP便于下载；通知助手仍使用rc2.41。
+          导入入口：系统 → 备份恢复 → 导入数据备份包。选择ZIP，输入“导入模拟数据”，点击“校验并导入数据”。勿使用“恢复系统”的整库替换入口。
+
+          实际测试：独立PostgreSQL库完整导入1000设计族、10000件号、500软件、5000外部件号和10项目；验证后台受理、同账号实时轮询、递增进度、刷新恢复和提交后100%；验证失败回滚与附件清理、持久失败提示、中断识别、重复提交和迁移重放。原有完整页面回归及Windows构建通过。
+          以上是自动化测试、浏览器验证和Windows构建结果，未在用户电脑执行本次升级或导入。PR #2保持未合并。
+
+          测试源码：975541c7168e2635a5dbcef152fdf51c2ae7e04e
+          数据导入及安装包：https://github.com/whbing7-ops/UG-DCMS/actions/runs/35343349698
+          页面回归：https://github.com/whbing7-ops/UG-DCMS/actions/runs/35343349642
+          EOF
+          gh release create rc2.44 UG-DCMS-10Projects-Data-Backup-v1.zip IMPORT-README-zh-CN.txt UG-DCMS-Setup-rc2.44.zip UG-DCMS-Setup-1.0.0-rc2.44.exe SHA256SUMS.txt --target 975541c7168e2635a5dbcef152fdf51c2ae7e04e --title 'UG-DCMS rc2.44 — 数据导入进度与状态提示' --prerelease --notes-file release-notes.md
+      - name: Verify anonymous public ZIP download
+        run: |
+          set -euo pipefail
+          mkdir public-download
+          cd public-download
+          for name in UG-DCMS-Setup-rc2.44.zip UG-DCMS-10Projects-Data-Backup-v1.zip IMPORT-README-zh-CN.txt SHA256SUMS.txt; do
+            curl --fail --silent --show-error --location --retry 5 --retry-all-errors --max-time 180 \
+              "https://github.com/${{ github.repository }}/releases/download/rc2.44/$name" --output "$name"
+          done
+          python - <<'PY'
+          import zipfile
+          from pathlib import Path
+          with zipfile.ZipFile('UG-DCMS-Setup-rc2.44.zip') as z:
+              assert z.testzip() is None
+              name='UG-DCMS-Setup-1.0.0-rc2.44.exe'
+              assert z.namelist()==[name]
+              Path(name).write_bytes(z.read(name))
+          PY
+          sha256sum --check SHA256SUMS.txt
