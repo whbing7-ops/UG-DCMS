@@ -4,6 +4,7 @@ import { api } from "./api.js";
 import { editLine, rulePanel, snapshotTools, createApplicability } from "./bom-tools.js";
 import { reasonAction, approvalSubmitButton } from "./extras.js";
 import { zipButton } from "./file-mgmt.js";
+import { revisionSubmitButton, signButton, signoffPanel } from "./signoff.js";
 import {
   el, table, tablePanel, panel, empty, status, statusText, codeText, field, input, select,
   toast, toastError, fmtDate, link, askReason, pageControls,
@@ -255,12 +256,12 @@ export async function revisionDetail(ctx, params, id) {
   const acts = el("div", { class: "actions" });
   acts.append(applicantActions(ctx,workflow));
   if (workflow.can_edit && ctx.can("submit"))
-    acts.append(approvalSubmitButton("提交审核", `/revisions/${id}/submit`, reload));
-  if (r.status === "IN_REVIEW" && ctx.can("approve") && String(r.approval_assignee_user_id||'')===String(ctx.user.id))
-    acts.append(el("button", { class: "btn primary", onclick: async () => {
-      try { await api.post(`/revisions/${id}/release`, { query: { comments: "同意发布" } });
-            toast("已发布，内容自此冻结"); reload(); }
-      catch (e) { toastError(e); } } }, "批准发布"));
+    acts.append(revisionSubmitButton("提交审核（编制签署）", id, `/revisions/${id}/submit`, reload));
+  /* 轮到我签署: 第 1 级"审核", 第 2 级(最终)"批准发布"; 每一级都要重新输入口令 */
+  if (r.status === "IN_REVIEW" && ctx.can("sign") && String(r.approval_assignee_user_id||'')===String(ctx.user.id))
+    acts.append(r.approval_step_final
+      ? signButton("批准发布（签署）", "批准", `/revisions/${id}/release`, reload)
+      : signButton("审核通过（签署）", "审核", `/revisions/${id}/review`, reload));
   if (editable && ctx.can("draft_write")) acts.append(reasonAction("取消版次", `/revisions/${id}/cancel`, reload));
   if (r.attachments.length) acts.append(zipButton(id, r.revision_number, r.file_number));
   if (ctx.can("read_audit"))
@@ -276,6 +277,7 @@ export async function revisionDetail(ctx, params, id) {
     el("p", { class: "sub" }, r.title_cn, " · ", status(r.status)),
     el("p", {}, r.change_summary || ""),
     acts,
+    signoffPanel(r.signoff),
     editable && ctx.can("draft_write") ? panel("上传附件", el("div", {},
       el("div", { class: "inline-form" },
         field("用途", roleSel), field("文件", fileIn),

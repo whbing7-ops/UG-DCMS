@@ -94,7 +94,7 @@ export async function approvals(ctx) {
              { label: "申请人" }, { label: "提交时间" }, { label: "等待" }, { label: "" }],
         inbox, r => [
           el("td", { class: "mono" }, link(r.request_number, "#/approval/" + r.id)),
-          el("td", {}, requestTypeText(r)),
+          el("td", {}, requestTypeText(r), r.request_type === "FILE_REVISION_RELEASE" && r.step_name ? el("span", { class: "diff diff-CHANGED" }, "待" + r.step_name) : null),
           el("td", { class: "mono" }, r.object_code || "—"),
           el("td", {}, r.requester_name),
           el("td", { class: "muted nowrap" }, fmtDate(r.requested_at)),

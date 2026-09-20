@@ -216,3 +216,15 @@ a.kpi:hover { text-decoration: none; box-shadow: var(--shadow-2); transform: tra
   .topbar { margin: 0 -16px 20px; padding: 10px 16px; }
   .topbar-hint { display: none; }
 }
+
+/* ---------------- 三级签署栏 ---------------- */
+.signoff { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.signoff-cell { position: relative; padding: 14px 16px 14px 52px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-2); display: flex; flex-direction: column; gap: 2px; }
+.signoff-cell b { font-size: 13px; color: var(--ink-2); }
+.signoff-name { font-size: 15px; font-weight: 600; }
+.signoff-step { position: absolute; left: 14px; top: 14px; width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; font-weight: 700; font-size: 13px; background: var(--line); color: var(--ink-3); }
+.signoff-cell.st-SIGNED { background: var(--ok-bg); border-color: #c5e5d2; }
+.signoff-cell.st-SIGNED .signoff-step { background: var(--ok); color: #fff; }
+.signoff-cell.st-PENDING { background: var(--warn-bg); border-color: #f3dfae; }
+.signoff-cell.st-PENDING .signoff-step { background: var(--warn); color: #fff; }
+@media (max-width: 900px) { .signoff { grid-template-columns: minmax(0, 1fr); } }

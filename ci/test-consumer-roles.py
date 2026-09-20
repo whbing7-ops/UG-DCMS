@@ -12,13 +12,13 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from dcms_http import (Client, FINAL_PASSWORD, STAMP, check, db_execute,  # noqa: E402,F401
-                       login_admin, make_user, top_part_number)
+                       login_admin, make_signers, make_user, release_flow, top_part_number)
 
 TOP = top_part_number()
 
 
 admin = login_admin()
-approver = make_user(admin, 'APPROVER')
+reviewer, approver = make_signers(admin)
 auditor = make_user(admin, 'VIEWER')          # VIEWER: 行为必须保持不变
 stamp = STAMP
 
@@ -36,8 +36,7 @@ contents = {'PRIMARY_NATIVE': (f'native-{stamp}.dwg', b'native bytes ' + uuid.uu
             'RELEASED_PDF': (f'sheet-{stamp}.pdf', b'pdf bytes ' + uuid.uuid4().bytes),
             'DERIVED_STEP': (f'model-{stamp}.step', b'step bytes ' + uuid.uuid4().bytes)}
 att = {role: admin.upload(f'/revisions/{r0["id"]}/attachments', n, c, role) for role, (n, c) in contents.items()}
-admin.call('POST', f'/revisions/{r0["id"]}/submit', {'approver_user_id': approver.id}, expect=200)
-approver.call('POST', f'/revisions/{r0["id"]}/release?comments=ok', expect=200)
+release_flow(admin, r0['id'], reviewer, approver)
 r1 = admin.call('POST', f'/files/{num}/revisions', {'change_summary': '编制中的新版'}, expect=201)
 admin.upload(f'/revisions/{r1["id"]}/attachments', f'draft-{stamp}.pdf', b'draft bytes', 'RELEASED_PDF')
 

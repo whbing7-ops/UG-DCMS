@@ -37,6 +37,7 @@ def _logout_all():
 
 class Client:
     def __init__(self, username, password):
+        self.username, self.password = username, password    # 电子签名要用本人口令
         r = self.call('POST', '/auth/login', {'username': username, 'password': password}, auth=False)
         self.token = r['access_token']
         self.id = self.call('GET', '/auth/me')['id']
@@ -77,7 +78,17 @@ def check(cond, msg):
     print('ok  ', msg)
 
 
+def _release_stale_sessions():
+    """并发账号数有许可上限(默认 10)。前面的用例(尤其不自动登出的旧脚本)留下的会话会占位,
+    这里在本脚本开始时把它们全部撤销 —— 用例是串行运行的, 此时不会有别人在用。"""
+    try:
+        db_execute("UPDATE user_session SET revoked_at = now() WHERE revoked_at IS NULL")
+    except Exception:
+        pass    # 没有数据库环境变量(纯 HTTP 运行)时跳过
+
+
 def login_admin():
+    _release_stale_sessions()
     return Client(CREDS['admin_username'], CREDS['admin_password'])
 
 
@@ -107,3 +118,45 @@ def db_execute(sql, params=()):
     from app.db import execute, transaction
     with transaction() as conn:
         execute(conn, sql, params)
+
+
+def db_query(sql, params=()):
+    from app.db import fetch_all, transaction
+    with transaction() as conn:
+        return fetch_all(conn, sql, params)
+
+
+def make_signers(admin, tag=''):
+    """现造并授权一名审核人(ENGINEER)和一名批准人(APPROVER), 均对所有文件类型有效。
+
+    三级签署要求编制、审核、批准是三个不同的人, 且审核/批准必须在有权签署人清单内。
+    管理员不能给自己授权, 所以这里授权的是另外两个账号。
+    """
+    reviewer = make_user(admin, 'ENGINEER', 'rv' + tag)
+    approver = make_user(admin, 'APPROVER', 'ap' + tag)
+    admin.call('POST', '/signers', {'user_id': reviewer.id, 'level': 'REVIEW', 'note': 'CI'}, expect=201)
+    admin.call('POST', '/signers', {'user_id': approver.id, 'level': 'APPROVE', 'note': 'CI'}, expect=201)
+    return reviewer, approver
+
+
+def submit_for_signoff(preparer, revision_id, reviewer, approver, expect=200):
+    return preparer.call('POST', f'/revisions/{revision_id}/submit', {
+        'reviewer_user_id': reviewer.id, 'approver_user_id': approver.id, 'password': preparer.password}, expect=expect)
+
+
+def review(reviewer, revision_id, expect=200, password=None):
+    return reviewer.call('POST', f'/revisions/{revision_id}/review',
+                         {'password': reviewer.password if password is None else password, 'comments': 'ok'}, expect=expect)
+
+
+def approve(approver, revision_id, expect=200, password=None):
+    return approver.call('POST', f'/revisions/{revision_id}/release',
+                         {'password': approver.password if password is None else password, 'comments': 'ok'}, expect=expect)
+
+
+def release_flow(preparer, revision_id, reviewer, approver):
+    """编制提交 → 审核 → 批准发布, 三级都用各自口令签署。返回提交时的审批申请。"""
+    req = submit_for_signoff(preparer, revision_id, reviewer, approver)
+    review(reviewer, revision_id)
+    approve(approver, revision_id)
+    return req

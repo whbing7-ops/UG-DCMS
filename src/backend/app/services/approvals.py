@@ -166,8 +166,7 @@ def _base_query() -> str:
           JOIN app_user u ON u.id = ar.requester_id
           LEFT JOIN software_version sv ON ar.object_type='SOFTWARE_VERSION' AND sv.id=ar.object_id
           LEFT JOIN software_object so ON so.id=sv.software_object_id
-          LEFT JOIN current_approval_step s ON s.approval_request_id = ar.id
-                                   AND s.decision = 'PENDING'
+          LEFT JOIN current_pending_step s ON s.approval_request_id = ar.id
           LEFT JOIN app_user du ON du.id = s.decided_by
           LEFT JOIN app_user au ON au.id = s.assignee_user_id
     """
@@ -338,12 +337,12 @@ def summary(conn: psycopg.Connection, user: dict) -> dict:
     return fetch_one(conn, """
         SELECT
           (SELECT count(*) FROM approval_request ar
-             JOIN current_approval_step s ON s.approval_request_id = ar.id AND s.decision='PENDING'
+             JOIN current_pending_step s ON s.approval_request_id = ar.id
             WHERE ar.status='PENDING' AND ar.requester_id <> %s
               AND ((s.assignee_user_id IS NOT NULL AND s.assignee_user_id=%s)
                    OR (s.assignee_user_id IS NULL AND s.required_role_code=ANY(%s)))) AS inbox,
           (SELECT count(*) FROM approval_request ar
-             JOIN current_approval_step s ON s.approval_request_id = ar.id AND s.decision='PENDING'
+             JOIN current_pending_step s ON s.approval_request_id = ar.id
             WHERE ar.status='PENDING' AND ar.requester_id <> %s
               AND ar.requested_at < now() - make_interval(days => %s)
               AND ((s.assignee_user_id IS NOT NULL AND s.assignee_user_id=%s)

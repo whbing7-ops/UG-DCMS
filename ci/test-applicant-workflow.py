@@ -17,6 +17,17 @@ engineer,_=smoke.login(creds['username'],creds['password'])
 admin_id=admin.get('/auth/me')['id']; engineer_id=engineer.get('/auth/me')['id']
 stamp=str(time.time_ns())[-12:];serial=0
 
+# rc2.45: 设计文件版次走"编制-审核-批准"三级签署, 审核人/批准人须在有权签署人清单内; 其余对象仍是管理员单级审批
+def new_signer(role,level):
+    name='aw_'+role.lower()+'_'+stamp; tmp='Aw.Tmp!Pass9'+stamp[-4:]; final='Aw.Final!Pass9'+stamp[-4:]
+    admin.post('/admin/users',{'username':name,'full_name':'流程测试'+role,'password':tmp,'roles':[role]})
+    client=smoke.change_initial(name,tmp,final); uid=client.get('/auth/me')['id']
+    admin.post('/signers',{'user_id':uid,'level':level,'note':'CI applicant workflow'})
+    return client,uid,final
+reviewer,reviewer_id,reviewer_pw=new_signer('ENGINEER','REVIEW')
+approver,approver_id,approver_pw=new_signer('APPROVER','APPROVE')
+def judge(kind):return reviewer if kind=='FILE_REVISION' else admin   # 当前一级的处理人
+
 def unique():
     global serial
     serial+=1
@@ -64,8 +75,14 @@ release_paths={'BASIC_DRAWING_FAMILY':('/families/','/approve'),'FILE_REVISION':
  'DESIGN_BASELINE':('/baselines/','/release'),'EXTERNAL_TECHNICAL_STATE':('/external-states/','/accept'),
  'EXTERNAL_PROJECT_CONTROL':('/external-project-controls/','/approve'),'SOFTWARE_VERSION':('/software-versions/','/release')}
 
-def submit(kind,oid):return engineer.post('/drafts/'+kind+'/'+oid+'/submit',{'approver_user_id':admin_id})
+def submit(kind,oid):
+    body={'approver_user_id':admin_id}
+    if kind=='FILE_REVISION':body={'approver_user_id':approver_id,'reviewer_user_id':reviewer_id,'password':creds['password']}
+    return engineer.post('/drafts/'+kind+'/'+oid+'/submit',body)
 def decide(kind,oid,client=admin):
+    if kind=='FILE_REVISION':
+        reviewer.post('/revisions/'+oid+'/review',{'password':reviewer_pw,'comments':'ok'})
+        return approver.post('/revisions/'+oid+'/release',{'password':approver_pw,'comments':'ok'})
     a,b=release_paths[kind];return client.post(a+oid+b)
 
 out=Path('applicant-evidence');out.mkdir(exist_ok=True)
@@ -96,10 +113,18 @@ with sync_playwright() as playwright:
         assert edit.value.status==200,edit.value.text()
         # Submit directly after another edit; the button must save that edit too.
         page.get_by_label(label,exact=True).fill('【模拟数据】提交前最后修改-'+kind)
-        page.get_by_role('button',name='保存并提交审批',exact=True).click()
-        dialog=page.get_by_role('dialog');dialog.locator('select').select_option(admin_id)
+        dialog=page.get_by_role('dialog')
+        if kind=='FILE_REVISION':
+            page.get_by_role('button',name='保存并提交审核（编制签署）',exact=True).click()
+            dialog.get_by_label('审核人（第 1 级）').select_option(reviewer_id)
+            dialog.get_by_label('批准人（第 2 级）').select_option(approver_id)
+            dialog.locator('input[type=password]').fill(creds['password'])
+            confirm='签署并提交'
+        else:
+            page.get_by_role('button',name='保存并提交审批',exact=True).click()
+            dialog.locator('select').select_option(admin_id);confirm='确认提交'
         with page.expect_response(lambda r:r.request.method=='POST' and r.url.endswith(path+'/submit')) as response:
-            dialog.get_by_role('button',name='确认提交',exact=True).click()
+            dialog.get_by_role('button',name=confirm,exact=True).click()
         assert response.value.status==200,response.value.text()
         req=response.value.json();rid=req['id'];number=req['request_number']
         assert engineer.get(path)['values'][field]=='【模拟数据】提交前最后修改-'+kind
@@ -112,9 +137,9 @@ with sync_playwright() as playwright:
             page.get_by_role('button',name='撤回修改',exact=True).click()
         assert withdrawn.value.status==200,withdrawn.value.text()
         assert engineer.get(path)['can_edit']
-        a,b=release_paths[kind];admin.call('POST',a+oid+b,expected=(400,))
+        a,b=release_paths[kind];admin.call('POST',a+oid+b,{'password':'x'} if kind=='FILE_REVISION' else None,expected=(400,))
         req=submit(kind,oid);assert req['id']==rid and req['request_number']==number and req['submission_round']==2
-        admin.post('/approvals/'+rid+'/reject?reason=本轮需修订')
+        judge(kind).post('/approvals/'+rid+'/reject?reason=本轮需修订')
         # Reproduce the legacy rejected-object lock, then apply the real upgrade.
         with transaction() as conn:
             table,state,_=drafts.TYPES[kind]
@@ -131,7 +156,7 @@ with sync_playwright() as playwright:
         req=submit(kind,oid);assert req['id']==rid and req['submission_round']==3
         engineer.post('/approvals/'+rid+'/cancel?reason=取消后修订')
         req=submit(kind,oid);assert req['id']==rid and req['submission_round']==4
-        admin.post('/approvals/'+rid+'/return?reason=退回补充资料')
+        judge(kind).post('/approvals/'+rid+'/return?reason=退回补充资料')
         assert engineer.get(path)['can_edit']
         req=submit(kind,oid);assert req['id']==rid and req['submission_round']==5
         detail=engineer.get('/approvals/'+rid)
@@ -140,7 +165,7 @@ with sync_playwright() as playwright:
         assert detail['history'][0]['snapshot']['payload']['submitted_object']['object'][field]=='【模拟数据】提交前最后修改-'+kind
         assert detail['payload']['submitted_object']['object'][field]=='【模拟数据】驳回后修改-'+kind
         with transaction() as conn:
-            assert scalar(conn,'SELECT count(*) FROM approval_step WHERE approval_request_id=%s',(rid,))==5
+            assert scalar(conn,'SELECT count(*) FROM approval_step WHERE approval_request_id=%s',(rid,))==(10 if kind=='FILE_REVISION' else 5)
         # A final decision and withdrawal race must never both succeed.
         if kind=='SOFTWARE_VERSION':
             def race(client,url):

@@ -353,17 +353,113 @@ def create_revision(conn: psycopg.Connection, file_number: str,
 def get_revision(conn: psycopg.Connection, revision_id: str) -> dict | None:
     return fetch_one(conn, """
         SELECT fr.*, df.file_number, df.title_cn, df.file_type_code,
-               aps.assignee_user_id AS approval_assignee_user_id
+               aps.assignee_user_id AS approval_assignee_user_id,
+               aps.step_order AS approval_step_order, aps.step_name AS approval_step_name,
+               aps.is_final AS approval_step_final
           FROM file_revision fr JOIN design_file df ON df.id = fr.design_file_id
-          LEFT JOIN current_approval_step aps ON aps.approval_request_id=fr.approval_request_id
-            AND aps.decision='PENDING'
+          LEFT JOIN current_pending_step aps ON aps.approval_request_id=fr.approval_request_id
          WHERE fr.id = %s
     """, (revision_id,))
 
 
+# ---------------------------------------------------------------------
+# 三级签署: 编制 → 审核 → 批准
+# ---------------------------------------------------------------------
+LEVEL_MEANING = {"PREPARE": "编制", "REVIEW": "审核", "APPROVE": "批准"}
+
+
+def content_digest(conn: psycopg.Connection, revision_id: str) -> str:
+    """被签署内容的摘要: 版次、变更说明、全部附件(用途/文件名/SHA-256)。
+
+    签署记录里存这个摘要, 使"签的是哪一份内容"可以事后核对; 版次在审核中内容已冻结,
+    所以三级签署看到的应是同一摘要。
+    """
+    import hashlib
+    import json
+    rev = fetch_one(conn, "SELECT id, revision_number, change_summary FROM file_revision WHERE id=%s", (revision_id,))
+    atts = fetch_all(conn, """SELECT attachment_role, filename, sha256 FROM revision_attachment
+                               WHERE file_revision_id=%s ORDER BY attachment_role, filename, sha256""", (revision_id,))
+    payload = {"revision_id": str(rev["id"]), "revision_number": rev["revision_number"],
+               "change_summary": rev["change_summary"] or "",
+               "attachments": [[a["attachment_role"], a["filename"], a["sha256"]] for a in atts]}
+    return hashlib.sha256(json.dumps(payload, ensure_ascii=False, sort_keys=True).encode()).hexdigest()
+
+
+def _record_signature(conn: psycopg.Connection, rev: dict, request_id: str, round_no: int, level: str,
+                      signer: dict, comments: str | None, method: str = "PASSWORD_REENTRY") -> None:
+    """写一条不可变签署记录。姓名与账户取签署当下的值。"""
+    who = fetch_one(conn, "SELECT username, full_name FROM app_user WHERE id=%s", (signer["user_id"],))
+    execute(conn, """
+        INSERT INTO signature_record (object_type, object_id, approval_request_id, submission_round, level, meaning,
+                                      user_id, username, full_name, comments, content_sha256, auth_method, client_ip)
+        VALUES ('FILE_REVISION',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+    """, (rev["id"], request_id, round_no, level, LEVEL_MEANING[level], signer["user_id"], who["username"],
+          who["full_name"], comments, content_digest(conn, str(rev["id"])), method, signer.get("client_ip")))
+
+
+def signoff(conn: psycopg.Connection, revision_id: str) -> list[dict]:
+    """三级签署栏: 当前(或最近一轮)编制/审核/批准各是谁、何时、什么状态。"""
+    rev = get_revision(conn, revision_id)
+    if rev is None or rev.get("approval_request_id") is None:
+        # 编制中或已取消: 若有历史签署, 取最近一轮
+        rows = fetch_all(conn, """SELECT * FROM signature_record WHERE object_type='FILE_REVISION' AND object_id=%s
+                                   ORDER BY submission_round DESC, signed_at""", (revision_id,))
+        if not rows:
+            return []
+        last = rows[0]["submission_round"]
+        done = {r["level"]: r for r in rows if r["submission_round"] == last}
+        return [_level_row(lv, done.get(lv), None) for lv in ("PREPARE", "REVIEW", "APPROVE")]
+    req = fetch_one(conn, "SELECT submission_round FROM approval_request WHERE id=%s", (rev["approval_request_id"],))
+    rows = fetch_all(conn, """SELECT * FROM signature_record WHERE object_type='FILE_REVISION' AND object_id=%s
+                               AND submission_round=%s""", (revision_id, req["submission_round"]))
+    done = {r["level"]: r for r in rows}
+    steps = fetch_all(conn, """SELECT s.step_order, s.step_name, s.is_final, s.decision, s.assignee_user_id,
+                                      au.full_name AS assignee_name
+                                 FROM current_approval_step s LEFT JOIN app_user au ON au.id=s.assignee_user_id
+                                WHERE s.approval_request_id=%s ORDER BY s.step_order""", (rev["approval_request_id"],))
+    pending = {"REVIEW": None, "APPROVE": None}
+    if len(steps) >= 2:
+        pending["REVIEW"], pending["APPROVE"] = steps[0], steps[-1]
+    elif len(steps) == 1:
+        pending["APPROVE"] = steps[0]                      # 旧流程: 只有批准一级
+    return [_level_row("PREPARE", done.get("PREPARE"), None),
+            _level_row("REVIEW", done.get("REVIEW"), pending["REVIEW"], legacy=len(steps) == 1),
+            _level_row("APPROVE", done.get("APPROVE"), pending["APPROVE"])]
+
+
+def _level_row(level: str, sig: dict | None, step: dict | None, legacy: bool = False) -> dict:
+    if sig:
+        state = "SIGNED"
+    elif legacy:
+        state = "NOT_APPLICABLE"                            # 旧单级流程没有审核这一级, 不伪造
+    elif step and step["decision"] == "PENDING":
+        state = "PENDING"
+    elif step:
+        state = step["decision"]
+    else:
+        state = "NONE"
+    return {"level": level, "meaning": LEVEL_MEANING[level], "state": state,
+            "signer_name": sig["full_name"] if sig else (step["assignee_name"] if step else None),
+            "signer_username": sig["username"] if sig else None,
+            "signed_at": sig["signed_at"] if sig else None, "comments": sig["comments"] if sig else None,
+            "auth_method": sig["auth_method"] if sig else None,
+            "content_sha256": sig["content_sha256"] if sig else None}
+
+
+def signer_candidates(conn: psycopg.Connection, revision_id: str, level: str, actor: dict,
+                      exclude: list[str] | None = None) -> list[dict]:
+    """提交时可选的审核人/批准人: 已授权(此刻有效)且不是编制人本人。"""
+    from . import signers
+    rev = get_revision(conn, revision_id)
+    if rev is None:
+        raise LookupError("版次不存在")
+    return signers.candidates(conn, level, rev["file_type_code"], [str(actor["user_id"])] + list(exclude or []))
+
+
 def submit_revision(conn: psycopg.Connection, revision_id: str, approver_user_id: str,
-                    actor: dict) -> dict:
-    from . import drafts
+                    actor: dict, reviewer_user_id: str | None = None, password: str | None = None) -> dict:
+    """编制人提交: 指定审核人和批准人, 并以口令确认完成"编制"签署。"""
+    from . import approvals, auth, drafts, signers
     drafts.require_editable(conn,'FILE_REVISION',revision_id,actor)
     rev = get_revision(conn, revision_id)
     if rev is None:
@@ -372,86 +468,175 @@ def submit_revision(conn: psycopg.Connection, revision_id: str, approver_user_id
         raise ValueError(f"版次状态为 {rev['status']}, 只有 WORKING 可提交审核")
     if not attachments(conn, revision_id):
         raise ValueError("版次尚无任何附件, 不得提交审核")
-    from . import approvals
-    approver = approvals.require_approver(conn, approver_user_id, actor["user_id"])
+    if not reviewer_user_id or not approver_user_id:
+        raise ValueError("必须指定审核人和批准人")
+    ids = {str(actor["user_id"]), str(reviewer_user_id), str(approver_user_id)}
+    if len(ids) != 3:
+        raise ValueError("编制人、审核人、批准人必须是三个不同的人")
+    for uid, level in ((reviewer_user_id, "REVIEW"), (approver_user_id, "APPROVE")):
+        if not signers.is_authorized(conn, str(uid), level, rev["file_type_code"]):
+            raise ValueError(f"所选{signers.LEVELS[level]}人不在有权签署人清单内(或授权已过期/撤销), 请重新选择")
+    auth.verify_signature_password(conn, actor, password)
 
     req = approvals.open_request(conn,kind='FILE_REVISION',oid=revision_id,request_type='FILE_REVISION_RELEASE',code=f"{rev['file_number']} Rev.{rev['revision_number']}",title=f"发布 {rev['file_number']} Rev.{rev['revision_number']}",actor=actor)
+    for order, name, uid, final in ((1, "审核", reviewer_user_id, False), (2, "批准", approver_user_id, True)):
+        execute(conn, """
+            INSERT INTO approval_step (approval_request_id, step_order, step_name, assignee_user_id, is_final)
+            VALUES (%s, %s, %s, %s, %s)
+        """, (req["id"], order, name, uid, final))
     execute(conn, """
-        INSERT INTO approval_step (approval_request_id, step_order, step_name,
-                                   required_role_code, assignee_user_id, is_final)
-        VALUES (%s, 1, '版次批准', %s, %s, true)
-    """, (req["id"], approver["role_code"], approver["id"]))
-    execute(conn, """
-        UPDATE file_revision SET status='IN_REVIEW', approval_request_id=%s,
-               checked_by=%s, updated_by=%s WHERE id=%s
+        UPDATE file_revision SET status='IN_REVIEW', approval_request_id=%s, prepared_by=%s,
+               checked_by=NULL, approved_by=NULL, updated_by=%s WHERE id=%s
     """, (req["id"], actor["user_id"], actor["user_id"], revision_id))
+    _record_signature(conn, rev, str(req["id"]), req["submission_round"], "PREPARE", actor, None)
 
+    names = {str(r["id"]): r["username"] for r in fetch_all(conn, "SELECT id, username FROM app_user WHERE id = ANY(%s::uuid[])",
+                                                            ([str(reviewer_user_id), str(approver_user_id)],))}
     audit.write(conn, action="REVISION_SUBMIT", user_id=str(actor["user_id"]),
                 username=actor["username"], object_type="FILE_REVISION",
                 object_id=revision_id,
                 object_code=f"{rev['file_number']} Rev.{rev['revision_number']}",
-                new_value={"approval_request": req["request_number"],
-                           "approver": approver["username"]},
+                new_value={"approval_request": req["request_number"], "signature": "PREPARE",
+                           "reviewer": names[str(reviewer_user_id)], "approver": names[str(approver_user_id)]},
                 session_id=str(actor.get("session_id")), client_ip=actor.get("client_ip"))
     return req
 
 
-def release_revision(conn: psycopg.Connection, revision_id: str, comments: str,
-                     actor: dict) -> dict:
-    """批准并发布版次。
+def _current_steps(conn: psycopg.Connection, request_id: str) -> list[dict]:
+    return fetch_all(conn, "SELECT * FROM current_approval_step WHERE approval_request_id=%s ORDER BY step_order",
+                     (request_id,))
 
-    发布后本版次内容即冻结(INV-007), 上一发布版次转为 SUPERSEDED。
-    **不触碰任何 P/N 的 current_baseline_id** — INV-014。
-    """
-    from . import drafts
+
+def review_revision(conn: psycopg.Connection, revision_id: str, comments: str, password: str | None,
+                    actor: dict) -> dict:
+    """审核人签署"审核": 第一级通过, 之后才轮到批准人。"""
+    from . import approvals, auth, drafts, signers
     drafts.lock_object(conn,'FILE_REVISION',revision_id)
     rev = get_revision(conn, revision_id)
     if rev is None:
         raise LookupError("版次不存在")
     if rev["status"] != "IN_REVIEW":
-        raise ValueError(f"版次状态为 {rev['status']}, 只有 IN_REVIEW 可发布")
-    from . import approvals
+        raise ValueError(f"版次状态为 {rev['status']}, 只有 IN_REVIEW 可审核")
     approvals.require_assignee(conn, str(rev["approval_request_id"]), str(actor["user_id"]))
+    steps = _current_steps(conn, str(rev["approval_request_id"]))
+    step = next((s for s in steps if s["decision"] == "PENDING"), None)
+    if step is None or step["is_final"] or len(steps) < 2:
+        raise ValueError("当前不是审核步骤")
+    if not signers.is_authorized(conn, str(actor["user_id"]), "REVIEW", rev["file_type_code"]):
+        raise ValueError("您不在该类文件的有权审核人清单内(或授权已过期/撤销), 不能签署")
+    auth.verify_signature_password(conn, actor, password)
 
-    # INV-025 由 trg_approval_separation 在此拦下自批
+    req = fetch_one(conn, "SELECT submission_round FROM approval_request WHERE id=%s", (rev["approval_request_id"],))
+    execute(conn, """UPDATE current_approval_step SET decision='APPROVED', decided_by=%s, acted_at=now(), comments=%s
+                      WHERE id=%s""", (actor["user_id"], comments, step["id"]))
+    execute(conn, "UPDATE file_revision SET checked_by=%s, updated_by=%s WHERE id=%s",
+            (actor["user_id"], actor["user_id"], revision_id))
+    _record_signature(conn, rev, str(rev["approval_request_id"]), req["submission_round"], "REVIEW", actor, comments)
+    audit.write(conn, action="REVISION_REVIEW", user_id=str(actor["user_id"]), username=actor["username"],
+                object_type="FILE_REVISION", object_id=revision_id,
+                object_code=f"{rev['file_number']} Rev.{rev['revision_number']}",
+                old_value={"status": "IN_REVIEW", "step": "审核"}, new_value={"status": "IN_REVIEW", "next": "批准", "signature": "REVIEW"},
+                reason=comments, session_id=str(actor.get("session_id")), client_ip=actor.get("client_ip"))
+    return {"status": "IN_REVIEW", "next_step": "批准"}
+
+
+def _finalize_release(conn: psycopg.Connection, rev: dict, comments: str, actor: dict) -> dict:
+    """发布收尾: 冻结版次、取代旧发布版次、更新文件当前版次。**不触碰任何 P/N 的 current_baseline_id**(INV-014)。"""
     execute(conn, """
         UPDATE current_approval_step SET decision='APPROVED', decided_by=%s, acted_at=now(),
                comments=%s WHERE approval_request_id=%s AND is_final
     """, (actor["user_id"], comments, rev["approval_request_id"]))
     execute(conn, "UPDATE approval_request SET status='APPROVED', closed_at=now() WHERE id=%s",
             (rev["approval_request_id"],))
-
     prev = fetch_one(conn, """
         SELECT id, revision_number FROM file_revision
          WHERE design_file_id=%s AND status='RELEASED'
     """, (rev["design_file_id"],))
-
     row = fetch_one(conn, """
         UPDATE file_revision
            SET status='RELEASED', approved_by=%s, released_at=now(),
                revision_date=COALESCE(revision_date, current_date), updated_by=%s
          WHERE id=%s
         RETURNING id, revision_number, status, released_at
-    """, (actor["user_id"], actor["user_id"], revision_id))
-
+    """, (actor["user_id"], actor["user_id"], rev["id"]))
     if prev is not None:
         execute(conn, "UPDATE file_revision SET status='SUPERSEDED', superseded_at=now() "
                       "WHERE id=%s", (prev["id"],))
-
     execute(conn, "UPDATE design_file SET current_released_revision_id=%s, updated_by=%s "
-                  "WHERE id=%s", (revision_id, actor["user_id"], rev["design_file_id"]))
-
+                  "WHERE id=%s", (rev["id"], actor["user_id"], rev["design_file_id"]))
     audit.write(conn, action="REVISION_RELEASE", user_id=str(actor["user_id"]),
                 username=actor["username"], object_type="FILE_REVISION",
-                object_id=revision_id,
+                object_id=str(rev["id"]),
                 object_code=f"{rev['file_number']} Rev.{rev['revision_number']}",
                 old_value={"status": "IN_REVIEW"},
                 new_value={"status": "RELEASED",
                            "superseded": prev["revision_number"] if prev else None,
+                           "signature": "APPROVE",
                            "note": "按 INV-014, 本次发布不改变任何 P/N 的当前技术状态"},
                 reason=comments, session_id=str(actor.get("session_id")),
                 client_ip=actor.get("client_ip"))
     return row
+
+
+def release_revision(conn: psycopg.Connection, revision_id: str, comments: str,
+                     actor: dict, password: str | None = None) -> dict:
+    """批准人签署"批准"并发布版次。
+
+    三级流程里必须审核已通过; 旧的单级在途申请(升级前提交、只有批准一步)仍可批准,
+    但同样需要口令确认。发布后内容冻结(INV-007), 上一发布版次转为 SUPERSEDED。
+    """
+    from . import approvals, auth, drafts, signers
+    drafts.lock_object(conn,'FILE_REVISION',revision_id)
+    rev = get_revision(conn, revision_id)
+    if rev is None:
+        raise LookupError("版次不存在")
+    if rev["status"] != "IN_REVIEW":
+        raise ValueError(f"版次状态为 {rev['status']}, 只有 IN_REVIEW 可发布")
+    approvals.require_assignee(conn, str(rev["approval_request_id"]), str(actor["user_id"]))
+    steps = _current_steps(conn, str(rev["approval_request_id"]))
+    legacy = len(steps) == 1
+    pending = next((s for s in steps if s["decision"] == "PENDING"), None)
+    if pending is None or not pending["is_final"]:
+        raise ValueError("审核尚未通过, 不得批准发布" if not legacy else "没有待批准的步骤")
+    if not legacy and not signers.is_authorized(conn, str(actor["user_id"]), "APPROVE", rev["file_type_code"]):
+        raise ValueError("您不在该类文件的有权批准人清单内(或授权已过期/撤销), 不能签署")
+    auth.verify_signature_password(conn, actor, password)
+
+    req = fetch_one(conn, "SELECT submission_round FROM approval_request WHERE id=%s", (rev["approval_request_id"],))
+    row = _finalize_release(conn, rev, comments, actor)     # INV-025/026 由数据库触发器在此拦下
+    _record_signature(conn, rev, str(rev["approval_request_id"]), req["submission_round"], "APPROVE", actor, comments)
+    return row
+
+
+def simulate_release(conn: psycopg.Connection, revision_id: str, author: dict, reviewer: dict,
+                     approver: dict, notice: str) -> dict:
+    """仅供模拟数据导入使用: 走完整的三级步骤, 但不校验口令和授权清单。
+
+    模拟身份没有口令(导入后即停用), 其签署记录的 auth_method 标为 SIMULATION,
+    在任何界面和报表里都能与真人电子签名区分, 不会被误认为真实签署。
+    """
+    from . import approvals
+    rev = get_revision(conn, revision_id)
+    if rev["status"] != "WORKING" or not attachments(conn, revision_id):
+        raise ValueError("模拟发布要求 WORKING 版次且带附件")
+    req = approvals.open_request(conn, kind='FILE_REVISION', oid=revision_id, request_type='FILE_REVISION_RELEASE',
+                                 code=f"{rev['file_number']} Rev.{rev['revision_number']}",
+                                 title=f"发布 {rev['file_number']} Rev.{rev['revision_number']}", actor=author)
+    for order, name, who, final in ((1, "审核", reviewer, False), (2, "批准", approver, True)):
+        execute(conn, """INSERT INTO approval_step (approval_request_id, step_order, step_name, assignee_user_id, is_final)
+                         VALUES (%s,%s,%s,%s,%s)""", (req["id"], order, name, who["user_id"], final))
+    execute(conn, "UPDATE file_revision SET status='IN_REVIEW', approval_request_id=%s, prepared_by=%s WHERE id=%s",
+            (req["id"], author["user_id"], revision_id))
+    rnd = req["submission_round"]
+    _record_signature(conn, rev, str(req["id"]), rnd, "PREPARE", author, None, "SIMULATION")
+    execute(conn, """UPDATE current_approval_step SET decision='APPROVED', decided_by=%s, acted_at=now(), comments=%s
+                      WHERE approval_request_id=%s AND step_order=1""", (reviewer["user_id"], notice, req["id"]))
+    execute(conn, "UPDATE file_revision SET checked_by=%s WHERE id=%s", (reviewer["user_id"], revision_id))
+    _record_signature(conn, rev, str(req["id"]), rnd, "REVIEW", reviewer, notice, "SIMULATION")
+    rev = get_revision(conn, revision_id)
+    row = _finalize_release(conn, rev, notice, approver)
+    _record_signature(conn, rev, str(req["id"]), rnd, "APPROVE", approver, notice, "SIMULATION")
+    return req
 
 
 def cancel_revision(conn: psycopg.Connection, revision_id: str, reason: str,

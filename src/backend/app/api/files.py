@@ -38,7 +38,16 @@ class RevisionCreateRequest(BaseModel):
 
 
 class SubmitRequest(BaseModel):
+    """提交审核: 编制人指定审核人、批准人, 并以口令确认"编制"签署。"""
     approver_user_id: str
+    reviewer_user_id: str | None = None
+    password: str | None = Field(default=None, max_length=200)
+
+
+class SignRequest(BaseModel):
+    """审核/批准签署: 必须重新输入本人口令(电子签名)。"""
+    password: str = Field(min_length=1, max_length=200)
+    comments: str = Field(default="同意", max_length=500)
 
 
 class DefinitionLinkRequest(BaseModel):
@@ -172,14 +181,40 @@ def get_revision(revision_id: str, conn: Conn, user: CurrentUser):
     if rev is None or (not access["unreleased"] and rev["status"] not in file_svc.PUBLISHED_STATUSES):
         raise errors.not_found("版次不存在")
     rev["attachments"] = file_svc.attachments(conn, revision_id, access)
+    rev["signoff"] = file_svc.signoff(conn, revision_id)
     return rev
+
+
+@router.get("/revisions/{revision_id}/signers")
+def revision_signers(revision_id: str, conn: Conn, user: CurrentUser,
+                     level: str = Query(..., pattern="^(REVIEW|APPROVE)$"),
+                     exclude: str = Query("", max_length=200)):
+    """提交时可选的审核人/批准人(已授权且在有效期内, 不含编制人本人)。"""
+    try:
+        return file_svc.signer_candidates(conn, revision_id, level, user,
+                                          [x for x in exclude.split(",") if x])
+    except LookupError as e:
+        raise errors.not_found(str(e))
 
 
 @router.post("/revisions/{revision_id}/submit")
 def submit_revision(revision_id: str, payload: SubmitRequest, conn: Conn,
                     actor: dict = Depends(require(Perm.SUBMIT))):
     try:
-        return file_svc.submit_revision(conn, revision_id, payload.approver_user_id, actor)
+        return file_svc.submit_revision(conn, revision_id, payload.approver_user_id, actor,
+                                        reviewer_user_id=payload.reviewer_user_id, password=payload.password)
+    except LookupError as e:
+        raise errors.not_found(str(e))
+    except ValueError as e:
+        raise errors.bad_request(str(e))
+
+
+@router.post("/revisions/{revision_id}/review")
+def review_revision(revision_id: str, payload: SignRequest, conn: Conn,
+                    actor: dict = Depends(require(Perm.SIGN))):
+    """审核人签署"审核"(第一级)。"""
+    try:
+        return file_svc.review_revision(conn, revision_id, payload.comments, payload.password, actor)
     except LookupError as e:
         raise errors.not_found(str(e))
     except ValueError as e:
@@ -187,12 +222,11 @@ def submit_revision(revision_id: str, payload: SubmitRequest, conn: Conn,
 
 
 @router.post("/revisions/{revision_id}/release")
-def release_revision(revision_id: str, conn: Conn,
-                     comments: str = Query("同意发布", max_length=500),
-                     actor: dict = Depends(require(Perm.APPROVE))):
-    """发布版次。按 INV-014，本操作不改变任何 P/N 的当前技术状态。"""
+def release_revision(revision_id: str, payload: SignRequest, conn: Conn,
+                     actor: dict = Depends(require(Perm.SIGN))):
+    """批准人签署"批准"并发布版次。按 INV-014，本操作不改变任何 P/N 的当前技术状态。"""
     try:
-        return file_svc.release_revision(conn, revision_id, comments, actor)
+        return file_svc.release_revision(conn, revision_id, payload.comments, actor, password=payload.password)
     except LookupError as e:
         raise errors.not_found(str(e))
     except ValueError as e:

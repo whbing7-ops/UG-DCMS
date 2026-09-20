@@ -8,13 +8,13 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from dcms_http import (Client, FINAL_PASSWORD, STAMP, check, db_execute,  # noqa: E402,F401
-                       login_admin, make_user, top_part_number)
+                       login_admin, make_signers, make_user, release_flow, top_part_number)
 
 TOP = top_part_number()
 
 
 eng = login_admin()
-approver = make_user(eng, 'APPROVER')
+reviewer, approver = make_signers(eng)
 viewer = make_user(eng, 'VIEWER')
 
 links = eng.call('GET', f'/definitions/{TOP}', expect=200)
@@ -33,8 +33,7 @@ print('ok   不存在的文件返回 404')
 # 出并发布新版次 -> 当前基线仍锁定旧版次(INV-014), 应被标为"落后"
 rev = eng.call('POST', f'/files/{num}/revisions', {'change_summary': '【测试】影响分析'}, expect=201)
 eng.upload(f'/revisions/{rev["id"]}/attachments', 'impact.pdf', b'impact test ' + uuid.uuid4().bytes, 'RELEASED_PDF')
-eng.call('POST', f'/revisions/{rev["id"]}/submit', {'approver_user_id': approver.id}, expect=200)
-approver.call('POST', f'/revisions/{rev["id"]}/release?comments=ok', expect=200)
+release_flow(eng, rev['id'], reviewer, approver)
 after = viewer.call('GET', f'/files/{num}/impact', expect=200)
 check(after['latest_released_revision'] == rev['revision_number'], '最新发布版次已更新')
 check(after['summary']['current_baselines_behind'] >= max(1, behind_before), '发布新版次后，锁定旧版次的当前基线被标为落后')

@@ -11,12 +11,12 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from dcms_http import (Client, FINAL_PASSWORD, STAMP, check, db_execute,  # noqa: E402,F401
-                       login_admin, make_user, top_part_number)
+                       login_admin, make_signers, make_user, release_flow, top_part_number)
 
 
 
 eng = login_admin()
-approver = make_user(eng, 'APPROVER')
+reviewer, approver = make_signers(eng)
 viewer = make_user(eng, 'VIEWER')
 num = 'LC-' + str(time.time_ns())[-10:]
 
@@ -24,8 +24,7 @@ num = 'LC-' + str(time.time_ns())[-10:]
 def release(file_number, filename, content, summary, role='RELEASED_PDF'):
     rev = eng.call('POST', f'/files/{file_number}/revisions', {'change_summary': summary}, expect=201)
     eng.upload(f'/revisions/{rev["id"]}/attachments', filename, content, role)
-    eng.call('POST', f'/revisions/{rev["id"]}/submit', {'approver_user_id': approver.id}, expect=200)
-    approver.call('POST', f'/revisions/{rev["id"]}/release?comments=ok', expect=200)
+    release_flow(eng, rev['id'], reviewer, approver)
     return rev['id']
 
 

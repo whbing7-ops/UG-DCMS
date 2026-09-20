@@ -391,8 +391,8 @@ if($migrateExit -ne 0){ Fail "数据库迁移失败（退出码 $migrateExit）�
 $env:PGPASSWORD=$appDbPassword
 $migrationCount = (& $psql -X -h 127.0.0.1 -p $PgPort -U dcms -d dcms -qtAX -v ON_ERROR_STOP=1 -c 'SELECT count(*) FROM schema_migration;').Trim()
 if($LASTEXITCODE -ne 0){ Fail '无法验证数据库迁移状态' }
-if([int]$migrationCount -ne 26){ Fail "数据库迁移数量异常：期望 26，实际 $migrationCount" }
-Write-Step '数据库迁移完整性检查通过：26/26（申请人审批操作已就绪，升级保留已有业务数据）'
+if([int]$migrationCount -ne 27){ Fail "数据库迁移数量异常：期望 27，实际 $migrationCount" }
+Write-Step '数据库迁移完整性检查通过：27/27（申请人审批操作已就绪，升级保留已有业务数据）'
 
 # 应用配置。密码只允许 SYSTEM/Administrators 读取。
 $envText=@"

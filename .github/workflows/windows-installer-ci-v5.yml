@@ -21,6 +21,7 @@ on:
       - 'ci/test-part-package.py'
       - 'ci/test-approval-overdue.py'
       - 'ci/test-consumer-roles.py'
+      - 'ci/test-signoff.py'
       - '.github/workflows/windows-installer-ci-v5.yml'
 
 concurrency:
@@ -73,7 +74,7 @@ jobs:
             sha="$(sha256sum "$f" | cut -d' ' -f1)"
             psql -X -v ON_ERROR_STOP=1 -h 127.0.0.1 -U dcms -d dcms -c "INSERT INTO schema_migration(version,filename,sha256) VALUES ('$v','$(basename "$f")','$sha')"
           done
-          test "$(psql -XAt -h 127.0.0.1 -U dcms -d dcms -c 'select count(*) from schema_migration')" = 26
+          test "$(psql -XAt -h 127.0.0.1 -U dcms -d dcms -c 'select count(*) from schema_migration')" = 27
           # Model the field failure: 0014 objects exist while its ledger row was
           # not recorded. Reapplying must reconcile without deleting any data.
           psql -X -1 -v ON_ERROR_STOP=1 -h 127.0.0.1 -U dcms -d dcms -f src/db/migrations/0014_operational_workflow.sql
@@ -113,9 +114,9 @@ jobs:
           PYTHONPATH=src/backend python ci/test-notifications.py /tmp/ima-credentials.json
           PYTHONPATH=src/backend python ci/test-import-progress.py /tmp/ima-credentials.json
           PYTHONPATH=src/backend python -u ci/test-scale-demo.py /tmp/ima-credentials.json
-          # rc2.45: 文档管理、基线检查、影响分析、件号资料包、审批超期、生产/采购角色
+          # rc2.45: 文档管理、基线检查、影响分析、件号资料包、审批超期、生产/采购角色、三级签署
           export DCMS_BASE_URL=http://127.0.0.1:8080
-          for t in test-file-lifecycle test-baseline-readiness test-file-impact test-part-package test-approval-overdue test-consumer-roles; do
+          for t in test-file-lifecycle test-baseline-readiness test-file-impact test-part-package test-approval-overdue test-consumer-roles test-signoff; do
             echo "== $t"
             PYTHONPATH=src/backend python ci/$t.py /tmp/ima-credentials.json
           done

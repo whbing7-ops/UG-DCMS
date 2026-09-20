@@ -40,6 +40,9 @@ class Perm(StrEnum):
     # 构型管理
     NUMBER_ALLOCATE = "number_allocate"
     BASELINE_RELEASE = "baseline_release"
+    # 三级签署: 审核/批准时的电子签名(能否签署由"有权签署人清单"决定, 本权限只是入口)
+    SIGN = "sign"
+    SIGNER_MANAGE = "signer_manage"          # 维护有权签署人清单
     # 系统管理
     USER_MANAGE = "user_manage"
     SESSION_MANAGE = "session_manage"
@@ -51,13 +54,13 @@ _ACCESS = frozenset({Perm.READ_UNRELEASED, Perm.DOWNLOAD_NATIVE})
 ROLE_PERMISSIONS: dict[Role, frozenset[Perm]] = {
     Role.VIEWER: frozenset({Perm.READ}) | _ACCESS,
     Role.ENGINEER: frozenset({
-        Perm.READ, Perm.DRAFT_WRITE, Perm.SUBMIT,
+        Perm.READ, Perm.DRAFT_WRITE, Perm.SUBMIT, Perm.SIGN,
     }) | _ACCESS,
     Role.APPROVER: frozenset({
-        Perm.READ, Perm.APPROVE,
+        Perm.READ, Perm.APPROVE, Perm.SIGN,
     }) | _ACCESS,
     Role.CONFIGURATION_MANAGER: frozenset({
-        Perm.READ, Perm.DRAFT_WRITE, Perm.SUBMIT, Perm.APPROVE,
+        Perm.READ, Perm.DRAFT_WRITE, Perm.SUBMIT, Perm.APPROVE, Perm.SIGN, Perm.SIGNER_MANAGE,
         Perm.NUMBER_ALLOCATE, Perm.BASELINE_RELEASE, Perm.READ_AUDIT,
     }) | _ACCESS,
     Role.DATA_ADMIN: frozenset({

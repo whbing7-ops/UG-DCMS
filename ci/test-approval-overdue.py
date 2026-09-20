@@ -10,7 +10,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from dcms_http import (Client, FINAL_PASSWORD, STAMP, check, db_execute,  # noqa: E402,F401
-                       login_admin, make_user, top_part_number)
+                       login_admin, make_signers, make_user, approve, review, submit_for_signoff, top_part_number)
 
 
 
@@ -19,20 +19,20 @@ def backdate(request_id, interval):
 
 
 eng = login_admin()
-approver = make_user(eng, 'APPROVER')
+reviewer, approver = make_signers(eng)
 num = 'OD-' + str(time.time_ns())[-10:]
 eng.call('POST', '/files', {'file_number': num, 'file_type_code': 'DWG', 'title_cn': '【测试】超期提醒'}, expect=201)
 rev = eng.call('POST', f'/files/{num}/revisions', {'change_summary': '超期测试'}, expect=201)
 eng.upload(f'/revisions/{rev["id"]}/attachments', 'od.pdf', b'overdue ' + uuid.uuid4().bytes, 'RELEASED_PDF')
-req = eng.call('POST', f'/revisions/{rev["id"]}/submit', {'approver_user_id': approver.id}, expect=200)
+req = submit_for_signoff(eng, rev['id'], reviewer, approver)
 rid = req['id']
 
 
 def mine():
-    return next(r for r in approver.call('GET', '/approvals/inbox') if str(r['object_id']) == rev['id'])
+    return next(r for r in reviewer.call('GET', '/approvals/inbox') if str(r['object_id']) == rev['id'])
 
 
-base_overdue = approver.call('GET', '/notifications/overview')['overdue_inbox_count']
+base_overdue = reviewer.call('GET', '/notifications/overview')['overdue_inbox_count']
 fresh = mine()
 check(fresh['is_overdue'] is False and fresh['waiting_days'] == 0, '刚提交的申请不算超期，等待 0 天')
 
@@ -44,10 +44,10 @@ item = mine()
 check(item['is_overdue'] is True and item['waiting_days'] == 3, '超过 3 天算超期')
 
 backdate(rid, '5 days')
-ov = approver.call('GET', '/notifications/overview')
+ov = reviewer.call('GET', '/notifications/overview')
 check(ov['overdue_days'] == 3, '概览返回超期阈值 3 天')
 check(ov['overdue_inbox_count'] == base_overdue + 1, '审批人的超期计数增加 1')
-check(approver.call('GET', '/approvals/summary')['inbox_overdue'] == ov['overdue_inbox_count'], '汇总接口与概览一致')
+check(reviewer.call('GET', '/approvals/summary')['inbox_overdue'] == ov['overdue_inbox_count'], '汇总接口与概览一致')
 check(mine()['waiting_days'] == 5, '等待天数按整天计算')
 
 # 申请人视角: 自己提交的申请卡住了, 能看到卡在谁那里
@@ -55,10 +55,12 @@ ov_eng = eng.call('GET', '/notifications/overview')
 stuck = [r for r in ov_eng['stuck'] if r['id'] == rid]
 check(len(stuck) == 1 and stuck[0]['assignee_name'], '申请人概览列出超期申请及当前处理人')
 check(eng.call('GET', '/approvals/summary')['my_overdue'] >= 1, '申请人汇总含 my_overdue')
-check(rid not in [r['id'] for r in approver.call('GET', '/notifications/overview')['stuck']], '审批人的“我提交的超期”不含别人的申请')
+check(rid not in [r['id'] for r in reviewer.call('GET', '/notifications/overview')['stuck']], '审批人的“我提交的超期”不含别人的申请')
 
 # 处理后不再计入超期
-approver.call('POST', f'/revisions/{rev["id"]}/release?comments=ok', expect=200)
-check(approver.call('GET', '/notifications/overview')['overdue_inbox_count'] == base_overdue, '批准后不再计入超期')
+review(reviewer, rev['id'])
+check(reviewer.call('GET', '/notifications/overview')['overdue_inbox_count'] == base_overdue, '审核通过后不再计入审核人的超期')
+check(approver.call('GET', '/notifications/overview')['overdue_inbox_count'] >= 1, '轮到批准人后，从提交起算的等待时间计入批准人的超期')
+approve(approver, rev['id'])
 check(all(r['id'] != rid for r in eng.call('GET', '/notifications/overview')['stuck']), '批准后从申请人的超期列表消失')
 print('ALL OK')

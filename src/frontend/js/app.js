@@ -17,6 +17,7 @@ import { draftEditor } from './drafts.js';
 import { designMaterials } from './design-materials.js';
 import { files, fileDetail, releasedLibrary } from './file-mgmt.js';
 import { partPackage } from './part-package.js';
+import { signersPage } from './signoff.js';
 
 const root = document.getElementById("root");
 let ctx = null;
@@ -33,6 +34,7 @@ const ROUTES = [
   ["/files",               files],
   ["/library",             releasedLibrary],
   ["/part/:pn",            partPackage],
+  ["/signers",             signersPage],
   ["/quality",             V4.quality],
   ["/reports",             V4.reports],
   ["/approvals",           V5.approvals],
@@ -67,7 +69,7 @@ const NAV = [
     ["#/external-parts", "外部件", "external"], ["#/software", "软件对象", "software"],
   ]},
   { group: "流程", items: [
-    ["#/approvals", "审批", "approvals", "read_unreleased"],
+    ["#/approvals", "审批", "approvals", "read_unreleased"], ["#/signers", "有权签署人", "badge", "read_unreleased"],
   ]},
   { group: "质量与统计", items: [
     ["#/quality", "数据质量", "quality", "read_unreleased"], ["#/reports", "统计", "reports", "read_unreleased"],

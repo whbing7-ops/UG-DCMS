@@ -17,6 +17,9 @@ class EditRequest(BaseModel):
 class SubmitRequest(BaseModel):
     model_config=ConfigDict(extra='forbid')
     approver_user_id: str=Field(min_length=36,max_length=36)
+    # 仅设计文件版次(三级签署)使用
+    reviewer_user_id: str|None=Field(default=None,min_length=36,max_length=36)
+    password: str|None=Field(default=None,max_length=200)
 
 
 def run(fn,*args):
@@ -51,6 +54,9 @@ def submit(kind:str,oid:str,payload:SubmitRequest,conn:Conn,actor:dict=Depends(r
       'DESIGN_BASELINE':baselines.submit,'EXTERNAL_TECHNICAL_STATE':externals.submit_technical_state,
       'EXTERNAL_PROJECT_CONTROL':externals.submit_project_control,'SOFTWARE_VERSION':externals.submit_version}
     if kind not in functions: raise errors.bad_request('不支持的审批对象类型')
+    if kind=='FILE_REVISION':
+        return run(lambda: files.submit_revision(conn,oid,payload.approver_user_id,actor,
+                   reviewer_user_id=payload.reviewer_user_id,password=payload.password))
     return run(functions[kind],conn,oid,payload.approver_user_id,actor)
 
 @router.post('/drafts/SOFTWARE_VERSION/{oid}/package')
