@@ -156,6 +156,8 @@ def list_items(conn: psycopg.Connection, baseline_id: str) -> list[dict]:
     """
     return fetch_all(conn, """
         SELECT bi.id, bi.item_type, bi.item_role, bi.sequence, bi.notes,
+               bi.file_revision_id, bi.software_version_id,
+               ns.code || '::' || ep.external_part_number AS external_code,
                CASE bi.item_type
                  WHEN 'FILE_REVISION' THEN df.file_number || ' Rev.' || fr.revision_number
                  WHEN 'BOM_SNAPSHOT' THEN bs.snapshot_number
@@ -304,50 +306,87 @@ def validate(conn: psycopg.Connection, baseline_id: str) -> dict:
     这些检查在数据库触发器里也有一份。重复不是浪费: 触发器负责"绝对拦住",
     本函数负责"提前告诉使用者哪里不合格", 二者目的不同。若只有触发器,
     使用者要点了发布才知道错在哪; 若只有应用层, 绕过应用就失效了。
+
+    返回 errors/warnings(纯文本, 向后兼容)以及 checks: 按类别分组的就绪清单,
+    每项带级别(BLOCK 阻止发布 / WARN 请确认 / PASS 通过)和可直达的处理位置。
     """
     bl = get_baseline(conn, baseline_id)
     if bl is None:
         raise LookupError("基线不存在")
 
-    errors: list[str] = []
-    warnings: list[str] = []
     items = bl["items"]
+    checks: list[dict] = []
 
+    def add(category: str, level: str, title: str, detail: str = "", href: str | None = None) -> None:
+        checks.append({"category": category, "level": level, "title": title,
+                       "detail": detail, "href": href})
+
+    def item_href(it: dict) -> str | None:
+        if it["item_type"] == "FILE_REVISION" and it.get("file_revision_id"):
+            return f"#/revision/{it['file_revision_id']}"
+        if it["item_type"] == "SOFTWARE_VERSION" and it.get("software_number"):
+            return f"#/software/{it['software_number']}"
+        if it["item_type"] == "EXTERNAL_TECHNICAL_STATE" and it.get("external_code"):
+            return f"#/external/{it['external_code']}"
+        return None
+
+    # ---- 明细完整性 ----
+    cat = "明细完整性"
     if not items:
-        errors.append("基线无任何明细, 不得发布")
-
-    # AC-DATA-03: 文件版次必须已发布
-    for it in items:
-        if it["item_type"] == "FILE_REVISION" and it["item_status"] not in ("RELEASED", "SUPERSEDED"):
-            errors.append(f"引用了未发布版次 {it['item_label']} (状态 {it['item_status']}) "
-                          f"— AC-DATA-03")
-        if it["item_type"] == "FILE_REVISION" and it["item_status"] == "SUPERSEDED":
-            warnings.append(f"{it['item_label']} 已被更新版次取代, 请确认这是有意锁定")
-        # AC-DATA-04 / INV-017
-        if it["item_type"] == "EXTERNAL_TECHNICAL_STATE" and it["item_status"] != "ACCEPTED":
-            errors.append(f"外部技术状态 {it['item_label']} 状态为 {it['item_status']}, "
-                          f"必须为 ACCEPTED — INV-017")
-        if it["item_type"] == "SOFTWARE_VERSION" and it["item_status"] not in ("RELEASED", "SUPERSEDED"):
-            errors.append(f"软件版本 {it['item_label']} 尚未发布")
-
-    # INV-022: 恰好一个主设计定义
+        add(cat, "BLOCK", "基线无任何明细, 不得发布", "至少锁定一份主设计定义版次")
     primaries = [i for i in items
                  if i["item_type"] == "FILE_REVISION" and i["item_role"] == "PRIMARY_DEFINITION"]
     if not primaries:
-        errors.append("缺少 PRIMARY_DEFINITION 主设计定义 — INV-022")
+        add(cat, "BLOCK", "缺少 PRIMARY_DEFINITION 主设计定义 — INV-022",
+            "在“基线明细”中添加一份已发布的文件版次，角色选“主设计定义”")
     elif len(primaries) > 1:
-        errors.append(f"存在 {len(primaries)} 个主设计定义, 只允许 1 个 — INV-022")
-
-    # INV-015: 最多一个 BOM 快照
+        add(cat, "BLOCK", f"存在 {len(primaries)} 个主设计定义, 只允许 1 个 — INV-022",
+            "移除多余的主设计定义，只保留一个")
+    else:
+        add(cat, "PASS", "已锁定唯一的主设计定义", primaries[0]["item_label"])
     snaps = [i for i in items if i["item_type"] == "BOM_SNAPSHOT"]
     if len(snaps) > 1:
-        errors.append(f"存在 {len(snaps)} 个 BOM 快照, 只允许 1 个")
-    if not snaps:
-        warnings.append("基线未锁定 BOM 快照; 若该 P/N 为组件, 应确认是否遗漏")
+        add(cat, "BLOCK", f"存在 {len(snaps)} 个 BOM 快照, 只允许 1 个", "移除多余的 BOM 快照")
+    elif not snaps:
+        add(cat, "WARN", "基线未锁定 BOM 快照",
+            "若该 P/N 为组件, 应确认是否遗漏；单件可忽略", f"#/bom/{bl['full_part_number']}")
+    else:
+        add(cat, "PASS", "已锁定 BOM 快照", snaps[0]["item_label"])
 
-    # 附件完整性 — DQ-FILE-001 阻止发布
+    # ---- 引用状态 ----
+    cat = "引用对象状态"
+    n_before = len(checks)
+    for it in items:
+        href = item_href(it)
+        # AC-DATA-03: 文件版次必须已发布
+        if it["item_type"] == "FILE_REVISION" and it["item_status"] not in ("RELEASED", "SUPERSEDED"):
+            add(cat, "BLOCK", f"引用了未发布版次 {it['item_label']} (状态 {it['item_status']}) — AC-DATA-03",
+                "先完成该版次的审批发布，或改为锁定已发布版次", href)
+        if it["item_type"] == "FILE_REVISION" and it["item_status"] == "SUPERSEDED":
+            add(cat, "WARN", f"{it['item_label']} 已被更新版次取代",
+                "请确认这是有意锁定旧版次", href)
+        # AC-DATA-04 / INV-017
+        if it["item_type"] == "EXTERNAL_TECHNICAL_STATE" and it["item_status"] != "ACCEPTED":
+            add(cat, "BLOCK", f"外部技术状态 {it['item_label']} 状态为 {it['item_status']}, 必须为 ACCEPTED — INV-017",
+                "先完成该外部技术状态的接受", href)
+        if it["item_type"] == "SOFTWARE_VERSION" and it["item_status"] not in ("RELEASED", "SUPERSEDED"):
+            add(cat, "BLOCK", f"软件版本 {it['item_label']} 尚未发布", "先发布该软件版本", href)
+    obsolete_files = fetch_all(conn, """
+        SELECT df.file_number FROM baseline_item bi
+          JOIN file_revision fr ON fr.id = bi.file_revision_id
+          JOIN design_file df ON df.id = fr.design_file_id
+         WHERE bi.design_baseline_id = %s AND df.status = 'OBSOLETE'
+    """, (baseline_id,))
+    for x in obsolete_files:
+        add(cat, "WARN", f"文件 {x['file_number']} 已作废", "确认是否仍应被本基线锁定",
+            f"#/file/{x['file_number']}")
+    if len(checks) == n_before:
+        add(cat, "PASS", "所有引用对象状态均满足发布要求", f"共 {len(items)} 项")
+
+    # ---- 附件完整性 — DQ-FILE-001 阻止发布 ----
+    cat = "附件完整性"
     bad = fetch_all(conn, """
-        SELECT df.file_number, fr.revision_number, ra.filename, ra.integrity_status
+        SELECT df.file_number, fr.revision_number, fr.id AS rev_id, ra.filename, ra.integrity_status
           FROM baseline_item bi
           JOIN file_revision fr ON fr.id = bi.file_revision_id
           JOIN design_file df ON df.id = fr.design_file_id
@@ -355,23 +394,56 @@ def validate(conn: psycopg.Connection, baseline_id: str) -> dict:
          WHERE bi.design_baseline_id = %s AND ra.integrity_status IN ('MISMATCH','MISSING')
     """, (baseline_id,))
     for b in bad:
-        errors.append(f"{b['file_number']} Rev.{b['revision_number']} 的附件 "
-                      f"{b['filename']} 完整性异常 ({b['integrity_status']}) — DQ-FILE-001")
+        add(cat, "BLOCK", f"{b['file_number']} Rev.{b['revision_number']} 的附件 "
+            f"{b['filename']} 完整性异常 ({b['integrity_status']}) — DQ-FILE-001",
+            "在版次页运行“校验附件完整性”并处置", f"#/revision/{b['rev_id']}")
+    unchecked = scalar(conn, """
+        SELECT count(*) FROM baseline_item bi
+          JOIN revision_attachment ra ON ra.file_revision_id = bi.file_revision_id
+         WHERE bi.design_baseline_id = %s AND ra.integrity_status = 'UNKNOWN'
+    """, (baseline_id,)) or 0
+    if unchecked:
+        add(cat, "WARN", f"{unchecked} 个附件尚未做完整性校验", "建议发布前由有审计权限的账号运行一次巡检")
+    if not bad and not unchecked:
+        add(cat, "PASS", "所锁定文件的附件完整性均已校验通过")
 
+    # ---- 外部件准入 ----
+    cat = "外部件准入"
     unapproved_external = fetch_all(conn, """
-        SELECT ep.external_part_number
+        SELECT ep.external_part_number, ns.code AS ns_code
           FROM baseline_item bi
           JOIN external_technical_state ets ON ets.id=bi.external_technical_state_id
           JOIN external_part ep ON ep.id=ets.external_part_id
+          JOIN namespace ns ON ns.id=ep.namespace_id
          WHERE bi.design_baseline_id=%s AND NOT EXISTS (
            SELECT 1 FROM external_part_project_control pc
             WHERE pc.external_part_id=ep.id AND pc.project_code=%s AND pc.status='APPROVED')
     """, (baseline_id, bl["project_code"]))
     for x in unapproved_external:
-        errors.append(f"外部件 {x['external_part_number']} 尚未获得项目 {bl['project_code']} 的准入批准")
+        add(cat, "BLOCK", f"外部件 {x['external_part_number']} 尚未获得项目 {bl['project_code']} 的准入批准",
+            "在外部件页申请并批准项目准入", f"#/external/{x['ns_code']}::{x['external_part_number']}")
+    if not unapproved_external:
+        add(cat, "PASS", "所有外部件均已获得项目准入" if any(
+            i["item_type"] == "EXTERNAL_TECHNICAL_STATE" for i in items) else "本基线不含外部件")
 
+    # ---- 与当前基线的差异 ----
+    cat = "与当前基线的差异"
+    cur = fetch_one(conn, """SELECT id, baseline_code FROM design_baseline
+                              WHERE part_number_id=%s AND is_current AND id<>%s""",
+                    (bl["part_number_id"], baseline_id))
+    if cur is None:
+        add(cat, "PASS", "该 P/N 目前没有已发布的当前基线", "这是首条基线")
+    elif items and content_hash(conn, baseline_id) == content_hash(conn, str(cur["id"])):
+        add(cat, "WARN", f"内容与当前基线 {cur['baseline_code']} 完全相同",
+            "发布后不会带来任何技术状态变化，请确认是否需要", f"#/baseline-compare/{cur['id']}/{baseline_id}")
+    elif cur is not None:
+        add(cat, "PASS", f"与当前基线 {cur['baseline_code']} 有差异", "可在发布前查看差异",
+            f"#/baseline-compare/{cur['id']}/{baseline_id}")
+
+    errors = [c["title"] for c in checks if c["level"] == "BLOCK"]
+    warnings = [c["title"] for c in checks if c["level"] == "WARN"]
     result = {"errors": errors, "warnings": warnings, "item_count": len(items),
-              "passed": not errors}
+              "passed": not errors, "checks": checks}
     execute(conn, "UPDATE design_baseline SET validation_result=%s::jsonb WHERE id=%s",
             (json.dumps(result, ensure_ascii=False), baseline_id))
     return result

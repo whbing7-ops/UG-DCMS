@@ -1,4 +1,5 @@
 import {workflowState, applicantActions} from './drafts.js';
+import { readinessPanel } from "./baseline-readiness.js";
 /* 基线、数据质量、报表、系统管理。 */
 import { api } from "./api.js";
 import { editor } from "./manage.js";
@@ -107,10 +108,7 @@ export async function baselineDetail(ctx, params, id) {
         cell("明细数", bl.items.length),
         cell("序号", bl.baseline_sequence))),
 
-    val && (val.errors.length || val.warnings.length) ? el("div", {
-        class: val.errors.length ? "note error" : "note warn" },
-      val.errors.length ? "以下问题会阻止发布：" : "以下内容请确认：",
-      el("ul", {}, val.errors.concat(val.warnings).map(x => el("li", {}, x)))) : null,
+    readinessPanel(val),
     !editable ? el("div", { class: "note" },
       bl.status === "CANCELLED" ? "该基线已取消，不能继续编辑或发布。需要时请新建基线。"
         : "该基线已发布，内容不可更改。要调整锁定的版次，请新建一条基线。") : null,

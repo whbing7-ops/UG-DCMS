@@ -336,3 +336,20 @@ details > summary { cursor:pointer; color:var(--accent); }
 .diff-ADDED { color:var(--st-released); background:#edf8f1; border-color:#c5e5d2; }
 .diff-REMOVED { color:var(--st-obsolete); background:#fbeceb; border-color:#efc5c2; }
 div.muted.small { font-size:12px; }
+
+/* ---- rc2.45: 基线发布前检查 ---- */
+.ready-summary { display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap;
+  padding:12px 16px; border-radius:8px; margin-bottom:14px; border:1px solid var(--rule-light); }
+.ready-summary.is-block { background:#fbeceb; border-color:#efc5c2; color:var(--st-obsolete); }
+.ready-summary.is-warn { background:#fdf6e8; border-color:#efd9a6; color:var(--st-warn); }
+.ready-summary.is-pass { background:#edf8f1; border-color:#c5e5d2; color:var(--st-released); }
+.ready-summary span { font-size:12px; color:var(--ink-2); }
+.ready-group { margin:0 0 12px; }
+.ready-group h4 { margin:0 0 6px; font-size:12px; color:var(--ink-3); font-weight:600; }
+.ready-row { display:flex; align-items:flex-start; gap:10px; padding:8px 10px; border-bottom:1px solid var(--rule-light); }
+.ready-row .ready-text { flex:1 1 auto; min-width:0; overflow-wrap:anywhere; }
+.ready-row .ready-text small { display:block; }
+.ready-ico { flex:0 0 22px; height:22px; border-radius:50%; display:grid; place-items:center; font-size:12px; font-weight:700; color:#fff; }
+.lv-BLOCK .ready-ico { background:var(--st-error); }
+.lv-WARN .ready-ico { background:var(--st-warn); }
+.lv-PASS .ready-ico { background:var(--st-released); }
