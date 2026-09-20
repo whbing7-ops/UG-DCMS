@@ -158,3 +158,44 @@ def cancel(baseline_id: str, conn: Conn,
     except ValueError as e:
         raise errors.bad_request(str(e))
     return {"message": "基线已取消"}
+
+
+@router.get("/parts/{full_pn}/release-package")
+def release_package(full_pn: str, conn: Conn, user: CurrentUser):
+    """生产、采购用: 当前基线锁定的有效文件、BOM、外部件、软件及相对上一基线的变化。"""
+    try:
+        return bl_svc.release_package(conn, full_pn)
+    except LookupError as e:
+        raise errors.not_found(str(e))
+
+
+@router.get("/parts/{full_pn}/release-package.csv")
+def release_package_csv(full_pn: str, conn: Conn, user: CurrentUser):
+    """同一份资料包的 CSV 导出(UTF-8 带 BOM, Excel 直接打开不乱码)。"""
+    import csv
+    import io
+    from urllib.parse import quote
+    from fastapi.responses import Response
+    try:
+        p = bl_svc.release_package(conn, full_pn)
+    except LookupError as e:
+        raise errors.not_found(str(e))
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    cb = p["current_baseline"]
+    w.writerow(["件号", p["full_part_number"], p["formal_name_cn"], "当前基线", cb["baseline_code"] if cb else "无"])
+    w.writerow([])
+    w.writerow(["类别", "编号", "名称/说明", "版次/数量", "状态/用途", "备注"])
+    for d in p["documents"]:
+        w.writerow(["设计文件", d["file_number"], d["title_cn"], "Rev." + d["revision_number"], d["item_role"] or "",
+                    f"文件已有更新版次 Rev.{d['latest_revision']}，以基线锁定版次为准" if d["newer_available"] else ""])
+    for b in p["bom"]:
+        w.writerow(["BOM", b["child_object_code"], b["child_display_name"], b["quantity"], b["unit_code"] or "",
+                    b["reference_designator"] or b["notes"] or ""])
+    for e in p["external"]:
+        w.writerow(["外部件", e["external_code"], e["label"], e["supplier_revision"] or "", e["status"], ""])
+    for s in p["software"]:
+        w.writerow(["软件", s["software_number"], s["label"], s["version"] or "", s["status"], ""])
+    return Response(content=("﻿" + buf.getvalue()).encode("utf-8"), media_type="text/csv; charset=utf-8",
+                    headers={"Content-Disposition": "attachment; filename*=UTF-8''"
+                             + quote(f"{p['full_part_number']}-资料包.csv", safe="")})

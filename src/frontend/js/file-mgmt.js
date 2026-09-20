@@ -271,6 +271,7 @@ export async function releasedLibrary(ctx, params) {
     api.get("/design-materials", { query: { ...query, page, page_size: 50 } }),
     api.get("/dictionary/file-type"),
   ]);
+  const pnIn = input({ class: "mono", placeholder: "例如 UG200001-001" });
   const qIn = input({ value: q, placeholder: "文件号、名称或附件名" });
   const typeSel = select([{ value: "", label: "全部类型" }, ...types.map(t => ({ value: t.code, label: t.name_cn }))]);
   const roleSel = select([{ value: "RELEASED_PDF", label: "发布版 PDF" }, { value: "", label: "全部附件" },
@@ -284,6 +285,10 @@ export async function releasedLibrary(ctx, params) {
   return el("div", {},
     el("h1", {}, "发布资料库"),
     el("p", { class: "sub" }, "这里只列已批准发布、当前有效的资料，可直接查阅和下载。草稿、审核中和已被取代的版次不会出现。"),
+    el("form", { class: "filter-bar", onsubmit: e => { e.preventDefault(); const v = pnIn.value.trim();
+        if (v) location.hash = "#/part/" + enc(v); } },
+      field("按件号查资料包（当前基线、有效文件、BOM）", pnIn),
+      el("div", { class: "filter-actions" }, el("button", { class: "btn primary", type: "submit" }, "查看资料包"))),
     el("form", { class: "filter-bar", onsubmit: search },
       field("关键词", qIn), field("文件类型", typeSel), field("附件类型", roleSel),
       el("div", { class: "filter-actions" }, el("button", { class: "btn primary", type: "submit" }, "查询"),

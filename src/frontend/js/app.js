@@ -15,6 +15,7 @@ import { diagnostics, auditPage, backupPage } from "./extras.js";
 import { draftEditor } from './drafts.js';
 import { designMaterials } from './design-materials.js';
 import { files, fileDetail, releasedLibrary } from './file-mgmt.js';
+import { partPackage } from './part-package.js';
 
 const root = document.getElementById("root");
 let ctx = null;
@@ -30,6 +31,7 @@ const ROUTES = [
   ["/design-materials", designMaterials],
   ["/files",               files],
   ["/library",             releasedLibrary],
+  ["/part/:pn",            partPackage],
   ["/quality",             V4.quality],
   ["/reports",             V4.reports],
   ["/approvals",           V5.approvals],

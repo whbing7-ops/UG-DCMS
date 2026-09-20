@@ -648,3 +648,68 @@ def current_configuration(conn: psycopg.Connection, full_pn: str) -> dict:
                              "reason": bl["reason"]},
         "items": bl["items"],
     }
+
+
+def release_package(conn: psycopg.Connection, full_pn: str) -> dict:
+    """面向生产、采购的件号资料包: 当前基线锁定的有效文件、BOM、外部件、软件, 以及相对上一基线的变化。
+
+    文件以**基线锁定的版次**为准, 而不是"最新发布版次" —— 二者可能不同(INV-014),
+    使用者按哪个做事必须明确, 所以每份文件都标出是否有更新版次。
+    """
+    pn = _part(conn, full_pn)
+    out = {"full_part_number": full_pn, "formal_name_cn": pn["formal_name_cn"],
+           "lifecycle_status": pn["lifecycle_status"], "current_baseline": None,
+           "documents": [], "bom": [], "external": [], "software": [], "change_from_previous": None}
+    if pn["current_baseline_id"] is None:
+        return out
+    from . import files as file_svc
+    bl = get_baseline(conn, str(pn["current_baseline_id"]))
+    out["current_baseline"] = {"id": str(bl["id"]), "baseline_code": bl["baseline_code"],
+                               "released_at": bl["released_at"], "reason": bl["reason"],
+                               "content_hash": bl["content_hash"], "project_code": bl.get("project_code")}
+
+    for it in bl["items"]:
+        if it["item_type"] == "FILE_REVISION":
+            meta = fetch_one(conn, """
+                SELECT df.title_cn, df.status AS file_status, fr.released_at,
+                       cur.revision_number AS latest_revision
+                  FROM file_revision fr JOIN design_file df ON df.id = fr.design_file_id
+                  LEFT JOIN file_revision cur ON cur.id = df.current_released_revision_id
+                 WHERE fr.id = %s""", (it["file_revision_id"],))
+            out["documents"].append({
+                "file_number": it["file_number"], "revision_number": it["revision_number"],
+                "item_role": it["item_role"], "title_cn": meta["title_cn"],
+                "file_status": meta["file_status"], "released_at": meta["released_at"],
+                "revision_status": it["item_status"],
+                "latest_revision": meta["latest_revision"],
+                "newer_available": bool(meta["latest_revision"]) and meta["latest_revision"] != it["revision_number"],
+                "attachments": [{"id": str(a["id"]), "filename": a["filename"],
+                                 "attachment_role": a["attachment_role"], "size_bytes": a["size_bytes"],
+                                 "integrity_status": a["integrity_status"]}
+                                for a in file_svc.attachments(conn, str(it["file_revision_id"]))]})
+        elif it["item_type"] == "EXTERNAL_TECHNICAL_STATE":
+            out["external"].append({"external_code": it["external_code"], "label": it["item_label"],
+                                    "supplier_revision": it["supplier_revision"], "status": it["item_status"]})
+        elif it["item_type"] == "SOFTWARE_VERSION":
+            out["software"].append({"software_number": it["software_number"], "label": it["item_label"],
+                                    "version": it["version"], "status": it["item_status"]})
+
+    out["bom"] = fetch_all(conn, """
+        SELECT sl.item_number, sl.child_object_code, sl.child_display_name, sl.quantity, sl.unit_code,
+               sl.reference_designator, sl.notes
+          FROM baseline_item bi
+          JOIN bom_snapshot_line sl ON sl.bom_snapshot_id = bi.bom_snapshot_id
+         WHERE bi.design_baseline_id = %s AND bi.item_type = 'BOM_SNAPSHOT'
+         ORDER BY sl.sort_order, sl.item_number""", (str(bl["id"]),))
+
+    prev = fetch_one(conn, """
+        SELECT id, baseline_code FROM design_baseline
+         WHERE part_number_id = %s AND baseline_sequence < %s AND status IN ('RELEASED','SUPERSEDED')
+         ORDER BY baseline_sequence DESC LIMIT 1""", (pn["id"], bl["baseline_sequence"]))
+    if prev:
+        c = compare(conn, str(prev["id"]), str(bl["id"]))
+        out["change_from_previous"] = {
+            "from_baseline": prev["baseline_code"], "reason": bl["reason"], "identical": c["identical"],
+            "added": [i["item_label"] for i in c["added"]], "removed": [i["item_label"] for i in c["removed"]],
+            "changed": [{"subject": x["subject"], "from": x["from"], "to": x["to"]} for x in c["changed"]]}
+    return out
