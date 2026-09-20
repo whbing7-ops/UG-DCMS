@@ -27,8 +27,11 @@ def overview(conn,actor):
       WHERE requester_id=%s AND status IN ('REJECTED','RETURNED') AND NOT(payload ? 'draft_deleted_at')
       ORDER BY requested_at DESC LIMIT 100""",(uid,))
     draft_rows=drafts.list_mine(conn,actor)
+    summary=approvals.summary(conn,actor)
+    stuck=[r for r in approvals.my_requests(conn,actor) if r['is_overdue']]
     return dict(inbox=inbox,returned=returned,drafts=draft_rows[:20],draft_count=len(draft_rows),
-      inbox_count=approvals.summary(conn,actor)['inbox'],messages=messages(conn,uid),unread=unread(conn,uid),
+      inbox_count=summary['inbox'],overdue_days=approvals.OVERDUE_DAYS,
+      overdue_inbox_count=summary['inbox_overdue'],stuck=stuck[:20],messages=messages(conn,uid),unread=unread(conn,uid),
       desktop_connected=bool(scalar(conn,"""SELECT EXISTS(SELECT 1 FROM notification_device d JOIN user_session s ON s.id=d.session_id
         WHERE s.user_id=%s AND s.revoked_at IS NULL AND s.expires_at>now() AND d.revoked_at IS NULL
         AND d.last_seen_at>now()-interval '60 seconds')""",(uid,))))

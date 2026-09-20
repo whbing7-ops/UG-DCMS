@@ -1,4 +1,5 @@
 import {workflowState, applicantActions, requestActions, draftListing} from './drafts.js';
+import {waitingBadge} from './notifications.js';
 /* 外部件、软件对象、审批中心。 */
 import { api } from "./api.js";
 import { editor } from "./manage.js";
@@ -90,13 +91,14 @@ export async function approvals(ctx) {
     draftListing(drafts),
     inbox.length ? tablePanel(`待我处理 ${inbox.length} 项`,
       table([{ label: "申请单", mono: 1 }, { label: "类型" }, { label: "对象", mono: 1 },
-             { label: "申请人" }, { label: "提交时间" }, { label: "" }],
+             { label: "申请人" }, { label: "提交时间" }, { label: "等待" }, { label: "" }],
         inbox, r => [
           el("td", { class: "mono" }, link(r.request_number, "#/approval/" + r.id)),
           el("td", {}, requestTypeText(r)),
           el("td", { class: "mono" }, r.object_code || "—"),
           el("td", {}, r.requester_name),
           el("td", { class: "muted nowrap" }, fmtDate(r.requested_at)),
+          el("td", { class: "nowrap" }, waitingBadge(r) || "—"),
           el("td", { class: "right nowrap" },
             approvalObjectLink(r), " ", softwareApprovalButton(ctx, r), " ",
             el("button", { class: "btn small", onclick: () =>
@@ -108,13 +110,14 @@ export async function approvals(ctx) {
 
     tablePanel("我发起的申请",
       table([{ label: "申请单", mono: 1 }, { label: "类型" }, { label: "对象", mono: 1 },
-             { label: "状态" }, { label: "提交时间" }, { label: "" }],
+             { label: "状态" }, { label: "提交时间" }, { label: "等待" }, { label: "" }],
         mine, r => [
           el("td", { class: "mono" }, link(r.request_number, "#/approval/" + r.id)),
           el("td", {}, requestTypeText(r)),
           el("td", { class: "mono" }, r.object_code || "—"),
           el("td", {}, r.closure_action==='WITHDRAW'?'已撤回':status(r.status)),
           el("td", { class: "muted nowrap" }, fmtDate(r.requested_at)),
+          el("td", { class: "nowrap" }, r.status === "PENDING" ? (waitingBadge(r) || "—") : "—"),
           el("td", { class: "right" }, approvalObjectLink(r), ' ',
             !r.object_deleted&&['RETURNED','REJECTED','CANCELLED'].includes(r.status)?link('编辑后重新提交',`#/draft/${r.object_type}/${r.object_id}`,'btn small'):null,
             r.status==='PENDING'?requestActions(r):null)])

@@ -2,15 +2,31 @@ import {api,token} from './api.js';
 import {el,link,panel,table,tablePanel,empty,statusText,fmtDate,toastError,toast} from './ui.js';
 let runningToken=null,timer=null,busy=false;
 
+/* 等待天数标记: 超期(默认 3 天)标红并置顶, 未超期只显示天数 */
+export function waitingBadge(r){
+  if(r.waiting_days===null||r.waiting_days===undefined)return null;
+  const text=r.waiting_days<1?'今天提交':`已等待 ${r.waiting_days} 天`;
+  return el('span',{class:'wait'+(r.is_overdue?' is-overdue':''),title:r.is_overdue?'已超过处理时限':null},text);
+}
 function workQueue(data){
-  const items=[...data.inbox.map(r=>({title:r.title,number:r.request_number,state:'待我审批',action:'查看申请',url:'#/approval/'+r.id})),
-    ...data.returned.map(r=>({title:r.title,number:r.request_number,state:statusText(r.status)+'，待修改',action:'编辑申请',url:`#/draft/${r.object_type}/${r.object_id}`}))];
+  const days=data.overdue_days||3;
+  const items=[...data.inbox.map(r=>({title:r.title,number:r.request_number,state:'待我审批',action:'查看申请',url:'#/approval/'+r.id,wait:r,overdue:r.is_overdue})),
+    ...data.returned.map(r=>({title:r.title,number:r.request_number,state:statusText(r.status)+'，待修改',action:'编辑申请',url:`#/draft/${r.object_type}/${r.object_id}`,wait:null,overdue:false}))]
+    .sort((a,b)=>(b.overdue-a.overdue));
+  const stuck=data.stuck||[];
   return el('div',{},
+    data.overdue_inbox_count?el('div',{class:'note error','data-overdue':'inbox'},
+      `有 ${data.overdue_inbox_count} 项审批已等待超过 ${days} 天，请优先处理。`):null,
+    stuck.length?el('div',{class:'note warn','data-overdue':'mine'},
+      `你提交的 ${stuck.length} 项申请超过 ${days} 天未被处理：`,
+      el('ul',{},stuck.slice(0,5).map(r=>el('li',{},link(r.request_number,'#/approval/'+r.id),' ',r.title,
+        r.assignee_name?` · 待 ${r.assignee_name} 处理`:' · 待审批人处理',' · ',waitingBadge(r))))):null,
     el('div',{class:'actions'},link(`待我审批 ${data.inbox_count} 项`,'#/approvals','btn primary'),
       link(`退回待修改 ${data.returned.length} 项`,'#/approvals','btn'),
       link(`待提交草稿 ${data.draft_count} 项`,'#/approvals','btn'),link('打开审批中心','#/approvals','btn')),
-    table([{label:'申请单'},{label:'事项'},{label:'状态'},{label:'操作'}],items.slice(0,10),r=>[
-      el('td',{},r.number),el('td',{},r.title),el('td',{},r.state),el('td',{},link(r.action,r.url,'btn small'))])||empty('当前没有待审批或退回待修改的事项'),
+    table([{label:'申请单'},{label:'事项'},{label:'状态'},{label:'等待'},{label:'操作'}],items.slice(0,10),r=>[
+      el('td',{},r.number),el('td',{},r.title),el('td',{},r.state),el('td',{},r.wait?waitingBadge(r.wait):'—'),
+      el('td',{},link(r.action,r.url,'btn small'))])||empty('当前没有待审批或退回待修改的事项'),
     items.length>10?el('p',{class:'muted'},'首页显示前10项，进入审批中心查看全部。'):null,
     data.drafts.length?el('details',{},el('summary',{},'我的待提交草稿（最近20项）'),
       data.drafts.map(r=>el('p',{},link(r.label+' · '+r.object_code,`#/draft/${r.object_type}/${r.id}`)))):null);

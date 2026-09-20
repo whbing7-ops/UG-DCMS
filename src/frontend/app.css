@@ -362,3 +362,7 @@ div.muted.small { font-size:12px; }
 .impact-stat.is-warn { border-color:#efd9a6; background:#fdf6e8; }
 .impact-stat.is-warn b { color:var(--st-warn); }
 .chip { display:inline-block; margin:1px 4px 1px 0; padding:1px 8px; border-radius:10px; background:var(--accent-bg); font-size:12px; }
+
+/* ---- rc2.45: 审批等待时长 ---- */
+.wait { display:inline-block; padding:1px 8px; border-radius:10px; font-size:12px; background:#f1f3f6; color:var(--ink-2); border:1px solid var(--rule-light); }
+.wait.is-overdue { background:#fbeceb; color:var(--st-error); border-color:#efc5c2; font-weight:600; }
