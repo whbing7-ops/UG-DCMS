@@ -1,4 +1,5 @@
-import {personalDashboard} from './notifications.js';
+import {personalPanels} from './notifications.js';
+import {icon} from './icons.js';
 /* 各页面视图。每个视图返回一个 DOM 节点, 由 app.js 的路由挂载。 */
 import { api, ApiError } from "./api.js";
 import { definitionButton } from "./extras.js";
@@ -16,19 +17,25 @@ export async function home(ctx) {
     api.get("/reports/dashboard"),
     api.get("/recent", { query: { limit: 10 } }),
     api.get("/quality/issues", { query: { severity: "ERROR", limit: 5 } }),
-    personalDashboard(),
+    personalPanels(),
   ]);
   const o = dash.objects, qy = dash.quality, ig = dash.integrity;
 
-  const stat = (n, label, alert) =>
-    el("div", { class: "stat" + (alert ? " alert" : "") },
-       el("b", {}, String(n ?? 0)), el("span", {}, label));
+  /* 指标卡: 有去处的做成链接, 图标只是装饰, 文字才是内容 */
+  const kpi = (n, label, ico, tone, href, alert) => {
+    const body = [el("span", { class: "kpi-ico" + (tone ? " tone-" + tone : ""), "aria-hidden": "true", html: icon(ico) }),
+      el("div", {}, el("b", {}, String(n ?? 0)), el("span", {}, label))];
+    return href ? el("a", { class: "kpi" + (alert ? " alert" : ""), href }, body)
+                : el("div", { class: "kpi" + (alert ? " alert" : "") }, body);
+  };
 
-  return el("div", {},
-    el("h1", {}, `你好，${ctx.user.full_name}`),
-    el("p", { class: "sub" }, "设计构型管理系统。这里是当前需要注意的内容。"),
+  return el("div", { class: "home" },
+    el("section", { class: "hero" },
+      el("div", {}, el("h1", {}, `你好，${ctx.user.full_name}`),
+        el("p", { class: "sub" }, "设计构型管理系统。这里是当前需要注意的内容。")),
+      el("div", { class: "hero-actions home-shortcuts" }, link("BOM 管理", "#/bom", "btn primary"), link("查找设计数据", "#/search", "btn"),
+        link("发布资料库", "#/library", "btn"), ctx.can("user_manage") ? link("账户管理", "#/admin", "btn") : null)),
 
-    personal,
     qy.open_errors > 0 ? el("div", { class: "note error" },
       `有 ${qy.open_errors} 个阻止发布的数据质量问题待处置。`,
       el("div", {}, link("查看清单", "#/quality"))) : null,
@@ -36,28 +43,30 @@ export async function home(ctx) {
       `${ig.mismatch + ig.missing} 个已发布附件的完整性校验未通过——文件可能被绕过系统改动过。`,
       el("div", {}, link("查看完整性问题", "#/quality"))) : null,
 
-    el("div", { class: "actions home-shortcuts" }, link("BOM 管理", "#/bom", "btn primary"), link("查找设计数据", "#/search", "btn"), ctx.can("user_manage") ? link("账户管理", "#/admin", "btn") : null),
-    el("div", { class: "grid4" },
-      stat(o.internal_parts, "内部件号"),
-      stat(o.external_parts, "外部件"),
-      stat(dash.families.active, "生效设计族"),
-      stat(dash.baselines.current, "当前基线"),
-      stat(o.draft, "草稿对象"),
-      stat(qy.open_errors, "待处置错误", qy.open_errors > 0),
-      stat(qy.open_warnings, "待处置提醒"),
-      stat(qy.active_waivers, "有效豁免")),
+    el("div", { class: "kpis" },
+      kpi(o.internal_parts, "内部件号", "part", null, "#/search"),
+      kpi(o.external_parts, "外部件", "external", "info", "#/external-parts"),
+      kpi(dash.families.active, "生效设计族", "families", null, "#/families"),
+      kpi(dash.baselines.current, "当前基线", "baseline", "ok"),
+      kpi(o.draft, "草稿对象", "draft", "warn"),
+      kpi(qy.open_errors, "待处置错误", "alert", "err", "#/quality", qy.open_errors > 0),
+      kpi(qy.open_warnings, "待处置提醒", "info", "warn", "#/quality"),
+      kpi(qy.active_waivers, "有效豁免", "badge", "ok")),
 
-    el("div", { class: "split" },
-      tablePanel("最近访问",
-        table([{ label: "编号", mono: 1 }, { label: "名称" }, { label: "时间" }],
-          recent, r => [
-            el("td", { class: "mono" }, link(r.object_code, "#/object/" + encodeURIComponent(r.object_code))),
-            el("td", {}, r.display_name || "—"),
-            el("td", { class: "muted nowrap" }, fmtDate(r.accessed_at))])),
-      tablePanel("待处置错误",
-        table([{ label: "规则" }, { label: "说明" }], issues, i => [
-          el("td", { class: "nowrap" }, i.rule_code),
-          el("td", {}, i.message)]))));
+    el("div", { class: "home-grid" },
+      el("div", {}, personal.queue, personal.messages),
+      el("div", {},
+        tablePanel("最近访问",
+          table([{ label: "编号", mono: 1 }, { label: "名称" }, { label: "时间" }],
+            recent, r => [
+              el("td", { class: "mono" }, link(r.object_code, "#/object/" + encodeURIComponent(r.object_code))),
+              el("td", {}, r.display_name || "—"),
+              el("td", { class: "muted nowrap" }, fmtDate(r.accessed_at))])),
+        tablePanel("待处置错误",
+          table([{ label: "规则" }, { label: "说明" }], issues, i => [
+            el("td", { class: "nowrap" }, i.rule_code),
+            el("td", {}, i.message)])),
+        personal.settings)));
 }
 
 /* ============================ 检索 ============================ */

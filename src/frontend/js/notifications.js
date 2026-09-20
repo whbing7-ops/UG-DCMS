@@ -38,11 +38,16 @@ function messageList(data){
       try{await api.post('/notifications/read',{json:{ids:[r.id]}});await refresh();}catch(e){toastError(e);}
     }},'标为已读'):null)])||empty('暂无通知');
 }
-export async function personalDashboard(){
+/* 个人待办的三块内容分开返回, 由首页决定排版; 各 data-* 标记保持不变(定时刷新按它们定位) */
+export async function personalPanels(){
   const d=await api.get('/notifications/overview');
-  return el('div',{},panel('我的待办事项',el('div',{'data-work-queue':'true'},workQueue(d))),
-    notificationSettings(d),
-    panel('审批消息',el('div',{'data-notification-list':'true',style:'max-height:440px;overflow:auto'},messageList(d))));
+  return {queue:panel('我的待办事项',el('div',{'data-work-queue':'true'},workQueue(d))),
+    settings:notificationSettings(d),
+    messages:panel('审批消息',el('div',{'data-notification-list':'true',style:'max-height:440px;overflow:auto'},messageList(d)))};
+}
+export async function personalDashboard(){
+  const p=await personalPanels();
+  return el('div',{},p.queue,p.settings,p.messages);
 }
 function notificationSettings(d){
   const code=el('input',{'aria-label':'通知助手绑定信息',readonly:true,style:'width:100%;display:none'});

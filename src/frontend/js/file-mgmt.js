@@ -75,7 +75,7 @@ export async function files(ctx, params) {
           el("td", { class: "mono" }, link(f.file_number, "#/file/" + enc(f.file_number))),
           el("td", {}, f.title_cn),
           el("td", { class: "muted" }, codeText(f.file_type_code)),
-          el("td", {}, f.status === "OBSOLETE" ? status("OBSOLETE") : el("span", { class: "muted" }, "有效")),
+          el("td", { class: "nowrap" }, status(f.status)),
           el("td", { class: "mono" }, f.current_released_revision ? "Rev." + f.current_released_revision : "—"),
           el("td", { class: "muted nowrap" }, f.released_at ? fmtDate(f.released_at) : "—"),
           el("td", {}, f.open_revision
