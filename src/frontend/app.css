@@ -313,3 +313,26 @@ details > summary { cursor:pointer; color:var(--accent); }
 [data-import-progress] progress{display:block;width:100%;height:18px;margin:12px 0;accent-color:var(--primary,#2563b8)}
 [data-import-progress] p{overflow-wrap:anywhere}
 [data-import-progress][hidden]{display:none}
+
+/* ---- rc2.45: 文件管理与发布资料库 ---- */
+.page-head { display:flex; justify-content:space-between; align-items:flex-start; gap:12px; flex-wrap:wrap; }
+.page-head-actions { display:flex; gap:8px; padding-top:4px; }
+.filter-bar { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px 12px; align-items:end;
+  background:var(--surface); border:1px solid var(--rule-light); border-radius:10px; padding:12px 16px; margin:0 0 16px; }
+.filter-bar label { margin-top:0; }
+.filter-actions { display:flex; gap:8px; }
+.panel.fold > summary { padding:12px 18px; font-weight:600; }
+.panel.fold[open] > summary { border-bottom:1px solid var(--rule-light); }
+.file-chips { display:flex; flex-wrap:wrap; gap:10px; margin:8px 0 12px; }
+.file-chip { display:grid; gap:2px; text-align:left; min-width:190px; max-width:320px; padding:10px 14px; cursor:pointer;
+  background:var(--accent-bg); border:1px solid #c4d5e6; border-radius:8px; color:var(--ink); font:inherit; }
+.file-chip:hover { border-color:var(--accent); background:#dfeaf5; }
+.file-chip b { font-size:12px; color:var(--accent); }
+.file-chip span { overflow-wrap:anywhere; }
+.file-chip small { color:var(--ink-3); }
+.diff { display:inline-block; padding:1px 8px; border-radius:10px; font-size:12px; border:1px solid var(--rule-light); }
+.diff-SAME { color:var(--ink-3); background:#f1f3f6; }
+.diff-CHANGED { color:var(--st-warn); background:#fdf6e8; border-color:#efd9a6; }
+.diff-ADDED { color:var(--st-released); background:#edf8f1; border-color:#c5e5d2; }
+.diff-REMOVED { color:var(--st-obsolete); background:#fbeceb; border-color:#efc5c2; }
+div.muted.small { font-size:12px; }

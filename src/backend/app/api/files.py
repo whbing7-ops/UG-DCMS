@@ -24,6 +24,15 @@ class FileCreateRequest(BaseModel):
     title_en: str | None = Field(default=None, max_length=256)
 
 
+class FileUpdateRequest(BaseModel):
+    title_cn: str = Field(min_length=1, max_length=256)
+    title_en: str | None = Field(default=None, max_length=256)
+
+
+class ReasonRequest(BaseModel):
+    reason: str = Field(min_length=1, max_length=256)
+
+
 class RevisionCreateRequest(BaseModel):
     change_summary: str = Field(min_length=1, max_length=1000)
 
@@ -44,18 +53,23 @@ class DefinitionLinkRequest(BaseModel):
 def design_materials(conn: Conn, user: CurrentUser,
                      q: str = Query("", max_length=256), file_type_code: str = "",
                      revision_status: str = Query("", pattern="^(|WORKING|IN_REVIEW|RELEASED|SUPERSEDED|CANCELLED)$"),
-                     current_only: bool = False, page: int = Query(1, ge=1),
+                     current_only: bool = False,
+                     attachment_role: str = Query("", pattern="^(|PRIMARY_NATIVE|RELEASED_PDF|DERIVED_STEP|DERIVED_DXF|REFERENCE)$"),
+                     page: int = Query(1, ge=1),
                      page_size: int = Query(50, ge=1, le=200)):
-    return file_svc.design_materials(conn, q, file_type_code, revision_status, current_only, page, page_size)
+    return file_svc.design_materials(conn, q, file_type_code, revision_status, current_only, page, page_size,
+                                     attachment_role)
 
 
 # ---------------- 文件 ----------------
 @router.get("/files")
 def list_files(conn: Conn, user: CurrentUser,
                file_type_code: str | None = None, q: str | None = None,
+               status: str = Query("", pattern="^(|ACTIVE|OBSOLETE)$"),
+               stage: str = Query("", pattern="^(|RELEASED|OPEN|NONE)$"),
                page: int | None = Query(None, ge=1), page_size: int = Query(100, ge=20, le=200)):
     if page is not None:
-        return file_svc.page_files(conn, file_type_code, q, page, page_size)
+        return file_svc.page_files(conn, file_type_code, q, page, page_size, status, stage)
     return file_svc.list_files(conn, file_type_code, q)
 
 
@@ -74,6 +88,58 @@ def get_file(file_number: str, conn: Conn, user: CurrentUser):
         raise errors.not_found(f"设计文件不存在: {file_number}")
     df["revisions"] = file_svc.list_revisions(conn, str(df["id"]))
     return df
+
+
+@router.patch("/files/{file_number}")
+def update_file(file_number: str, payload: FileUpdateRequest, conn: Conn,
+                actor: dict = Depends(require(Perm.DRAFT_WRITE))):
+    try:
+        return file_svc.update_file(conn, file_number, title_cn=payload.title_cn,
+                                    title_en=payload.title_en, actor=actor)
+    except LookupError as e:
+        raise errors.not_found(str(e))
+    except ValueError as e:
+        raise errors.bad_request(str(e))
+
+
+@router.post("/files/{file_number}/obsolete")
+def obsolete_file(file_number: str, payload: ReasonRequest, conn: Conn,
+                  actor: dict = Depends(require(Perm.BASELINE_RELEASE))):
+    """作废文件(构型管理员)。已发布版次与已冻结基线不受影响。"""
+    try:
+        return file_svc.set_file_status(conn, file_number, "OBSOLETE", payload.reason, actor)
+    except LookupError as e:
+        raise errors.not_found(str(e))
+    except ValueError as e:
+        raise errors.bad_request(str(e))
+
+
+@router.post("/files/{file_number}/reactivate")
+def reactivate_file(file_number: str, payload: ReasonRequest, conn: Conn,
+                    actor: dict = Depends(require(Perm.BASELINE_RELEASE))):
+    try:
+        return file_svc.set_file_status(conn, file_number, "ACTIVE", payload.reason, actor)
+    except LookupError as e:
+        raise errors.not_found(str(e))
+    except ValueError as e:
+        raise errors.bad_request(str(e))
+
+
+@router.get("/files/{file_number}/where-used")
+def file_where_used(file_number: str, conn: Conn, user: CurrentUser):
+    try:
+        return file_svc.file_where_used(conn, file_number)
+    except LookupError as e:
+        raise errors.not_found(str(e))
+
+
+@router.get("/files/{file_number}/compare")
+def compare_revisions(file_number: str, conn: Conn, user: CurrentUser,
+                      a: str = Query(...), b: str = Query(...)):
+    try:
+        return file_svc.compare_revisions(conn, file_number, a, b)
+    except LookupError as e:
+        raise errors.not_found(str(e))
 
 
 # ---------------- 版次 ----------------
@@ -211,6 +277,21 @@ def link_definition(payload: DefinitionLinkRequest, conn: Conn,
             payload.relation_type, payload.applicability_note, actor)
     except LookupError as e:
         raise errors.not_found(str(e))
+    except ValueError as e:
+        raise errors.conflict(str(e))
+
+
+@router.delete("/definitions/{link_id}")
+def unlink_definition(link_id: str, conn: Conn,
+                      reason: str = Query(..., min_length=1, max_length=256),
+                      actor: dict = Depends(require(Perm.DRAFT_WRITE))):
+    try:
+        file_svc.unlink_definition(conn, link_id, reason, actor)
+    except LookupError as e:
+        raise errors.not_found(str(e))
+    except ValueError as e:
+        raise errors.bad_request(str(e), rule="INV-022" if "INV-022" in str(e) else None)
+    return {"message": "关联已解除"}
 
 
 @router.get("/definitions/{object_code}")

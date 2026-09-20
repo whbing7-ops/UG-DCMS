@@ -14,6 +14,7 @@ import { diagnostics, auditPage, backupPage } from "./extras.js";
 
 import { draftEditor } from './drafts.js';
 import { designMaterials } from './design-materials.js';
+import { files, fileDetail, releasedLibrary } from './file-mgmt.js';
 
 const root = document.getElementById("root");
 let ctx = null;
@@ -27,7 +28,8 @@ const ROUTES = [
   ["/families",            V2.families],
   ["/family-new",          V2.familyNew],
   ["/design-materials", designMaterials],
-  ["/files",               V3.files],
+  ["/files",               files],
+  ["/library",             releasedLibrary],
   ["/quality",             V4.quality],
   ["/reports",             V4.reports],
   ["/approvals",           V5.approvals],
@@ -44,7 +46,7 @@ const ROUTES = [
   ["/dash-new/:id",        V2.dashNew],
   ["/bom/:code",           V3.bom],
   ["/where-used/:code",    V3.whereUsed],
-  ["/file/:num",           V3.fileDetail],
+  ["/file/:num",           fileDetail],
   ["/revision/:id",        V3.revisionDetail],
   ["/baselines/:pn",       V4.baselines],
   ["/baseline/:id",        V4.baselineDetail],
@@ -56,7 +58,7 @@ const ROUTES = [
 
 const NAV = [
   { group: "设计数据", items: [
-    ["#/", "概览", "⌂"], ["#/search", "查找", "⌕"], ["#/bom", "BOM 管理", "≡"], ["#/families", "设计族", "◫"], ["#/files", "设计文件", "▤"],
+    ["#/", "概览", "⌂"], ["#/search", "查找", "⌕"], ["#/library", "发布资料库", "⇩"], ["#/bom", "BOM 管理", "≡"], ["#/families", "设计族", "◫"], ["#/files", "设计文件", "▤"],
     ["#/design-materials", "设计资料清单", "▧"],
     ["#/external-parts", "外部件", "◇"], ["#/software", "软件对象", "⬡"],
   ]},
@@ -67,7 +69,8 @@ const NAV = [
     ["#/quality", "数据质量", "◉"], ["#/reports", "统计", "▥"],
   ]},
   { group: "系统", items: [
-    ["#/system-check", "系统自检", "⌁"], ["#/dictionary", "受控字典", "▦"], ["#/audit", "审计记录", "◷"], ["#/backup", "备份恢复", "↻"], ["#/admin", "系统管理", "⚙"],
+    ["#/system-check", "系统自检", "⌁"], ["#/dictionary", "受控字典", "▦"], ["#/audit", "审计记录", "◷", "read_audit"],
+    ["#/backup", "备份恢复", "↻", "system_setting"], ["#/admin", "系统管理", "⚙", "user_manage"],
   ]},
 ];
 
@@ -165,7 +168,8 @@ function shell(content) {
   const path = (location.hash.slice(1).split("?")[0]) || "/";
   const rail = el("aside", { class: "rail" },
     el("div", { class: "brand" }, "UG-DCMS", el("small", {}, "设计构型管理 · rc2.44")),
-    el("nav", { class: "nav" }, NAV.map(g => [
+    /* 入口按权限显示: 没有权限的入口点进去只会得到"无操作权限", 不如不出现 */
+    el("nav", { class: "nav" }, NAV.map(g => ({ ...g, items: g.items.filter(i => !i[3] || ctx.can(i[3])) })).filter(g => g.items.length).map(g => [
       el("h4", {}, g.group),
       g.items.map(([href, label, icon]) =>
         el("a", { href, class: (href.slice(1) === path || (href === "#/bom" && path.startsWith("/bom/"))) ? "on" : null },
@@ -193,7 +197,7 @@ async function render() {
   if (ctx.user.must_change_password) return changePasswordView();
 
   const [path, qs] = hash.split("?");
-  const required = { "/admin": "user_manage", "/audit": "read_audit", "/family-new": "draft_write" }[path];
+  const required = { "/admin": "user_manage", "/audit": "read_audit", "/backup": "system_setting", "/family-new": "draft_write" }[path];
   if (required && !ctx.can(required)) return shell(el("div", {}, el("h1", {}, "无操作权限"), el("p", {}, "请联系系统管理员分配所需角色。")));
   const m = match(path || "/");
   if (!m) return shell(el("div", {},

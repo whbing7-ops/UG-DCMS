@@ -76,19 +76,156 @@ def list_files(conn: psycopg.Connection, file_type_code: str | None = None,
 
 
 def page_files(conn: psycopg.Connection, file_type_code: str | None, q: str | None,
-               page: int, page_size: int) -> dict:
+               page: int, page_size: int, status: str = "", stage: str = "") -> dict:
+    """文件列表。status: ACTIVE/OBSOLETE; stage: RELEASED(有发布版次) / OPEN(有编制或审核中版次) / NONE(尚无发布版次)。"""
     like = f"%{q}%" if q else None
-    args = (file_type_code, file_type_code, q, like, like)
+    args = (file_type_code, file_type_code, q, like, like, status, status, stage, stage, stage, stage)
     where = """WHERE (%s::text IS NULL OR df.file_type_code=%s)
-      AND (%s::text IS NULL OR df.file_number ILIKE %s OR df.title_cn ILIKE %s)"""
+      AND (%s::text IS NULL OR df.file_number ILIKE %s OR df.title_cn ILIKE %s)
+      AND (%s='' OR df.status=%s)
+      AND (%s='' OR (%s='RELEASED' AND df.current_released_revision_id IS NOT NULL)
+                 OR (%s='NONE' AND df.current_released_revision_id IS NULL)
+                 OR (%s='OPEN' AND EXISTS (SELECT 1 FROM file_revision o WHERE o.design_file_id=df.id
+                                            AND o.status IN ('WORKING','IN_REVIEW'))))"""
     total = scalar(conn, f"SELECT count(*) FROM design_file df {where}", args) or 0
     items = fetch_all(conn, f"""SELECT df.id,df.file_number,df.file_type_code,df.title_cn,df.status,
-      fr.revision_number AS current_released_revision,
+      fr.revision_number AS current_released_revision, fr.released_at,
+      (SELECT o.revision_number||':'||o.status FROM file_revision o WHERE o.design_file_id=df.id
+          AND o.status IN ('WORKING','IN_REVIEW') LIMIT 1) AS open_revision,
       (SELECT count(*) FROM file_revision x WHERE x.design_file_id=df.id) AS revision_count
       FROM design_file df LEFT JOIN file_revision fr ON fr.id=df.current_released_revision_id
       {where} ORDER BY df.file_number LIMIT %s OFFSET %s""",
       args + (page_size, (page - 1) * page_size))
     return {"items": items, "total": total, "page": page, "page_size": page_size}
+
+
+def update_file(conn: psycopg.Connection, file_number: str, *, title_cn: str,
+                title_en: str | None, actor: dict) -> dict:
+    """修改文件名称。文件号与类型是身份的一部分, 不可改。"""
+    old = get_file(conn, file_number)
+    if old is None:
+        raise LookupError(f"设计文件不存在: {file_number}")
+    if old["status"] != "ACTIVE":
+        raise ValueError("已作废的文件不可修改名称, 请先恢复")
+    row = fetch_one(conn, """
+        UPDATE design_file SET title_cn=%s, title_en=%s, updated_by=%s
+         WHERE id=%s RETURNING id, file_number, title_cn, title_en, status
+    """, (title_cn, title_en, actor["user_id"], old["id"]))
+    audit.write(conn, action="FILE_UPDATE", user_id=str(actor["user_id"]),
+                username=actor["username"], object_type="DESIGN_FILE",
+                object_id=str(old["id"]), object_code=file_number,
+                old_value={"title_cn": old["title_cn"], "title_en": old["title_en"]},
+                new_value={"title_cn": title_cn, "title_en": title_en},
+                session_id=str(actor.get("session_id")), client_ip=actor.get("client_ip"))
+    return row
+
+
+def set_file_status(conn: psycopg.Connection, file_number: str, target: str,
+                    reason: str, actor: dict) -> dict:
+    """作废或恢复设计文件。
+
+    作废只是不再允许出新版次, 已发布版次和已冻结基线不受影响(INV-014 同一思路)。
+    仍是 Released 对象有效主设计定义的文件不得作废(INV-022), 否则该对象的
+    下一次基线发布会被数据库拦下, 而错误要到那时才暴露。
+    """
+    if target not in ("ACTIVE", "OBSOLETE"):
+        raise ValueError("目标状态无效")
+    df = get_file(conn, file_number)
+    if df is None:
+        raise LookupError(f"设计文件不存在: {file_number}")
+    if df["status"] == target:
+        raise ValueError("文件已经是该状态")
+    if target == "OBSOLETE":
+        open_rev = fetch_one(conn, """SELECT revision_number, status FROM file_revision
+            WHERE design_file_id=%s AND status IN ('WORKING','IN_REVIEW')""", (df["id"],))
+        if open_rev:
+            raise ValueError(f"存在未完成版次 Rev.{open_rev['revision_number']}"
+                             f"({open_rev['status']}), 请先发布或取消")
+        blocking = fetch_all(conn, """
+            SELECT d.object_code FROM design_definition_link dl
+              JOIN design_object d ON d.id=dl.design_object_id
+             WHERE dl.design_file_id=%s AND dl.is_active
+               AND dl.relation_type='PRIMARY_DEFINITION' AND d.lifecycle_status='RELEASED'
+             ORDER BY d.object_code LIMIT 5""", (df["id"],))
+        if blocking:
+            raise ValueError("仍是已发布对象的主设计定义: "
+                             + "、".join(b["object_code"] for b in blocking)
+                             + "。请先为这些对象指定新的主设计定义")
+    row = fetch_one(conn, "UPDATE design_file SET status=%s, updated_by=%s WHERE id=%s "
+                          "RETURNING id, file_number, status", (target, actor["user_id"], df["id"]))
+    audit.write(conn, action="FILE_OBSOLETE" if target == "OBSOLETE" else "FILE_REACTIVATE",
+                user_id=str(actor["user_id"]), username=actor["username"],
+                object_type="DESIGN_FILE", object_id=str(df["id"]), object_code=file_number,
+                old_value={"status": df["status"]}, new_value={"status": target},
+                reason=reason, session_id=str(actor.get("session_id")),
+                client_ip=actor.get("client_ip"))
+    return row
+
+
+def file_where_used(conn: psycopg.Connection, file_number: str) -> dict:
+    """文件被谁引用: 设计定义关系(逻辑关系) + 基线项(锁定到具体版次的硬引用)。"""
+    df = get_file(conn, file_number)
+    if df is None:
+        raise LookupError(f"设计文件不存在: {file_number}")
+    objects = fetch_all(conn, """
+        SELECT dl.id AS link_id, dl.relation_type, dl.applicability_note, dl.is_active,
+               d.object_code, d.display_name, d.object_type, d.lifecycle_status
+          FROM design_definition_link dl JOIN design_object d ON d.id=dl.design_object_id
+         WHERE dl.design_file_id=%s
+         ORDER BY dl.is_active DESC, dl.relation_type, d.object_code LIMIT 500
+    """, (df["id"],))
+    baselines = fetch_all(conn, """
+        SELECT pn.full_part_number, pn.formal_name_cn, b.baseline_code, b.status AS baseline_status,
+               b.is_current, fr.revision_number, bi.item_role
+          FROM baseline_item bi
+          JOIN file_revision fr ON fr.id=bi.file_revision_id
+          JOIN design_baseline b ON b.id=bi.design_baseline_id
+          JOIN part_number pn ON pn.id=b.part_number_id
+         WHERE fr.design_file_id=%s
+         ORDER BY b.is_current DESC, pn.full_part_number, b.baseline_sequence DESC LIMIT 500
+    """, (df["id"],))
+    return {"file_number": file_number, "objects": objects, "baselines": baselines}
+
+
+_UNIQUE_ROLES = {"PRIMARY_NATIVE", "RELEASED_PDF"}
+
+
+def compare_revisions(conn: psycopg.Connection, file_number: str, rev_a: str, rev_b: str) -> dict:
+    """比较同一文件两个版次的附件差异(按 SHA-256 判定内容是否变化)。"""
+    df = get_file(conn, file_number)
+    if df is None:
+        raise LookupError(f"设计文件不存在: {file_number}")
+    revs = {}
+    for rid in (rev_a, rev_b):
+        r = fetch_one(conn, """SELECT id, revision_number, status, change_summary, released_at
+            FROM file_revision WHERE id=%s AND design_file_id=%s""", (rid, df["id"]))
+        if r is None:
+            raise LookupError("版次不存在或不属于该文件")
+        r["attachments"] = attachments(conn, rid)
+        revs[rid] = r
+
+    def key(a):
+        if a["attachment_role"] in _UNIQUE_ROLES:
+            return (a["attachment_role"], "")
+        return (a["attachment_role"], a["filename"])
+
+    ma = {key(a): a for a in revs[rev_a]["attachments"]}
+    mb = {key(a): a for a in revs[rev_b]["attachments"]}
+
+    def brief(x):
+        return None if x is None else {"filename": x["filename"], "size_bytes": x["size_bytes"],
+                                       "sha256": x["sha256"]}
+    rows = []
+    for k in sorted(set(ma) | set(mb)):
+        a, b = ma.get(k), mb.get(k)
+        state = ("ADDED" if a is None else "REMOVED" if b is None
+                 else "SAME" if a["sha256"] == b["sha256"] else "CHANGED")
+        rows.append({"role": k[0], "state": state, "a": brief(a), "b": brief(b)})
+
+    def head(r):
+        return {c: r[c] for c in ("id", "revision_number", "status", "change_summary", "released_at")}
+    return {"a": head(revs[rev_a]), "b": head(revs[rev_b]), "rows": rows,
+            "changed": sum(1 for r in rows if r["state"] != "SAME")}
 
 
 # ---------------------------------------------------------------------
@@ -487,8 +624,14 @@ def link_definition(conn: psycopg.Connection, object_code: str, file_number: str
         INSERT INTO design_definition_link
             (design_object_id, design_file_id, relation_type, applicability_note, created_by)
         VALUES (%s,%s,%s,%s,%s)
+        ON CONFLICT (design_object_id, design_file_id, relation_type) DO UPDATE
+           SET is_active=true, deactivated_at=NULL, deactivated_by=NULL,
+               applicability_note=EXCLUDED.applicability_note
+         WHERE design_definition_link.is_active = false
         RETURNING id, relation_type, is_active
     """, (obj["id"], df["id"], relation_type, note, actor["user_id"]))
+    if row is None:
+        raise ValueError("该关联已存在")
     audit.write(conn, action="DEFINITION_LINK", user_id=str(actor["user_id"]),
                 username=actor["username"], object_type="DESIGN_DEFINITION_LINK",
                 object_id=str(row["id"]), object_code=object_code,
@@ -511,18 +654,21 @@ def definitions_of(conn: psycopg.Connection, object_code: str) -> list[dict]:
     """, (object_code,))
 
 
-def design_materials(conn, q, file_type_code, revision_status, current_only, page, page_size):
+def design_materials(conn, q, file_type_code, revision_status, current_only, page, page_size,
+                     attachment_role=''):
     # One row per registered design attachment; software packages are separate objects.
     q=q.strip()
     like='%'+q.replace('\\','\\\\').replace('%','\\%').replace('_','\\_')+'%'
-    args=(q,like,like,like,like,file_type_code,file_type_code,revision_status,revision_status,current_only)
+    args=(q,like,like,like,like,file_type_code,file_type_code,revision_status,revision_status,
+          attachment_role,attachment_role,current_only)
     source="""FROM revision_attachment a
       JOIN file_revision fr ON fr.id=a.file_revision_id
       JOIN design_file df ON df.id=fr.design_file_id
       JOIN file_type ft ON ft.code=df.file_type_code
       WHERE (%s='' OR a.filename ILIKE %s OR df.file_number ILIKE %s OR df.title_cn ILIKE %s OR df.title_en ILIKE %s)
         AND (%s='' OR df.file_type_code=%s) AND (%s='' OR fr.status=%s)
-        AND (NOT %s OR (df.current_released_revision_id=fr.id AND fr.status='RELEASED'))"""
+        AND (%s='' OR a.attachment_role=%s)
+        AND (NOT %s OR (df.current_released_revision_id=fr.id AND fr.status='RELEASED' AND df.status='ACTIVE'))"""
     total=scalar(conn,'SELECT count(*) '+source,args)
     rows=fetch_all(conn,"""SELECT a.id,a.filename,a.attachment_role,a.size_bytes,a.uploaded_at,
       fr.id AS revision_id,fr.revision_number,fr.status AS revision_status,
@@ -530,3 +676,28 @@ def design_materials(conn, q, file_type_code, revision_status, current_only, pag
       COALESCE(df.current_released_revision_id=fr.id AND fr.status='RELEASED',false) AS is_current
       """+source+' ORDER BY a.uploaded_at DESC,a.id LIMIT %s OFFSET %s',args+(page_size,(page-1)*page_size))
     return {'items':rows,'total':total,'page':page,'page_size':page_size}
+
+
+def unlink_definition(conn: psycopg.Connection, link_id: str, reason: str, actor: dict) -> None:
+    """解除设计定义关系(软停用, 保留历史)。Released 对象的主设计定义不得直接解除(INV-022)。"""
+    row = fetch_one(conn, """
+        SELECT dl.id, dl.relation_type, dl.is_active, d.object_code, d.lifecycle_status, df.file_number
+          FROM design_definition_link dl
+          JOIN design_object d ON d.id=dl.design_object_id
+          JOIN design_file df ON df.id=dl.design_file_id
+         WHERE dl.id=%s""", (link_id,))
+    if row is None:
+        raise LookupError("关联不存在")
+    if not row["is_active"]:
+        raise ValueError("该关联已解除")
+    if row["relation_type"] == "PRIMARY_DEFINITION" and row["lifecycle_status"] == "RELEASED":
+        raise ValueError(f"{row['object_code']} 已发布, 其主设计定义不得直接解除; "
+                         "请先关联新的主设计定义并走变更流程 (INV-022)")
+    execute(conn, """UPDATE design_definition_link SET is_active=false, deactivated_at=now(),
+                     deactivated_by=%s WHERE id=%s""", (actor["user_id"], link_id))
+    audit.write(conn, action="DEFINITION_UNLINK", user_id=str(actor["user_id"]),
+                username=actor["username"], object_type="DESIGN_DEFINITION_LINK",
+                object_id=link_id, object_code=row["object_code"],
+                old_value={"file_number": row["file_number"], "relation_type": row["relation_type"]},
+                reason=reason, session_id=str(actor.get("session_id")),
+                client_ip=actor.get("client_ip"))
