@@ -1,97 +1,29 @@
 """生产/采购角色与访问范围、版次 ZIP 下载集成测试(真实 HTTP + PostgreSQL)。
 
-用法: python ci/test-consumer-roles.py <base_url> <password> [<top_part_number>]
-给出顶层件号(需装载 SIM-IMA-V1 演示数据)时，额外检查件号资料包对生产/采购的过滤。
+用法: DCMS_BASE_URL=http://127.0.0.1:8080 PYTHONPATH=src/backend python ci/test-consumer-roles.py <credentials.json>
+
 """
-import atexit
 import hashlib
 import io
-import json
-import sys
-import time
-import urllib.error
-import urllib.parse
-import urllib.request
 import uuid
 import zipfile
+import os
+import sys
 
-BASE = sys.argv[1].rstrip('/') + '/api/v1'
-PASSWORD = sys.argv[2]
-TOP = sys.argv[3] if len(sys.argv) > 3 else None
-NEW_PASSWORD = 'Consumer-Pass-2026!q'
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from dcms_http import (Client, FINAL_PASSWORD, STAMP, check, db_execute,  # noqa: E402,F401
+                       login_admin, make_user, top_part_number)
 
-
-_clients = []
-
-
-@atexit.register
-def _logout_all():
-    # 并发会话数受许可限制: 测试结束(含失败)时释放自己占用的会话, 以免影响后续用例
-    for c in _clients:
-        try:
-            c.call('POST', '/auth/logout')
-        except Exception:
-            pass
+TOP = top_part_number()
 
 
-class Client:
-    def __init__(self, username, password=PASSWORD):
-        r = self.call('POST', '/auth/login', {'username': username, 'password': password}, auth=False)
-        self.token = r['access_token']
-        self.id = self.call('GET', '/auth/me')['id']
-        _clients.append(self)
-
-    def call(self, method, path, body=None, auth=True, expect=None, raw=False):
-        headers = {'Content-Type': 'application/json'} if body is not None else {}
-        if auth:
-            headers['Authorization'] = 'Bearer ' + self.token
-        req = urllib.request.Request(BASE + urllib.parse.quote(path, safe='/?=&:%,.'), method=method, headers=headers,
-                                     data=json.dumps(body).encode() if body is not None else None)
-        try:
-            with urllib.request.urlopen(req, timeout=60) as res:
-                data, status = res.read(), res.status
-        except urllib.error.HTTPError as e:
-            data, status = e.read(), e.code
-        if expect is not None and status != expect:
-            raise AssertionError(f'{method} {path}: expected {expect}, got {status}: {data[:300]!r}')
-        if raw:
-            return status, data
-        return json.loads(data) if data else None
-
-    def upload(self, path, filename, content, role):
-        boundary = uuid.uuid4().hex
-        body = b''.join([f'--{boundary}\r\nContent-Disposition: form-data; name="role"\r\n\r\n{role}\r\n'.encode(),
-                         (f'--{boundary}\r\nContent-Disposition: form-data; name="file"; filename="{filename}"\r\n'
-                          'Content-Type: application/octet-stream\r\n\r\n').encode(), content,
-                         f'\r\n--{boundary}--\r\n'.encode()])
-        req = urllib.request.Request(BASE + path, method='POST', data=body, headers={
-            'Authorization': 'Bearer ' + self.token, 'Content-Type': 'multipart/form-data; boundary=' + boundary})
-        with urllib.request.urlopen(req, timeout=60) as res:
-            return json.loads(res.read())
+admin = login_admin()
+approver = make_user(admin, 'APPROVER')
+auditor = make_user(admin, 'VIEWER')          # VIEWER: 行为必须保持不变
+stamp = STAMP
 
 
-def check(cond, msg):
-    if not cond:
-        raise AssertionError(msg)
-    print('ok  ', msg)
-
-
-admin = Client('admin')
-approver = Client('demo_approver1')
-auditor = Client('demo_auditor')          # VIEWER: 行为必须保持不变
-stamp = str(time.time_ns())[-9:]
-
-
-def make_user(role):
-    name = f'{role.lower()}{stamp}'
-    admin.call('POST', '/admin/users', {'username': name, 'full_name': f'【测试】{role}', 'password': PASSWORD,
-                                        'roles': [role]}, expect=201)
-    tmp = Client(name)
-    tmp.call('POST', '/auth/password', {'old_password': PASSWORD, 'new_password': NEW_PASSWORD}, expect=200)
-    return Client(name, NEW_PASSWORD)
-
-
-production, procurement = make_user('PRODUCTION'), make_user('PROCUREMENT')
+production, procurement = make_user(admin, 'PRODUCTION'), make_user(admin, 'PROCUREMENT')
 check('download_native' not in production.call('GET', '/auth/me')['permissions'], '生产角色不含原生文件下载权限')
 check('read_unreleased' not in procurement.call('GET', '/auth/me')['permissions'], '采购角色不含未发布内容权限')
 check('read' in production.call('GET', '/auth/me')['permissions'], '生产角色可读')

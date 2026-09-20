@@ -1,44 +1,18 @@
 """基线发布前就绪检查集成测试(真实 HTTP + PostgreSQL, 需已装载 SIM-IMA-V1 演示数据)。
 
-用法: python ci/test-baseline-readiness.py <base_url> <password> <top_part_number>
+用法: DCMS_BASE_URL=http://127.0.0.1:8080 PYTHONPATH=src/backend python ci/test-baseline-readiness.py <credentials.json>
 """
-import json
+import os
 import sys
-import urllib.error
-import urllib.parse
-import urllib.request
 
-BASE = sys.argv[1].rstrip('/') + '/api/v1'
-PASSWORD, TOP = sys.argv[2], sys.argv[3]
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from dcms_http import (Client, FINAL_PASSWORD, STAMP, check, db_execute,  # noqa: E402,F401
+                       login_admin, make_user, top_part_number)
 
-
-class Client:
-    def __init__(self, username):
-        self.token = self.call('POST', '/auth/login', {'username': username, 'password': PASSWORD}, auth=False)['access_token']
-
-    def call(self, method, path, body=None, auth=True, expect=None):
-        headers = {'Content-Type': 'application/json'} if body is not None else {}
-        if auth:
-            headers['Authorization'] = 'Bearer ' + self.token
-        req = urllib.request.Request(BASE + urllib.parse.quote(path, safe='/?=&:%,'), method=method, headers=headers,
-                                     data=json.dumps(body).encode() if body is not None else None)
-        try:
-            with urllib.request.urlopen(req, timeout=60) as res:
-                data, status = res.read(), res.status
-        except urllib.error.HTTPError as e:
-            data, status = e.read(), e.code
-        if expect is not None and status != expect:
-            raise AssertionError(f'{method} {path}: expected {expect}, got {status}: {data[:300]!r}')
-        return json.loads(data) if data else None
+TOP = top_part_number()
 
 
-def check(cond, msg):
-    if not cond:
-        raise AssertionError(msg)
-    print('ok  ', msg)
-
-
-eng = Client('admin')
+eng = login_admin()
 bl = eng.call('POST', f'/parts/{TOP}/baselines', dict(
     reason='【测试】就绪检查', scope_note='测试范围', project_code='SIM-IMA-V1', copy_from_current=True), expect=201)
 bid = bl['id']

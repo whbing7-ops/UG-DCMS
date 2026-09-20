@@ -63,10 +63,18 @@
 
 ## 5. 验证
 
-- `ci/test-file-lifecycle.py`：19 项真实 HTTP + PostgreSQL 集成断言（改名、对比、反查、解除/重新关联、资料库过滤、作废/恢复及各拒绝分支、只读账号 403）。
-- `ci/test-baseline-readiness.py`（10 项）、`ci/test-file-impact.py`（10 项）、`ci/test-part-package.py`（11 项）：需先装载 SIM-IMA-V1 演示数据，参数为 `<base_url> <password> <顶层件号>`。
-- `ci/test-approval-overdue.py`（12 项）：参数为 `<base_url> <password> <postgres_dsn>`，直连库把申请时间调早以验证 3 天边界（2 天 23 小时不超期，3 天 1 分钟超期）。
-- `ci/test-consumer-roles.py`（39 项）：参数为 `<base_url> <password> [<顶层件号>]`；创建生产、采购账号，验证原生文件/草稿不可见、越权接口 403、原有 VIEWER 行为不变、ZIP 内容与校验和。测试结束自动登出，避免占满并发会话许可。
-- 以上后五个脚本尚未接入 CI 工作流。
-- 在独立临时库（含 0001–0025 全部迁移）上实跑通过；浏览器核对了文件列表、详情、版次对比、发布资料库，以及只读账号的菜单。
-- 未跑：仓库原有的完整回归（ui-live-regression 等）、Windows 构建；这些需在 CI 上执行。
+六个集成测试（真实 HTTP + PostgreSQL），共用 `ci/dcms_http.py`，已接入 `windows-installer-ci-v5.yml` 的集成作业（在 `test-ima-demo.py` 装载演示数据之后运行）：
+
+| 脚本 | 断言数 | 覆盖 |
+|---|---|---|
+| `test-file-lifecycle.py` | 19 | 改名、版次对比、反查、解除/重新关联、资料库过滤、作废/恢复及拒绝分支、只读 403 |
+| `test-baseline-readiness.py` | 10 | 就绪清单字段、与 errors/warnings 兼容、与当前基线相同的警告、缺主设计定义的阻止项 |
+| `test-file-impact.py` | 9 | 影响分析、发布新版次后当前基线被标为落后（INV-014） |
+| `test-part-package.py` | 11 | 件号资料包、有更新版次标记、CSV（UTF-8 BOM）、下载 |
+| `test-approval-overdue.py` | 12 | 3 天边界（2 天 23 小时不超期，3 天 1 分钟超期）、申请人/审批人视角 |
+| `test-consumer-roles.py` | 39 | 生产/采购看不到原生文件和草稿、越权接口 403、原有 VIEWER 行为不变、ZIP 内容与校验和 |
+
+本地运行：`DCMS_BASE_URL=... PYTHONPATH=src/backend DCMS_PG_*=... python ci/test-xxx.py <credentials.json>`；`credentials.json` 至少含 `admin_username`、`admin_password`。测试自己创建所需的审批人、只读、生产、采购账号，结束时自动登出以免占满并发会话许可。
+
+已在独立临时库（含 0001–0026 全部迁移与 SIM-IMA-V1 演示数据）上全部通过，并在浏览器核对了各新页面。`verify_installer_source.py` 已更新为 26 个迁移并通过。
+未在本地跑：仓库原有的完整回归（ui-live-regression、full-functional-smoke 等）与 Windows 安装包构建，由 CI 执行。

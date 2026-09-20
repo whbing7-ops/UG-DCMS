@@ -1,68 +1,25 @@
 """审批超期提醒集成测试(真实 HTTP + PostgreSQL)。超期阈值 3 天。
 
-用法: python ci/test-approval-overdue.py <base_url> <password> <postgres_dsn>
+用法: DCMS_BASE_URL=http://127.0.0.1:8080 PYTHONPATH=src/backend python ci/test-approval-overdue.py <credentials.json>
 需要直接连库把申请时间调早, 因为 HTTP 接口无法改写 requested_at。
 """
-import json
-import sys
 import time
-import urllib.error
-import urllib.parse
-import urllib.request
 import uuid
+import os
+import sys
 
-import psycopg
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from dcms_http import (Client, FINAL_PASSWORD, STAMP, check, db_execute,  # noqa: E402,F401
+                       login_admin, make_user, top_part_number)
 
-BASE = sys.argv[1].rstrip('/') + '/api/v1'
-PASSWORD, DSN = sys.argv[2], sys.argv[3]
-
-
-class Client:
-    def __init__(self, username):
-        r = self.call('POST', '/auth/login', {'username': username, 'password': PASSWORD}, auth=False)
-        self.token = r['access_token']
-        self.id = self.call('GET', '/auth/me')['id']
-
-    def call(self, method, path, body=None, auth=True, expect=None):
-        headers = {'Content-Type': 'application/json'} if body is not None else {}
-        if auth:
-            headers['Authorization'] = 'Bearer ' + self.token
-        req = urllib.request.Request(BASE + urllib.parse.quote(path, safe='/?=&:%,.'), method=method, headers=headers,
-                                     data=json.dumps(body).encode() if body is not None else None)
-        try:
-            with urllib.request.urlopen(req, timeout=60) as res:
-                data, status = res.read(), res.status
-        except urllib.error.HTTPError as e:
-            data, status = e.read(), e.code
-        if expect is not None and status != expect:
-            raise AssertionError(f'{method} {path}: expected {expect}, got {status}: {data[:300]!r}')
-        return json.loads(data) if data else None
-
-    def upload(self, path, filename, content, role):
-        boundary = uuid.uuid4().hex
-        body = b''.join([f'--{boundary}\r\nContent-Disposition: form-data; name="role"\r\n\r\n{role}\r\n'.encode(),
-                         (f'--{boundary}\r\nContent-Disposition: form-data; name="file"; filename="{filename}"\r\n'
-                          'Content-Type: application/octet-stream\r\n\r\n').encode(), content,
-                         f'\r\n--{boundary}--\r\n'.encode()])
-        req = urllib.request.Request(BASE + path, method='POST', data=body, headers={
-            'Authorization': 'Bearer ' + self.token, 'Content-Type': 'multipart/form-data; boundary=' + boundary})
-        with urllib.request.urlopen(req, timeout=60) as res:
-            return json.loads(res.read())
-
-
-def check(cond, msg):
-    if not cond:
-        raise AssertionError(msg)
-    print('ok  ', msg)
 
 
 def backdate(request_id, interval):
-    with psycopg.connect(DSN) as c:
-        c.execute("UPDATE approval_request SET requested_at = now() - %s::interval WHERE id = %s", (interval, request_id))
-        c.commit()
+    db_execute("UPDATE approval_request SET requested_at = now() - %s::interval WHERE id = %s", (interval, request_id))
 
 
-eng, approver = Client('admin'), Client('demo_approver1')
+eng = login_admin()
+approver = make_user(eng, 'APPROVER')
 num = 'OD-' + str(time.time_ns())[-10:]
 eng.call('POST', '/files', {'file_number': num, 'file_type_code': 'DWG', 'title_cn': '【测试】超期提醒'}, expect=201)
 rev = eng.call('POST', f'/files/{num}/revisions', {'change_summary': '超期测试'}, expect=201)

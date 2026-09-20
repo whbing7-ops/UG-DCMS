@@ -169,7 +169,7 @@ function changePasswordView() {
 function shell(content) {
   const path = (location.hash.slice(1).split("?")[0]) || "/";
   const rail = el("aside", { class: "rail" },
-    el("div", { class: "brand" }, "UG-DCMS", el("small", {}, "设计构型管理 · rc2.44")),
+    el("div", { class: "brand" }, "UG-DCMS", el("small", {}, "设计构型管理 · rc2.45")),
     /* 入口按权限显示: 没有权限的入口点进去只会得到"无操作权限", 不如不出现 */
     el("nav", { class: "nav" }, NAV.map(g => ({ ...g, items: g.items.filter(i => !i[3] || ctx.can(i[3])) })).filter(g => g.items.length).map(g => [
       el("h4", {}, g.group),

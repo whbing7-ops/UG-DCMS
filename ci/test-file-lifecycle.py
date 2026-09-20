@@ -1,65 +1,23 @@
 """设计文件生命周期集成测试(真实 HTTP + PostgreSQL): 修改名称、作废/恢复、对比版次、
 反查引用、解除关联、发布资料库过滤。只依赖标准库。
 
-用法: python ci/test-file-lifecycle.py <base_url> <password>
-账户: admin(工程师+审批+构型管理)、demo_approver1(审批)、demo_auditor(只读)。
+用法: DCMS_BASE_URL=http://127.0.0.1:8080 PYTHONPATH=src/backend python ci/test-file-lifecycle.py <credentials.json>
+账户: 管理员(工程师+构型管理)，另现造审批人(APPROVER)与只读(VIEWER)账号。
 """
-import json
-import sys
 import time
-import urllib.error
-import urllib.parse
-import urllib.request
 import uuid
+import os
+import sys
 
-BASE = sys.argv[1].rstrip('/') + '/api/v1'
-PASSWORD = sys.argv[2]
-
-
-class Client:
-    def __init__(self, username):
-        r = self.call('POST', '/auth/login', {'username': username, 'password': PASSWORD}, auth=False)
-        self.token = r['access_token']
-        self.id = self.call('GET', '/auth/me')['id']
-
-    def call(self, method, path, body=None, auth=True, expect=None, raw=False):
-        headers = {'Content-Type': 'application/json'} if body is not None else {}
-        if auth:
-            headers['Authorization'] = 'Bearer ' + self.token
-        req = urllib.request.Request(BASE + urllib.parse.quote(path, safe='/?=&:%,'), method=method, headers=headers,
-                                     data=json.dumps(body).encode() if body is not None else None)
-        try:
-            with urllib.request.urlopen(req, timeout=60) as res:
-                data = res.read()
-                status = res.status
-        except urllib.error.HTTPError as e:
-            data, status = e.read(), e.code
-        if expect is not None and status != expect:
-            raise AssertionError(f'{method} {path}: expected {expect}, got {status}: {data[:300]!r}')
-        if raw:
-            return status, data
-        return json.loads(data) if data else None
-
-    def upload(self, path, filename, content, role):
-        boundary = uuid.uuid4().hex
-        parts = [f'--{boundary}\r\nContent-Disposition: form-data; name="role"\r\n\r\n{role}\r\n'.encode(),
-                 (f'--{boundary}\r\nContent-Disposition: form-data; name="file"; filename="{filename}"\r\n'
-                  'Content-Type: application/octet-stream\r\n\r\n').encode(), content, f'\r\n--{boundary}--\r\n'.encode()]
-        req = urllib.request.Request(BASE + path, method='POST', data=b''.join(parts), headers={
-            'Authorization': 'Bearer ' + self.token, 'Content-Type': 'multipart/form-data; boundary=' + boundary})
-        with urllib.request.urlopen(req, timeout=60) as res:
-            return json.loads(res.read())
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from dcms_http import (Client, FINAL_PASSWORD, STAMP, check, db_execute,  # noqa: E402,F401
+                       login_admin, make_user, top_part_number)
 
 
-def check(cond, msg):
-    if not cond:
-        raise AssertionError(msg)
-    print('ok  ', msg)
 
-
-eng = Client('admin')
-approver = Client('demo_approver1')
-viewer = Client('demo_auditor')
+eng = login_admin()
+approver = make_user(eng, 'APPROVER')
+viewer = make_user(eng, 'VIEWER')
 num = 'LC-' + str(time.time_ns())[-10:]
 
 
