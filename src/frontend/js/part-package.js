@@ -59,13 +59,14 @@ export async function partPackage(ctx, params, pn) {
 }
 
 function changePanel(c) {
+  /* 行 = [样式, 类型文字, 对象, 说明]; 样式用 ASCII 标识, 避免非 ASCII 标识符(经 Windows 管道检查会被破坏) */
   const rows = [
-    ...c.changed.map(x => ["变更", x.subject, `${x.from} → ${x.to}`]),
-    ...c.added.map(x => ["新增", x, ""]), ...c.removed.map(x => ["移除", x, ""]),
+    ...c.changed.map(x => ["CHANGED", "变更", x.subject, `${x.from} → ${x.to}`]),
+    ...c.added.map(x => ["ADDED", "新增", x, ""]), ...c.removed.map(x => ["REMOVED", "移除", x, ""]),
   ];
   return panel(`相对上一基线 ${c.from_baseline} 的变化`, c.identical
     ? el("p", { class: "muted" }, "内容与上一基线一致。")
     : table([{ label: "类型" }, { label: "对象" }, { label: "说明" }], rows, r => [
-        el("td", {}, el("span", { class: "diff diff-" + ({ 变更: "CHANGED", 新增: "ADDED", 移除: "REMOVED" })[r[0]] }, r[0])),
-        el("td", { class: "mono" }, r[1]), el("td", { class: "mono" }, r[2])]));
+        el("td", {}, el("span", { class: "diff diff-" + r[0] }, r[1])),
+        el("td", { class: "mono" }, r[2]), el("td", { class: "mono" }, r[3])]));
 }

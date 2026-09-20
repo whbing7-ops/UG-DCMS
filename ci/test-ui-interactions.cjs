@@ -18,7 +18,7 @@ const assert = require('node:assert/strict');
  let users=[{id:'admin',username:'admin',full_name:'系统管理员',roles:['SYSTEM_ADMIN','DATA_ADMIN'],is_active:true,must_change_password:true}];
  const rules=[], contexts=[];
  let lines=[{id:'line1',item_number:'010',child_object_code:'UG-CHILD-001',child_name:'演示零件',quantity:1,unit_code:'EA',child_status:'ACTIVE'}];
- const perms=['user_manage','session_manage','draft_write','read_audit','dictionary_write','baseline_release','submit','approve'];
+ const perms=['user_manage','session_manage','draft_write','read_audit','dictionary_write','baseline_release','submit','approve','read_unreleased','download_native'];
  await page.route('**/api/v1/**',async route=>{
   const req=route.request(), url=new URL(req.url()), p=url.pathname.replace('/api/v1',''), method=req.method();
   const data=req.postData()?JSON.parse(req.postData()):{};

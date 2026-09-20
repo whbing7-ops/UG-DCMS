@@ -58,7 +58,7 @@ export async function files(ctx, params) {
       el("div", { class: "filter-actions" },
         el("button", { class: "btn primary", type: "submit" }, "查询"),
         link("重置", "#/files", "btn"))),
-    ctx.can("draft_write") ? el("details", { class: "panel fold" },
+    ctx.can("draft_write") ? el("details", { class: "panel fold", open: true },
       el("summary", {}, "新建设计文件"),
       el("div", { class: "body" }, el("div", { class: "inline-form" },
         field("文件号", numIn), field("文件类型", newType), field("名称", titleIn),

@@ -199,7 +199,7 @@ async function render() {
   if (ctx.user.must_change_password) return changePasswordView();
 
   const [path, qs] = hash.split("?");
-  const required = { "/admin": "user_manage", "/audit": "read_audit", "/backup": "system_setting", "/family-new": "draft_write" }[path];
+  const required = { "/admin": "user_manage", "/audit": "read_audit", "/family-new": "draft_write" }[path];
   if (required && !ctx.can(required)) return shell(el("div", {}, el("h1", {}, "无操作权限"), el("p", {}, "请联系系统管理员分配所需角色。")));
   const m = match(path || "/");
   if (!m) return shell(el("div", {},
