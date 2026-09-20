@@ -133,6 +133,15 @@ def file_where_used(file_number: str, conn: Conn, user: CurrentUser):
         raise errors.not_found(str(e))
 
 
+@router.get("/files/{file_number}/impact")
+def file_impact(file_number: str, conn: Conn, user: CurrentUser):
+    """变更影响分析: 关联对象、上层组件、落后于最新发布版次的当前基线。"""
+    try:
+        return file_svc.file_impact(conn, file_number)
+    except LookupError as e:
+        raise errors.not_found(str(e))
+
+
 @router.get("/files/{file_number}/compare")
 def compare_revisions(file_number: str, conn: Conn, user: CurrentUser,
                       a: str = Query(...), b: str = Query(...)):

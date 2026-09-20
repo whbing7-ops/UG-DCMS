@@ -134,6 +134,7 @@ export async function fileDetail(ctx, params, num) {
     acts,
     obsolete ? el("div", { class: "note warn" }, "该文件已作废，不再允许新增版次。历史版次与基线引用仍可查阅。") : null,
     currentPanel,
+    impactPanel(ctx, num),
     revisionTimeline(f, num),
     ctx.can("draft_write") || usage.objects.length || usage.baselines.length ? usagePanels(ctx, num, usage, obsolete) : null);
 }
@@ -148,6 +149,41 @@ async function currentRevisionPanel(rev) {
         el("b", {}, codeText(a.attachment_role)), el("span", {}, a.filename),
         el("small", {}, sizeText(a.size_bytes) + (a.integrity_status === "OK" ? " · 已校验" : ""))))) : empty("该版次无附件")),
     link("打开版次详情", "#/revision/" + rev.id, "btn small"));
+}
+
+/* 变更影响分析: 点开才查询(要逐级向上展开 BOM, 不必每次打开详情页都算) */
+function impactPanel(ctx, num) {
+  const box = el("div", { class: "body" }, el("p", { class: "muted" }, "点击“展开分析”，查看这份文件出新版次会波及哪些件号、上层组件和基线。"));
+  const btn = el("button", { class: "btn small", onclick: async () => {
+    btn.disabled = true; btn.textContent = "分析中…";
+    try {
+      const d = await api.get(`/files/${enc(num)}/impact`);
+      const s = d.summary;
+      const stat = (n, l, warn) => el("div", { class: "impact-stat" + (warn && n ? " is-warn" : "") }, el("b", {}, n), el("span", {}, l));
+      box.replaceChildren(
+        el("div", { class: "impact-stats" },
+          stat(s.objects, "关联的设计对象"), stat(s.upstream_parents, "受影响的上层组件"),
+          stat(s.baselines, "锁定它的基线"), stat(s.current_baselines_behind, "落后于最新版次的当前基线", true)),
+        el("div", { class: "note" }, d.note),
+        d.objects.length ? table([{ label: "设计对象", mono: 1 }, { label: "关系" }, { label: "状态" }, { label: "向上被这些组件使用" }],
+          d.objects, o => [
+            el("td", { class: "mono" }, link(o.object_code, "#/object/" + enc(o.object_code))),
+            el("td", {}, codeText(o.relation_type)), el("td", {}, status(o.lifecycle_status)),
+            el("td", {}, o.upstream.length
+              ? o.upstream.map(u => el("span", { class: "chip mono", title: `第 ${u.level} 级 · ${u.parent_name}` }, u.parent_object_code))
+              : el("span", { class: "muted" }, "无（顶层或未纳入 BOM）"))]) : el("p", { class: "muted" }, "尚未关联任何设计对象。"),
+        d.objects_truncated ? el("p", { class: "muted" }, "关联对象较多，仅展示前 30 个。") : null,
+        d.baselines.length ? table([{ label: "件号", mono: 1 }, { label: "基线", mono: 1 }, { label: "锁定版次", mono: 1 }, { label: "是否需要处理" }],
+          d.baselines, b => [
+            el("td", { class: "mono" }, link(b.full_part_number, "#/baselines/" + enc(b.full_part_number))),
+            el("td", { class: "mono" }, b.baseline_code + (b.is_current ? "（当前）" : "")),
+            el("td", { class: "mono" }, "Rev." + b.revision_number),
+            el("td", {}, b.behind ? el("span", { class: "diff diff-CHANGED" }, `落后于 Rev.${d.latest_released_revision}，需发布新基线才会采用`)
+              : el("span", { class: "muted" }, "—"))]) : null);
+      btn.remove();
+    } catch (e) { btn.disabled = false; btn.textContent = "展开分析"; toastError(e); }
+  } }, "展开分析");
+  return panel("变更影响分析", box, btn);
 }
 
 function revisionTimeline(f, num) {

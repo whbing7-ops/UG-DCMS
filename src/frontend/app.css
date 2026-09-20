@@ -353,3 +353,12 @@ div.muted.small { font-size:12px; }
 .lv-BLOCK .ready-ico { background:var(--st-error); }
 .lv-WARN .ready-ico { background:var(--st-warn); }
 .lv-PASS .ready-ico { background:var(--st-released); }
+
+/* ---- rc2.45: 变更影响分析 ---- */
+.impact-stats { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px; margin-bottom:12px; }
+.impact-stat { border:1px solid var(--rule-light); border-radius:8px; padding:10px 14px; background:var(--paper); }
+.impact-stat b { display:block; font-size:22px; font-family:var(--mono); }
+.impact-stat span { font-size:12px; color:var(--ink-3); }
+.impact-stat.is-warn { border-color:#efd9a6; background:#fdf6e8; }
+.impact-stat.is-warn b { color:var(--st-warn); }
+.chip { display:inline-block; margin:1px 4px 1px 0; padding:1px 8px; border-radius:10px; background:var(--accent-bg); font-size:12px; }

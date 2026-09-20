@@ -187,6 +187,44 @@ def file_where_used(conn: psycopg.Connection, file_number: str) -> dict:
     return {"file_number": file_number, "objects": objects, "baselines": baselines}
 
 
+def file_impact(conn: psycopg.Connection, file_number: str, max_objects: int = 30) -> dict:
+    """变更影响分析: 这份文件出新版次会波及谁。
+
+    在 where-used 的基础上补两层: 关联对象被哪些上层组件使用(工作 BOM, 逐级向上),
+    以及"当前基线锁定的是不是最新发布版次"。后者是 INV-014 的直接后果 —— 新版次发布
+    不会自动改变任何 P/N 的技术状态, 落后的基线必须显式发布新基线才会跟随, 这里把它们列出来。
+    """
+    from . import bom as bom_svc
+    usage = file_where_used(conn, file_number)
+    df = get_file(conn, file_number)
+    latest = df["current_released_revision"]
+
+    objects = []
+    active = [o for o in usage["objects"] if o["is_active"]]
+    for o in active[:max_objects]:
+        oid = scalar(conn, "SELECT id FROM design_object WHERE object_code=%s", (o["object_code"],))
+        up = bom_svc.where_used(conn, str(oid), include_snapshots=False)["working"] if oid else []
+        objects.append({**o, "upstream": [
+            {"parent_object_code": u["parent_object_code"], "parent_name": u["parent_name"],
+             "parent_status": u["parent_status"], "level": u["level"]} for u in up[:50]]})
+
+    baselines = []
+    for b in usage["baselines"]:
+        baselines.append({**b, "behind": bool(latest) and b["revision_number"] != latest
+                          and b["baseline_status"] == "RELEASED"})
+    behind_current = [b for b in baselines if b["is_current"] and b["behind"]]
+    parents = {u["parent_object_code"] for o in objects for u in o["upstream"]}
+    return {
+        "file_number": file_number, "latest_released_revision": latest,
+        "objects": objects, "objects_truncated": len(active) > max_objects,
+        "baselines": baselines,
+        "summary": {"objects": len(active), "upstream_parents": len(parents),
+                    "baselines": len(baselines), "current_baselines_behind": len(behind_current)},
+        "note": ("新版次发布不会自动改变任何件号的当前技术状态(INV-014)。"
+                 "落后的当前基线需要显式发布新基线才会采用新版次。"),
+    }
+
+
 _UNIQUE_ROLES = {"PRIMARY_NATIVE", "RELEASED_PDF"}
 
 
