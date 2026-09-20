@@ -16,7 +16,8 @@ export function editLine(line, rules) {
   editor('编辑 BOM 子项 · ' + line.child_object_code, el('div', {},
     el('div', { class: 'grid2' }, field('项号', item), field('数量', quantity), field('单位', unit), field('位号', reference)), field('适用性规则', rule)), async () => {
     if (!item.value.trim()) throw Error('项号不能为空');
-    const json = { item_number: item.value.trim(), quantity: Number(quantity.value), unit_code: unit.value,
+    // 单位为空时不传(后端把 null 视为保持原值); 传空字符串会违反 bom_line_unit_code 外键
+    const json = { item_number: item.value.trim(), quantity: Number(quantity.value), unit_code: unit.value.trim() || null,
       reference_designator: reference.value };
     if (rule.value !== (line.applicability_rule_code || '')) json.applicability_rule_code = rule.value || null;
     await api.patch('/bom/lines/' + line.id, { json }); toast('BOM 子项已保存'); refresh();
