@@ -11,7 +11,7 @@ from ..rbac import Perm
 from ..txroute import TransactionalRoute
 from ..services import applicability as svc
 
-router = APIRouter(tags=["构型适用性"], route_class=TransactionalRoute)
+router = APIRouter(tags=["构型适用性"], route_class=TransactionalRoute, dependencies=[Depends(require(Perm.READ_UNRELEASED))])
 
 class ContextCreate(BaseModel):
     context_code: str = Field(min_length=1,max_length=64)

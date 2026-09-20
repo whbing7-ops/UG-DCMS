@@ -10,7 +10,7 @@ from ..deps import Conn, CurrentUser, require, require_password_changed
 from ..rbac import Perm
 from ..services import families as fam_svc, naming, numbering
 
-router = APIRouter(tags=["设计族与发号"], route_class=TransactionalRoute)
+router = APIRouter(tags=["设计族与发号"], route_class=TransactionalRoute, dependencies=[Depends(require(Perm.READ_UNRELEASED))])
 
 
 # ---------------- 请求模型 ----------------

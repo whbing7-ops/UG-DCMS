@@ -71,6 +71,7 @@ def create_app() -> FastAPI:
     app.include_router(applicability.router, prefix=s.api_prefix)
     app.include_router(files.router, prefix=s.api_prefix)
     app.include_router(baselines.router, prefix=s.api_prefix)
+    app.include_router(baselines.package_router, prefix=s.api_prefix)
     app.include_router(search.router, prefix=s.api_prefix)
     app.include_router(externals.router, prefix=s.api_prefix)
     app.include_router(master_transfer.router, prefix=s.api_prefix)

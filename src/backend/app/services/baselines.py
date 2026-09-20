@@ -650,7 +650,7 @@ def current_configuration(conn: psycopg.Connection, full_pn: str) -> dict:
     }
 
 
-def release_package(conn: psycopg.Connection, full_pn: str) -> dict:
+def release_package(conn: psycopg.Connection, full_pn: str, access: dict | None = None) -> dict:
     """面向生产、采购的件号资料包: 当前基线锁定的有效文件、BOM、外部件、软件, 以及相对上一基线的变化。
 
     文件以**基线锁定的版次**为准, 而不是"最新发布版次" —— 二者可能不同(INV-014),
@@ -678,6 +678,7 @@ def release_package(conn: psycopg.Connection, full_pn: str) -> dict:
                  WHERE fr.id = %s""", (it["file_revision_id"],))
             out["documents"].append({
                 "file_number": it["file_number"], "revision_number": it["revision_number"],
+                "revision_id": str(it["file_revision_id"]),
                 "item_role": it["item_role"], "title_cn": meta["title_cn"],
                 "file_status": meta["file_status"], "released_at": meta["released_at"],
                 "revision_status": it["item_status"],
@@ -686,7 +687,7 @@ def release_package(conn: psycopg.Connection, full_pn: str) -> dict:
                 "attachments": [{"id": str(a["id"]), "filename": a["filename"],
                                  "attachment_role": a["attachment_role"], "size_bytes": a["size_bytes"],
                                  "integrity_status": a["integrity_status"]}
-                                for a in file_svc.attachments(conn, str(it["file_revision_id"]))]})
+                                for a in file_svc.attachments(conn, str(it["file_revision_id"]), access)]})
         elif it["item_type"] == "EXTERNAL_TECHNICAL_STATE":
             out["external"].append({"external_code": it["external_code"], "label": it["item_label"],
                                     "supplier_revision": it["supplier_revision"], "status": it["item_status"]})

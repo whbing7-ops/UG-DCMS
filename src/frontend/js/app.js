@@ -60,18 +60,18 @@ const ROUTES = [
 
 const NAV = [
   { group: "设计数据", items: [
-    ["#/", "概览", "⌂"], ["#/search", "查找", "⌕"], ["#/library", "发布资料库", "⇩"], ["#/bom", "BOM 管理", "≡"], ["#/families", "设计族", "◫"], ["#/files", "设计文件", "▤"],
-    ["#/design-materials", "设计资料清单", "▧"],
+    ["#/", "概览", "⌂"], ["#/search", "查找", "⌕"], ["#/library", "发布资料库", "⇩"], ["#/bom", "BOM 管理", "≡", "read_unreleased"], ["#/families", "设计族", "◫", "read_unreleased"], ["#/files", "设计文件", "▤"],
+    ["#/design-materials", "设计资料清单", "▧", "read_unreleased"],
     ["#/external-parts", "外部件", "◇"], ["#/software", "软件对象", "⬡"],
   ]},
   { group: "流程", items: [
-    ["#/approvals", "审批", "✓"],
+    ["#/approvals", "审批", "✓", "read_unreleased"],
   ]},
   { group: "质量与统计", items: [
-    ["#/quality", "数据质量", "◉"], ["#/reports", "统计", "▥"],
+    ["#/quality", "数据质量", "◉", "read_unreleased"], ["#/reports", "统计", "▥", "read_unreleased"],
   ]},
   { group: "系统", items: [
-    ["#/system-check", "系统自检", "⌁"], ["#/dictionary", "受控字典", "▦"], ["#/audit", "审计记录", "◷", "read_audit"],
+    ["#/system-check", "系统自检", "⌁", "read_unreleased"], ["#/dictionary", "受控字典", "▦", "read_unreleased"], ["#/audit", "审计记录", "◷", "read_audit"],
     ["#/backup", "备份恢复", "↻", "system_setting"], ["#/admin", "系统管理", "⚙", "user_manage"],
   ]},
 ];

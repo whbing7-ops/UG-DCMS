@@ -134,9 +134,16 @@ export async function fileDetail(ctx, params, num) {
     acts,
     obsolete ? el("div", { class: "note warn" }, "该文件已作废，不再允许新增版次。历史版次与基线引用仍可查阅。") : null,
     currentPanel,
-    impactPanel(ctx, num),
+    ctx.can("read_unreleased") ? impactPanel(ctx, num) : null,
     revisionTimeline(f, num),
     ctx.can("draft_write") || usage.objects.length || usage.baselines.length ? usagePanels(ctx, num, usage, obsolete) : null);
+}
+
+/* 一个版次的全部(按角色可见的)附件打成 ZIP, 内含 SHA256SUMS.txt */
+export function zipButton(revisionId, revisionNumber, fileNumber) {
+  return el("button", { class: "btn small", onclick: () =>
+    api.download(`/revisions/${revisionId}/download-all`, `${fileNumber}-Rev.${revisionNumber}.zip`).catch(toastError) },
+    "全部下载（ZIP）");
 }
 
 async function currentRevisionPanel(rev) {
@@ -148,7 +155,9 @@ async function currentRevisionPanel(rev) {
           onclick: () => api.download(`/attachments/${a.id}/download`, a.filename).catch(toastError) },
         el("b", {}, codeText(a.attachment_role)), el("span", {}, a.filename),
         el("small", {}, sizeText(a.size_bytes) + (a.integrity_status === "OK" ? " · 已校验" : ""))))) : empty("该版次无附件")),
-    link("打开版次详情", "#/revision/" + rev.id, "btn small"));
+    el("div", { class: "actions" },
+      r.attachments.length ? zipButton(rev.id, r.revision_number, r.file_number) : null,
+      link("打开版次详情", "#/revision/" + rev.id, "btn small")));
 }
 
 /* 变更影响分析: 点开才查询(要逐级向上展开 BOM, 不必每次打开详情页都算) */
@@ -275,7 +284,8 @@ export async function releasedLibrary(ctx, params) {
   const qIn = input({ value: q, placeholder: "文件号、名称或附件名" });
   const typeSel = select([{ value: "", label: "全部类型" }, ...types.map(t => ({ value: t.code, label: t.name_cn }))]);
   const roleSel = select([{ value: "RELEASED_PDF", label: "发布版 PDF" }, { value: "", label: "全部附件" },
-    { value: "PRIMARY_NATIVE", label: "原生文件" }, { value: "DERIVED_STEP", label: "STEP" }, { value: "DERIVED_DXF", label: "DXF" }]);
+    ...(ctx.can("download_native") ? [{ value: "PRIMARY_NATIVE", label: "原生文件" }] : []),
+    { value: "DERIVED_STEP", label: "STEP" }, { value: "DERIVED_DXF", label: "DXF" }]);
   typeSel.value = type; roleSel.value = role;
   const search = e => {
     e.preventDefault();

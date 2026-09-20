@@ -10,7 +10,10 @@ from ..deps import Conn, CurrentUser, require
 from ..rbac import Perm
 from ..services import baselines as bl_svc
 
-router = APIRouter(tags=["设计基线"], route_class=TransactionalRoute)
+router = APIRouter(tags=["设计基线"], route_class=TransactionalRoute,
+                   dependencies=[Depends(require(Perm.READ_UNRELEASED))])
+# 件号资料包只含当前基线锁定的已发布内容, 生产/采购也可访问, 所以不受上面的门槛约束
+package_router = APIRouter(tags=["设计基线"], route_class=TransactionalRoute)
 
 
 class BaselineCreateRequest(BaseModel):
@@ -160,16 +163,21 @@ def cancel(baseline_id: str, conn: Conn,
     return {"message": "基线已取消"}
 
 
-@router.get("/parts/{full_pn}/release-package")
+def _access(user: dict) -> dict:
+    from ..services import files as file_svc
+    return file_svc.access_for(user)
+
+
+@package_router.get("/parts/{full_pn}/release-package")
 def release_package(full_pn: str, conn: Conn, user: CurrentUser):
     """生产、采购用: 当前基线锁定的有效文件、BOM、外部件、软件及相对上一基线的变化。"""
     try:
-        return bl_svc.release_package(conn, full_pn)
+        return bl_svc.release_package(conn, full_pn, _access(user))
     except LookupError as e:
         raise errors.not_found(str(e))
 
 
-@router.get("/parts/{full_pn}/release-package.csv")
+@package_router.get("/parts/{full_pn}/release-package.csv")
 def release_package_csv(full_pn: str, conn: Conn, user: CurrentUser):
     """同一份资料包的 CSV 导出(UTF-8 带 BOM, Excel 直接打开不乱码)。"""
     import csv
@@ -177,7 +185,7 @@ def release_package_csv(full_pn: str, conn: Conn, user: CurrentUser):
     from urllib.parse import quote
     from fastapi.responses import Response
     try:
-        p = bl_svc.release_package(conn, full_pn)
+        p = bl_svc.release_package(conn, full_pn, _access(user))
     except LookupError as e:
         raise errors.not_found(str(e))
     buf = io.StringIO()

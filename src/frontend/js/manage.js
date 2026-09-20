@@ -4,6 +4,7 @@ import { el, field, input, select, panel, table, tablePanel, empty, toast, fmtDa
 export const roles = {
   SYSTEM_ADMIN: '系统管理员', DATA_ADMIN: '数据管理员', ENGINEER: '设计工程师',
   APPROVER: '审批员', CONFIGURATION_MANAGER: '构型管理员', VIEWER: '只读用户',
+  PRODUCTION: '生产', PROCUREMENT: '采购',
 };
 
 // Native dialog supplies focus trapping and Escape support. Errors remain beside the form.

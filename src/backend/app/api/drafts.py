@@ -8,7 +8,7 @@ from ..rbac import Perm
 from ..txroute import TransactionalRoute
 from ..services import drafts, families, files, baselines, externals
 
-router=APIRouter(tags=['申请人草稿'],route_class=TransactionalRoute)
+router=APIRouter(tags=['申请人草稿'],route_class=TransactionalRoute, dependencies=[Depends(require(Perm.READ_UNRELEASED))])
 
 class EditRequest(BaseModel):
     model_config=ConfigDict(extra='forbid')

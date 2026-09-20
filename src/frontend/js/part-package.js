@@ -1,6 +1,7 @@
 /* 件号资料包: 生产、采购按件号一次看清"现在该用什么" —— 当前基线锁定的文件、BOM、外部件、软件,
    以及相对上一基线变了什么。文件以基线锁定的版次为准, 有更新版次时明确提示。 */
 import { api } from "./api.js";
+import { zipButton } from "./file-mgmt.js";
 import { el, table, tablePanel, panel, empty, status, codeText, fmtDate, link, toast, toastError } from "./ui.js";
 
 const enc = encodeURIComponent;
@@ -37,7 +38,8 @@ export async function partPackage(ctx, params, pn) {
           el("td", {}, d.attachments.length ? d.attachments.map(a =>
             el("button", { class: "btn small", title: `${a.filename}（${sizeText(a.size_bytes)}）`,
               onclick: () => api.download(`/attachments/${a.id}/download`, a.filename).catch(toastError) }, codeText(a.attachment_role)))
-            : el("span", { class: "muted" }, "无附件"))]) || empty("基线未锁定设计文件")),
+            : el("span", { class: "muted" }, "无附件"),
+            d.attachments.length > 1 ? zipButton(d.revision_id, d.revision_number, d.file_number) : null)]) || empty("基线未锁定设计文件")),
     tablePanel(`BOM · ${p.bom.length} 项`,
       table([{ label: "项号", mono: 1 }, { label: "件号", mono: 1 }, { label: "名称" }, { label: "数量" }, { label: "备注" }],
         p.bom, b => [

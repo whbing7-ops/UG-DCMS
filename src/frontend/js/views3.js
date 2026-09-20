@@ -3,6 +3,7 @@ import {workflowState, applicantActions} from './drafts.js';
 import { api } from "./api.js";
 import { editLine, rulePanel, snapshotTools, createApplicability } from "./bom-tools.js";
 import { reasonAction, approvalSubmitButton } from "./extras.js";
+import { zipButton } from "./file-mgmt.js";
 import {
   el, table, tablePanel, panel, empty, status, statusText, codeText, field, input, select,
   toast, toastError, fmtDate, link, askReason, pageControls,
@@ -261,6 +262,7 @@ export async function revisionDetail(ctx, params, id) {
             toast("已发布，内容自此冻结"); reload(); }
       catch (e) { toastError(e); } } }, "批准发布"));
   if (editable && ctx.can("draft_write")) acts.append(reasonAction("取消版次", `/revisions/${id}/cancel`, reload));
+  if (r.attachments.length) acts.append(zipButton(id, r.revision_number, r.file_number));
   if (ctx.can("read_audit"))
     acts.append(el("button", { class: "btn", onclick: async () => {
       try { const c = await api.post("/integrity/check", { query: { revision_id: id } });

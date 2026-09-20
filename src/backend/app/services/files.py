@@ -23,6 +23,28 @@ import psycopg
 
 from .. import audit, storage
 from ..db import execute, fetch_all, fetch_one, scalar
+from ..rbac import Perm, has
+
+# 生产/采购只见已发布(含已被取代)版次; 版次状态见 file_revision.status
+PUBLISHED_STATUSES = ("RELEASED", "SUPERSEDED")
+
+
+def access_for(user: dict | None) -> dict:
+    """按角色得出资料访问范围。user 为 None(内部调用)时不设限。"""
+    if user is None:
+        return {"native": True, "unreleased": True}
+    roles = list(user.get("roles") or [])
+    return {"native": has(roles, Perm.DOWNLOAD_NATIVE), "unreleased": has(roles, Perm.READ_UNRELEASED)}
+
+
+def attachment_allowed(role: str, revision_status: str, access: dict | None) -> bool:
+    if access is None:
+        return True
+    if role == "PRIMARY_NATIVE" and not access["native"]:
+        return False
+    if revision_status not in PUBLISHED_STATUSES and not access["unreleased"]:
+        return False
+    return True
 
 # 新文件版次为两位数字序列; 历史文件兼容字母版次(ERD §9)
 def next_revision_number(seq: int) -> str:
@@ -228,7 +250,8 @@ def file_impact(conn: psycopg.Connection, file_number: str, max_objects: int = 3
 _UNIQUE_ROLES = {"PRIMARY_NATIVE", "RELEASED_PDF"}
 
 
-def compare_revisions(conn: psycopg.Connection, file_number: str, rev_a: str, rev_b: str) -> dict:
+def compare_revisions(conn: psycopg.Connection, file_number: str, rev_a: str, rev_b: str,
+                      access: dict | None = None) -> dict:
     """比较同一文件两个版次的附件差异(按 SHA-256 判定内容是否变化)。"""
     df = get_file(conn, file_number)
     if df is None:
@@ -237,9 +260,10 @@ def compare_revisions(conn: psycopg.Connection, file_number: str, rev_a: str, re
     for rid in (rev_a, rev_b):
         r = fetch_one(conn, """SELECT id, revision_number, status, change_summary, released_at
             FROM file_revision WHERE id=%s AND design_file_id=%s""", (rid, df["id"]))
-        if r is None:
+        if r is None or (access is not None and not access["unreleased"]
+                         and r["status"] not in PUBLISHED_STATUSES):
             raise LookupError("版次不存在或不属于该文件")
-        r["attachments"] = attachments(conn, rid)
+        r["attachments"] = attachments(conn, rid, access)
         revs[rid] = r
 
     def key(a):
@@ -269,7 +293,14 @@ def compare_revisions(conn: psycopg.Connection, file_number: str, rev_a: str, re
 # ---------------------------------------------------------------------
 # 版次
 # ---------------------------------------------------------------------
-def list_revisions(conn: psycopg.Connection, file_id: str) -> list[dict]:
+def list_revisions(conn: psycopg.Connection, file_id: str, access: dict | None = None) -> list[dict]:
+    rows = _list_revisions(conn, file_id)
+    if access is not None and not access["unreleased"]:
+        rows = [r for r in rows if r["status"] in PUBLISHED_STATUSES]
+    return rows
+
+
+def _list_revisions(conn: psycopg.Connection, file_id: str) -> list[dict]:
     return fetch_all(conn, """
         SELECT fr.id, fr.revision_number, fr.revision_sequence, fr.status,
                fr.revision_date, fr.change_summary, fr.released_at, fr.superseded_at,
@@ -447,13 +478,17 @@ def cancel_revision(conn: psycopg.Connection, revision_id: str, reason: str,
 # ---------------------------------------------------------------------
 # 附件
 # ---------------------------------------------------------------------
-def attachments(conn: psycopg.Connection, revision_id: str) -> list[dict]:
-    return fetch_all(conn, """
+def attachments(conn: psycopg.Connection, revision_id: str, access: dict | None = None) -> list[dict]:
+    rows = fetch_all(conn, """
         SELECT id, attachment_role, filename, storage_key, mime_type, size_bytes,
                sha256, integrity_status, integrity_checked_at, uploaded_at
           FROM revision_attachment WHERE file_revision_id = %s
          ORDER BY attachment_role, filename
     """, (revision_id,))
+    if access is None:
+        return rows
+    status = scalar(conn, "SELECT status FROM file_revision WHERE id=%s", (revision_id,))
+    return [a for a in rows if attachment_allowed(a["attachment_role"], status, access)]
 
 
 def upload_attachment(conn: psycopg.Connection, revision_id: str, *, role: str,
@@ -693,12 +728,14 @@ def definitions_of(conn: psycopg.Connection, object_code: str) -> list[dict]:
 
 
 def design_materials(conn, q, file_type_code, revision_status, current_only, page, page_size,
-                     attachment_role=''):
+                     attachment_role='', access=None):
     # One row per registered design attachment; software packages are separate objects.
     q=q.strip()
     like='%'+q.replace('\\','\\\\').replace('%','\\%').replace('_','\\_')+'%'
+    hide_native = access is not None and not access["native"]
+    published_only = access is not None and not access["unreleased"]
     args=(q,like,like,like,like,file_type_code,file_type_code,revision_status,revision_status,
-          attachment_role,attachment_role,current_only)
+          attachment_role,attachment_role,current_only,hide_native,published_only)
     source="""FROM revision_attachment a
       JOIN file_revision fr ON fr.id=a.file_revision_id
       JOIN design_file df ON df.id=fr.design_file_id
@@ -706,7 +743,9 @@ def design_materials(conn, q, file_type_code, revision_status, current_only, pag
       WHERE (%s='' OR a.filename ILIKE %s OR df.file_number ILIKE %s OR df.title_cn ILIKE %s OR df.title_en ILIKE %s)
         AND (%s='' OR df.file_type_code=%s) AND (%s='' OR fr.status=%s)
         AND (%s='' OR a.attachment_role=%s)
-        AND (NOT %s OR (df.current_released_revision_id=fr.id AND fr.status='RELEASED' AND df.status='ACTIVE'))"""
+        AND (NOT %s OR (df.current_released_revision_id=fr.id AND fr.status='RELEASED' AND df.status='ACTIVE'))
+        AND (NOT %s OR a.attachment_role<>'PRIMARY_NATIVE')
+        AND (NOT %s OR fr.status IN ('RELEASED','SUPERSEDED'))"""
     total=scalar(conn,'SELECT count(*) '+source,args)
     rows=fetch_all(conn,"""SELECT a.id,a.filename,a.attachment_role,a.size_bytes,a.uploaded_at,
       fr.id AS revision_id,fr.revision_number,fr.status AS revision_status,

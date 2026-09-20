@@ -58,7 +58,7 @@ def design_materials(conn: Conn, user: CurrentUser,
                      page: int = Query(1, ge=1),
                      page_size: int = Query(50, ge=1, le=200)):
     return file_svc.design_materials(conn, q, file_type_code, revision_status, current_only, page, page_size,
-                                     attachment_role)
+                                     attachment_role, file_svc.access_for(user))
 
 
 # ---------------- 文件 ----------------
@@ -86,7 +86,7 @@ def get_file(file_number: str, conn: Conn, user: CurrentUser):
     df = file_svc.get_file(conn, file_number)
     if df is None:
         raise errors.not_found(f"设计文件不存在: {file_number}")
-    df["revisions"] = file_svc.list_revisions(conn, str(df["id"]))
+    df["revisions"] = file_svc.list_revisions(conn, str(df["id"]), file_svc.access_for(user))
     return df
 
 
@@ -134,8 +134,10 @@ def file_where_used(file_number: str, conn: Conn, user: CurrentUser):
 
 
 @router.get("/files/{file_number}/impact")
-def file_impact(file_number: str, conn: Conn, user: CurrentUser):
-    """变更影响分析: 关联对象、上层组件、落后于最新发布版次的当前基线。"""
+def file_impact(file_number: str, conn: Conn,
+                user: dict = Depends(require(Perm.READ_UNRELEASED))):
+    """变更影响分析: 关联对象、上层组件(来自工作 BOM)、落后于最新发布版次的当前基线。
+    含工作 BOM 结构, 生产/采购不可见。"""
     try:
         return file_svc.file_impact(conn, file_number)
     except LookupError as e:
@@ -146,7 +148,7 @@ def file_impact(file_number: str, conn: Conn, user: CurrentUser):
 def compare_revisions(file_number: str, conn: Conn, user: CurrentUser,
                       a: str = Query(...), b: str = Query(...)):
     try:
-        return file_svc.compare_revisions(conn, file_number, a, b)
+        return file_svc.compare_revisions(conn, file_number, a, b, file_svc.access_for(user))
     except LookupError as e:
         raise errors.not_found(str(e))
 
@@ -166,9 +168,10 @@ def create_revision(file_number: str, payload: RevisionCreateRequest, conn: Conn
 @router.get("/revisions/{revision_id}")
 def get_revision(revision_id: str, conn: Conn, user: CurrentUser):
     rev = file_svc.get_revision(conn, revision_id)
-    if rev is None:
+    access = file_svc.access_for(user)
+    if rev is None or (not access["unreleased"] and rev["status"] not in file_svc.PUBLISHED_STATUSES):
         raise errors.not_found("版次不存在")
-    rev["attachments"] = file_svc.attachments(conn, revision_id)
+    rev["attachments"] = file_svc.attachments(conn, revision_id, access)
     return rev
 
 
@@ -234,20 +237,61 @@ async def upload_attachment(revision_id: str, conn: Conn,
         raise errors.conflict(str(e), rule="INV-007")
 
 
-@router.get("/attachments/{attachment_id}/download")
-def download_attachment(attachment_id: str, conn: Conn, user: CurrentUser):
+def _allowed_attachment(conn, attachment_id: str, user: dict) -> dict:
+    """取附件并按角色校验访问范围。无权与不存在同样返回 404, 不泄露资料是否存在。"""
     from ..db import fetch_one
     row = fetch_one(conn, """
-        SELECT filename, storage_key, mime_type FROM revision_attachment WHERE id=%s
+        SELECT ra.filename, ra.storage_key, ra.mime_type, ra.attachment_role, fr.status AS revision_status
+          FROM revision_attachment ra JOIN file_revision fr ON fr.id = ra.file_revision_id
+         WHERE ra.id=%s
     """, (attachment_id,))
-    if row is None:
+    if row is None or not file_svc.attachment_allowed(row["attachment_role"], row["revision_status"],
+                                                      file_svc.access_for(user)):
         raise errors.not_found("附件不存在")
+    return row
+
+
+@router.get("/attachments/{attachment_id}/download")
+def download_attachment(attachment_id: str, conn: Conn, user: CurrentUser):
+    row = _allowed_attachment(conn, attachment_id, user)
     if not storage.exists(row["storage_key"]):
         raise errors.not_found("附件物理文件缺失, 请运行完整性巡检")
     return Response(content=storage.read(row["storage_key"]),
                     media_type=row["mime_type"],
                     headers={"Content-Disposition":
                              "attachment; filename*=UTF-8''" + quote(row["filename"], safe='')})
+
+
+@router.get("/revisions/{revision_id}/download-all")
+def download_revision_zip(revision_id: str, conn: Conn, user: CurrentUser):
+    """把一个版次(按角色可见的)全部附件打成 ZIP, 附 SHA256SUMS.txt 便于核对。"""
+    import io
+    import zipfile
+    access = file_svc.access_for(user)
+    rev = file_svc.get_revision(conn, revision_id)
+    if rev is None or (not access["unreleased"] and rev["status"] not in file_svc.PUBLISHED_STATUSES):
+        raise errors.not_found("版次不存在")
+    atts = file_svc.attachments(conn, revision_id, access)
+    if not atts:
+        raise errors.not_found("该版次没有可下载的附件")
+    missing = [a["filename"] for a in atts if not storage.exists(a["storage_key"])]
+    if missing:
+        raise errors.not_found("附件物理文件缺失, 请运行完整性巡检: " + "、".join(missing))
+    buf = io.BytesIO()
+    used: set[str] = set()
+    sums = []
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        for a in atts:
+            name = a["filename"].replace("/", "_").replace("\\", "_")
+            if name in used:                       # 不同用途下的同名文件, 加用途前缀避免覆盖
+                name = f"{a['attachment_role']}_{name}"
+            used.add(name)
+            z.writestr(name, storage.read(a["storage_key"]))
+            sums.append(f"{a['sha256']}  {name}\n")
+        z.writestr("SHA256SUMS.txt", "".join(sums))
+    zip_name = f"{rev['file_number']}-Rev.{rev['revision_number']}.zip"
+    return Response(content=buf.getvalue(), media_type="application/zip",
+                    headers={"Content-Disposition": "attachment; filename*=UTF-8''" + quote(zip_name, safe='')})
 
 
 @router.delete("/attachments/{attachment_id}")

@@ -8,7 +8,7 @@ from ..rbac import Perm
 from ..txroute import TransactionalRoute
 from ..services import master_transfer as svc
 
-router=APIRouter(tags=['主数据批量导入导出'],route_class=TransactionalRoute)
+router=APIRouter(tags=['主数据批量导入导出'],route_class=TransactionalRoute, dependencies=[Depends(require(Perm.READ_UNRELEASED))])
 
 
 def download(kind, rows, suffix):
