@@ -137,6 +137,15 @@ review(rev, r2['id'])
 approve(apr, r2['id'])
 check(db_query("SELECT count(*) AS n FROM signature_record WHERE object_id=%s", (r2['id'],))[0]['n'] == 5, '两轮共 5 条签署记录(第 1 轮编制+审核，第 2 轮三级)，第 1 轮的没有被覆盖')
 
+# ---------------- 审核人(只有工程师角色)能在自己的步骤上退回/驳回 ----------------
+r3 = prep.call('POST', f'/files/{num}/revisions', {'change_summary': '三版'}, expect=201)
+prep.upload(f'/revisions/{r3["id"]}/attachments', f'so3-{STAMP}.pdf', b'v3 ' + uuid.uuid4().bytes, 'RELEASED_PDF')
+submit_for_signoff(prep, r3['id'], rev, apr)
+ar3 = prep.call('GET', f'/revisions/{r3["id"]}')['approval_request_id']
+apr.call('POST', f'/approvals/{ar3}/return?reason=x', expect=400)          # 还没轮到批准人
+rev.call('POST', f'/approvals/{ar3}/return?reason=图纸信息不全', expect=200)
+check(prep.call('GET', f'/revisions/{r3["id"]}')['status'] == 'WORKING', '审核人(工程师角色)可以退回自己步骤上的申请')
+
 # ---------------- 审计 ----------------
 acts = {r['action'] for r in db_query("SELECT action FROM audit_log WHERE object_code LIKE %s OR object_code=%s", (f'{num}%', 'x'))}
 check({'REVISION_SUBMIT', 'REVISION_REVIEW', 'REVISION_RELEASE'} <= acts, '提交、审核、发布都写入审计')

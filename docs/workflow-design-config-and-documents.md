@@ -63,7 +63,7 @@
 
 ## 5. 验证
 
-六个集成测试（真实 HTTP + PostgreSQL），共用 `ci/dcms_http.py`，已接入 `windows-installer-ci-v5.yml` 的集成作业（在 `test-ima-demo.py` 装载演示数据之后运行）：
+七个集成测试（真实 HTTP + PostgreSQL），共用 `ci/dcms_http.py`，已接入 `windows-installer-ci-v5.yml` 的集成作业（在 `test-ima-demo.py` 装载演示数据之后运行）：
 
 | 脚本 | 断言数 | 覆盖 |
 |---|---|---|
@@ -73,10 +73,11 @@
 | `test-part-package.py` | 11 | 件号资料包、有更新版次标记、CSV（UTF-8 BOM）、下载 |
 | `test-approval-overdue.py` | 12 | 3 天边界（2 天 23 小时不超期，3 天 1 分钟超期）、申请人/审批人视角 |
 | `test-consumer-roles.py` | 39 | 生产/采购看不到原生文件和草稿、越权接口 403、原有 VIEWER 行为不变、ZIP 内容与校验和 |
+| `test-signoff.py` | 45 | 三级签署顺序与身份、有权签署人（授权/撤销/自授权/重复/中途失效）、电子签名口令、待办与通知只在轮到时出现、退回后重走、数据库触发器拒绝篡改与乱序 |
 
 本地运行：`DCMS_BASE_URL=... PYTHONPATH=src/backend DCMS_PG_*=... python ci/test-xxx.py <credentials.json>`；`credentials.json` 至少含 `admin_username`、`admin_password`。测试自己创建所需的审批人、只读、生产、采购账号，结束时自动登出以免占满并发会话许可。
 
-已在独立临时库（含 0001–0026 全部迁移与 SIM-IMA-V1 演示数据）上全部通过，并在浏览器核对了各新页面。`verify_installer_source.py` 已更新为 26 个迁移并通过。
+已在独立临时库（含 0001–0027 全部迁移与 SIM-IMA-V1 演示数据）上全部通过，并在浏览器核对了各新页面。`verify_installer_source.py` 已更新为 27 个迁移并通过。
 未在本地跑：仓库原有的完整回归（ui-live-regression、full-functional-smoke 等）与 Windows 安装包构建，由 CI 执行。
 
 
