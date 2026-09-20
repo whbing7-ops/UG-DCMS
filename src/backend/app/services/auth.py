@@ -105,7 +105,8 @@ def login(conn: psycopg.Connection, username: str, password: str,
     return LoginResult(True, token=token, user=user, session=session)
 
 
-def _register_failure(conn: psycopg.Connection, user: dict, client_ip: str | None) -> None:
+def _register_failure(conn: psycopg.Connection, user: dict, client_ip: str | None,
+                      action: str = "LOGIN") -> None:
     """记录一次登录失败并在达阈值时锁定账户。
 
     必须走自治事务: 登录端点最终会抛 401, 请求事务随之回滚。若计数写在请求事务里,
@@ -122,7 +123,7 @@ def _register_failure(conn: psycopg.Connection, user: dict, client_ip: str | Non
              WHERE id = %s
             RETURNING failed_login_count, locked_until
         """, (max_fail, lock_min, user["id"]))
-        audit.write(own, action="LOGIN", user_id=str(user["id"]), username=user["username"],
+        audit.write(own, action=action, user_id=str(user["id"]), username=user["username"],
                     result="DENIED", client_ip=client_ip,
                     reason=f"口令错误 (累计 {row['failed_login_count']} 次)"
                            + ("; 已触发锁定" if row["locked_until"] else ""))
@@ -184,3 +185,20 @@ def change_own_password(conn: psycopg.Connection, user_id: str, username: str,
                            "other_sessions_revoked": revoked},
                 session_id=session_id, client_ip=client_ip)
     return True, None
+
+
+def verify_signature_password(conn: psycopg.Connection, actor: dict, password: str | None) -> None:
+    """电子签名的身份确认: 签署人必须在签署这一刻重新输入自己的口令。
+
+    与登录共用失败计数和锁定策略 —— 否则签署框会成为绕开登录锁定的口令试探入口。
+    失败一律走自治事务记账(见 _register_failure), 请求随后回滚也不会丢失计数。
+    """
+    user = load_user(conn, str(actor["user_id"]))
+    if user is None or not user["is_active"]:
+        raise ValueError("账户不可用, 无法签署")
+    if user["locked_until"] is not None and scalar(conn, "SELECT %s > now()", (user["locked_until"],)):
+        raise ValueError("账户因连续口令错误已被临时锁定, 请稍后再试")
+    if not password or not verify_password(password, user["password_hash"]):
+        _register_failure(conn, user, actor.get("client_ip"), action="SIGNATURE_AUTH")
+        raise ValueError("口令不正确，未签署")
+    execute(conn, "UPDATE app_user SET failed_login_count = 0 WHERE id = %s", (user["id"],))

@@ -189,7 +189,8 @@ with sync_playwright() as pw:
         page.get_by_label('数量',exact=True).fill('2')
         page.get_by_label('适用性',exact=True).select_option(rule)
         page.get_by_role('button',name='新增子件',exact=True).click()
-        bom_row=page.get_by_role('row').filter(has_text='990').first
+        # 按项号单元格精确匹配: 用 has_text 子串会误中规则编码里恰好含 990 的其它行(标识取自时间戳)
+        bom_row=page.get_by_role('row').filter(has=page.get_by_role('cell',name='990',exact=True)).first
         expect(bom_row).to_be_visible()
         bom_row.get_by_role('button',name='编辑',exact=True).click()
         page.get_by_role('dialog').get_by_label('数量',exact=True).fill('3'); save(page)

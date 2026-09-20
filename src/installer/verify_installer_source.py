@@ -11,7 +11,7 @@ def ok(cond: bool, msg: str):
 
 # UTF-8 readability and migration order
 migs = sorted((ROOT / 'db' / 'migrations').glob('*.sql'))
-ok(len(migs) == 25, f'expected 25 migrations, found {len(migs)}')
+ok(len(migs) == 27, f'expected 27 migrations, found {len(migs)}')
 for i, f in enumerate(migs, 1):
     ok(f.name.startswith(f'{i:04d}_'), f'migration order broken: {f.name}')
     try:
@@ -38,12 +38,12 @@ views3 = (ROOT/'frontend'/'js'/'views3.js').read_text(encoding='utf-8-sig')
 views5 = (ROOT/'frontend'/'js'/'views5.js').read_text(encoding='utf-8-sig')
 
 checks = {
-    'builder migration count': 'Count -ne 25' in build and '25/25' in build,
-    'CMD output version': 'rc2.44.exe' in (ROOT/'installer'/'BUILD-SETUP.cmd').read_text(),
+    'builder migration count': 'Count -ne 27' in build and '27/27' in build,
+    'CMD output version': 'rc2.45.exe' in (ROOT/'installer'/'BUILD-SETUP.cmd').read_text(),
     'versioned runtime pointer': 'CURRENT-RUNTIME.txt' in ps and 'CURRENT-RUNTIME.txt' in start,
     'versioned release pointer': 'CURRENT-RELEASE.txt' in ps and 'CURRENT-RELEASE.txt' in start,
-    'versioned runtime name': 'venv-1.0.0-rc2.44-' in ps,
-    'versioned release name': 'app-1.0.0-rc2.44-' in ps,
+    'versioned runtime name': 'venv-1.0.0-rc2.45-' in ps,
+    'versioned release name': 'app-1.0.0-rc2.45-' in ps,
     'stale app process cleanup': 'Stop-StaleAppProcesses' in ps,
     'application port owner check': 'Get-PortOwner $AppPort' in ps,
     'service failure log tail': 'UGDCMS-App.err.log' in ps and 'Get-Content $path -Tail 30' in ps,
@@ -53,7 +53,7 @@ checks = {
     'frontend root points at new release': 'DCMS_FRONTEND_ROOT=$newRelease\\frontend' in ps,
     'UTF8 psql client': "PGCLIENTENCODING='UTF8'" in ps and "PGCLIENTENCODING='UTF8'" in migrate,
     'migration stops on error': 'ON_ERROR_STOP=1' in migrate,
-    'migration count gate': '数据库迁移完整性检查通过：25/25' in ps,
+    'migration count gate': '数据库迁移完整性检查通过：27/27' in ps,
     'strict HTTP health': 'HTTP 健康检查通过' in ps,
     'health route matches backend': '/api/v1/health' in ps and '/api/v1/system/health' not in ps,
     'upgrade-safe env permissions': "'*S-1-5-32-544:(F)'" in ps and 'attrib.exe -R' in ps,
@@ -71,7 +71,7 @@ checks = {
     'restore archive is collision-safe': 'applied-pending-restore-{suffix}.zip' in backup_service
         and 'os.replace(pending,applied)' in backup_service,
     'frontend upgrade invalidates cache': 'FreshStaticFiles' in main_api
-        and 'no-store, max-age=0' in main_api and '?v=rc2.44' in index_html,
+        and 'no-store, max-age=0' in main_api and '?v=rc2.45' in index_html,
     'business purge preserves accounts': 'TRUNCATE TABLE' in purge_migration
         and 'app_user' not in purge_migration.split('TRUNCATE TABLE', 1)[1].split('RESTART IDENTITY', 1)[0]
         and '账户保护校验失败' in purge_migration,
@@ -98,7 +98,7 @@ for name, cond in checks.items(): ok(cond, name)
 
 # Ordering invariants
 try:
-    mig_done = ps.index("Write-Step '数据库迁移完整性检查通过：25/25（申请人审批操作已就绪，升级保留已有业务数据）'")
+    mig_done = ps.index("Write-Step '数据库迁移完整性检查通过：27/27（申请人审批操作已就绪，升级保留已有业务数据）'")
     switch_runtime = ps.index('Move-Item -Path $tmpRuntimeFile')
     switch_release = ps.index('Move-Item -Path $tmpReleaseFile')
     service = ps.index("Write-Step '注册 UG-DCMS 应用 Windows 服务...'")
@@ -116,7 +116,7 @@ if errors:
     sys.exit(1)
 print('INSTALLER SOURCE AUDIT: PASS')
 for name in checks: print(' [PASS]', name)
-print(f' [PASS] migrations UTF-8/order: {len(migs)}/25')
+print(f' [PASS] migrations UTF-8/order: {len(migs)}/27')
 
 # Data import is opt-in from backups; installation never writes the dataset.
 assert not (ROOT/'windows'/'install-ima-data.py').exists()

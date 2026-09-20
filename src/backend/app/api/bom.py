@@ -12,7 +12,7 @@ from ..deps import Conn, CurrentUser, require
 from ..rbac import Perm
 from ..services import bom as bom_svc, imports as imp_svc, applicability as app_svc
 
-router = APIRouter(tags=["BOM 与导入"], route_class=TransactionalRoute)
+router = APIRouter(tags=["BOM 与导入"], route_class=TransactionalRoute, dependencies=[Depends(require(Perm.READ_UNRELEASED))])
 
 
 class LineCreateRequest(BaseModel):

@@ -313,3 +313,56 @@ details > summary { cursor:pointer; color:var(--accent); }
 [data-import-progress] progress{display:block;width:100%;height:18px;margin:12px 0;accent-color:var(--primary,#2563b8)}
 [data-import-progress] p{overflow-wrap:anywhere}
 [data-import-progress][hidden]{display:none}
+
+/* ---- rc2.45: 文件管理与发布资料库 ---- */
+.page-head { display:flex; justify-content:space-between; align-items:flex-start; gap:12px; flex-wrap:wrap; }
+.page-head-actions { display:flex; gap:8px; padding-top:4px; }
+.filter-bar { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px 12px; align-items:end;
+  background:var(--surface); border:1px solid var(--rule-light); border-radius:10px; padding:12px 16px; margin:0 0 16px; }
+.filter-bar label { margin-top:0; }
+.filter-actions { display:flex; gap:8px; }
+.panel.fold > summary { padding:12px 18px; font-weight:600; }
+.panel.fold[open] > summary { border-bottom:1px solid var(--rule-light); }
+.file-chips { display:flex; flex-wrap:wrap; gap:10px; margin:8px 0 12px; }
+.file-chip { display:grid; gap:2px; text-align:left; min-width:190px; max-width:320px; padding:10px 14px; cursor:pointer;
+  background:var(--accent-bg); border:1px solid #c4d5e6; border-radius:8px; color:var(--ink); font:inherit; }
+.file-chip:hover { border-color:var(--accent); background:#dfeaf5; }
+.file-chip b { font-size:12px; color:var(--accent); }
+.file-chip span { overflow-wrap:anywhere; }
+.file-chip small { color:var(--ink-3); }
+.diff { display:inline-block; padding:1px 8px; border-radius:10px; font-size:12px; border:1px solid var(--rule-light); }
+.diff-SAME { color:var(--ink-3); background:#f1f3f6; }
+.diff-CHANGED { color:var(--st-warn); background:#fdf6e8; border-color:#efd9a6; }
+.diff-ADDED { color:var(--st-released); background:#edf8f1; border-color:#c5e5d2; }
+.diff-REMOVED { color:var(--st-obsolete); background:#fbeceb; border-color:#efc5c2; }
+div.muted.small { font-size:12px; }
+
+/* ---- rc2.45: 基线发布前检查 ---- */
+.ready-summary { display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap;
+  padding:12px 16px; border-radius:8px; margin-bottom:14px; border:1px solid var(--rule-light); }
+.ready-summary.is-block { background:#fbeceb; border-color:#efc5c2; color:var(--st-obsolete); }
+.ready-summary.is-warn { background:#fdf6e8; border-color:#efd9a6; color:var(--st-warn); }
+.ready-summary.is-pass { background:#edf8f1; border-color:#c5e5d2; color:var(--st-released); }
+.ready-summary span { font-size:12px; color:var(--ink-2); }
+.ready-group { margin:0 0 12px; }
+.ready-group h4 { margin:0 0 6px; font-size:12px; color:var(--ink-3); font-weight:600; }
+.ready-row { display:flex; align-items:flex-start; gap:10px; padding:8px 10px; border-bottom:1px solid var(--rule-light); }
+.ready-row .ready-text { flex:1 1 auto; min-width:0; overflow-wrap:anywhere; }
+.ready-row .ready-text small { display:block; }
+.ready-ico { flex:0 0 22px; height:22px; border-radius:50%; display:grid; place-items:center; font-size:12px; font-weight:700; color:#fff; }
+.lv-BLOCK .ready-ico { background:var(--st-error); }
+.lv-WARN .ready-ico { background:var(--st-warn); }
+.lv-PASS .ready-ico { background:var(--st-released); }
+
+/* ---- rc2.45: 变更影响分析 ---- */
+.impact-stats { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px; margin-bottom:12px; }
+.impact-stat { border:1px solid var(--rule-light); border-radius:8px; padding:10px 14px; background:var(--paper); }
+.impact-stat b { display:block; font-size:22px; font-family:var(--mono); }
+.impact-stat span { font-size:12px; color:var(--ink-3); }
+.impact-stat.is-warn { border-color:#efd9a6; background:#fdf6e8; }
+.impact-stat.is-warn b { color:var(--st-warn); }
+.chip { display:inline-block; margin:1px 4px 1px 0; padding:1px 8px; border-radius:10px; background:var(--accent-bg); font-size:12px; }
+
+/* ---- rc2.45: 审批等待时长 ---- */
+.wait { display:inline-block; padding:1px 8px; border-radius:10px; font-size:12px; background:#f1f3f6; color:var(--ink-2); border:1px solid var(--rule-light); }
+.wait.is-overdue { background:#fbeceb; color:var(--st-error); border-color:#efc5c2; font-weight:600; }

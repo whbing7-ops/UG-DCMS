@@ -70,6 +70,22 @@ def require(*perms: Perm):
     return _dep
 
 
+def require_any(*perms: Perm):
+    """满足任一权限即可(OR 语义)。与 require 的"全部满足"刻意区分, 名字里就带着 any。
+
+    只用于确有需要的端点: 审核人(设计工程师角色, 只有 sign 没有 approve)必须能在
+    自己负责的步骤上退回或驳回申请, 而谁能处理哪个步骤由步骤的指派人决定, 不由角色决定。
+    """
+    def _dep(user: CurrentUser) -> dict:
+        roles = list(user.get("roles") or [])
+        if not any(has(roles, p) for p in perms):
+            raise errors.forbidden(
+                f"当前角色 {', '.join(roles) or '(无)'} 不具备所需权限(任一): "
+                f"{', '.join(str(p) for p in perms)}")
+        return user
+    return _dep
+
+
 def require_password_changed(user: CurrentUser) -> dict:
     """首次登录必须先改密, 否则不得执行业务操作。"""
     if user.get("must_change_password"):

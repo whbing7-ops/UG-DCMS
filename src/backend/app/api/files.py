@@ -24,12 +24,30 @@ class FileCreateRequest(BaseModel):
     title_en: str | None = Field(default=None, max_length=256)
 
 
+class FileUpdateRequest(BaseModel):
+    title_cn: str = Field(min_length=1, max_length=256)
+    title_en: str | None = Field(default=None, max_length=256)
+
+
+class ReasonRequest(BaseModel):
+    reason: str = Field(min_length=1, max_length=256)
+
+
 class RevisionCreateRequest(BaseModel):
     change_summary: str = Field(min_length=1, max_length=1000)
 
 
 class SubmitRequest(BaseModel):
+    """提交审核: 编制人指定审核人、批准人, 并以口令确认"编制"签署。"""
     approver_user_id: str
+    reviewer_user_id: str | None = None
+    password: str | None = Field(default=None, max_length=200)
+
+
+class SignRequest(BaseModel):
+    """审核/批准签署: 必须重新输入本人口令(电子签名)。"""
+    password: str = Field(min_length=1, max_length=200)
+    comments: str = Field(default="同意", max_length=500)
 
 
 class DefinitionLinkRequest(BaseModel):
@@ -44,18 +62,23 @@ class DefinitionLinkRequest(BaseModel):
 def design_materials(conn: Conn, user: CurrentUser,
                      q: str = Query("", max_length=256), file_type_code: str = "",
                      revision_status: str = Query("", pattern="^(|WORKING|IN_REVIEW|RELEASED|SUPERSEDED|CANCELLED)$"),
-                     current_only: bool = False, page: int = Query(1, ge=1),
+                     current_only: bool = False,
+                     attachment_role: str = Query("", pattern="^(|PRIMARY_NATIVE|RELEASED_PDF|DERIVED_STEP|DERIVED_DXF|REFERENCE)$"),
+                     page: int = Query(1, ge=1),
                      page_size: int = Query(50, ge=1, le=200)):
-    return file_svc.design_materials(conn, q, file_type_code, revision_status, current_only, page, page_size)
+    return file_svc.design_materials(conn, q, file_type_code, revision_status, current_only, page, page_size,
+                                     attachment_role, file_svc.access_for(user))
 
 
 # ---------------- 文件 ----------------
 @router.get("/files")
 def list_files(conn: Conn, user: CurrentUser,
                file_type_code: str | None = None, q: str | None = None,
+               status: str = Query("", pattern="^(|ACTIVE|OBSOLETE)$"),
+               stage: str = Query("", pattern="^(|RELEASED|OPEN|NONE)$"),
                page: int | None = Query(None, ge=1), page_size: int = Query(100, ge=20, le=200)):
     if page is not None:
-        return file_svc.page_files(conn, file_type_code, q, page, page_size)
+        return file_svc.page_files(conn, file_type_code, q, page, page_size, status, stage)
     return file_svc.list_files(conn, file_type_code, q)
 
 
@@ -72,8 +95,71 @@ def get_file(file_number: str, conn: Conn, user: CurrentUser):
     df = file_svc.get_file(conn, file_number)
     if df is None:
         raise errors.not_found(f"设计文件不存在: {file_number}")
-    df["revisions"] = file_svc.list_revisions(conn, str(df["id"]))
+    df["revisions"] = file_svc.list_revisions(conn, str(df["id"]), file_svc.access_for(user))
     return df
+
+
+@router.patch("/files/{file_number}")
+def update_file(file_number: str, payload: FileUpdateRequest, conn: Conn,
+                actor: dict = Depends(require(Perm.DRAFT_WRITE))):
+    try:
+        return file_svc.update_file(conn, file_number, title_cn=payload.title_cn,
+                                    title_en=payload.title_en, actor=actor)
+    except LookupError as e:
+        raise errors.not_found(str(e))
+    except ValueError as e:
+        raise errors.bad_request(str(e))
+
+
+@router.post("/files/{file_number}/obsolete")
+def obsolete_file(file_number: str, payload: ReasonRequest, conn: Conn,
+                  actor: dict = Depends(require(Perm.BASELINE_RELEASE))):
+    """作废文件(构型管理员)。已发布版次与已冻结基线不受影响。"""
+    try:
+        return file_svc.set_file_status(conn, file_number, "OBSOLETE", payload.reason, actor)
+    except LookupError as e:
+        raise errors.not_found(str(e))
+    except ValueError as e:
+        raise errors.bad_request(str(e))
+
+
+@router.post("/files/{file_number}/reactivate")
+def reactivate_file(file_number: str, payload: ReasonRequest, conn: Conn,
+                    actor: dict = Depends(require(Perm.BASELINE_RELEASE))):
+    try:
+        return file_svc.set_file_status(conn, file_number, "ACTIVE", payload.reason, actor)
+    except LookupError as e:
+        raise errors.not_found(str(e))
+    except ValueError as e:
+        raise errors.bad_request(str(e))
+
+
+@router.get("/files/{file_number}/where-used")
+def file_where_used(file_number: str, conn: Conn, user: CurrentUser):
+    try:
+        return file_svc.file_where_used(conn, file_number)
+    except LookupError as e:
+        raise errors.not_found(str(e))
+
+
+@router.get("/files/{file_number}/impact")
+def file_impact(file_number: str, conn: Conn,
+                user: dict = Depends(require(Perm.READ_UNRELEASED))):
+    """变更影响分析: 关联对象、上层组件(来自工作 BOM)、落后于最新发布版次的当前基线。
+    含工作 BOM 结构, 生产/采购不可见。"""
+    try:
+        return file_svc.file_impact(conn, file_number)
+    except LookupError as e:
+        raise errors.not_found(str(e))
+
+
+@router.get("/files/{file_number}/compare")
+def compare_revisions(file_number: str, conn: Conn, user: CurrentUser,
+                      a: str = Query(...), b: str = Query(...)):
+    try:
+        return file_svc.compare_revisions(conn, file_number, a, b, file_svc.access_for(user))
+    except LookupError as e:
+        raise errors.not_found(str(e))
 
 
 # ---------------- 版次 ----------------
@@ -91,17 +177,44 @@ def create_revision(file_number: str, payload: RevisionCreateRequest, conn: Conn
 @router.get("/revisions/{revision_id}")
 def get_revision(revision_id: str, conn: Conn, user: CurrentUser):
     rev = file_svc.get_revision(conn, revision_id)
-    if rev is None:
+    access = file_svc.access_for(user)
+    if rev is None or (not access["unreleased"] and rev["status"] not in file_svc.PUBLISHED_STATUSES):
         raise errors.not_found("版次不存在")
-    rev["attachments"] = file_svc.attachments(conn, revision_id)
+    rev["attachments"] = file_svc.attachments(conn, revision_id, access)
+    rev["signoff"] = file_svc.signoff(conn, revision_id)
     return rev
+
+
+@router.get("/revisions/{revision_id}/signers")
+def revision_signers(revision_id: str, conn: Conn, user: CurrentUser,
+                     level: str = Query(..., pattern="^(REVIEW|APPROVE)$"),
+                     exclude: str = Query("", max_length=200)):
+    """提交时可选的审核人/批准人(已授权且在有效期内, 不含编制人本人)。"""
+    try:
+        return file_svc.signer_candidates(conn, revision_id, level, user,
+                                          [x for x in exclude.split(",") if x])
+    except LookupError as e:
+        raise errors.not_found(str(e))
 
 
 @router.post("/revisions/{revision_id}/submit")
 def submit_revision(revision_id: str, payload: SubmitRequest, conn: Conn,
                     actor: dict = Depends(require(Perm.SUBMIT))):
     try:
-        return file_svc.submit_revision(conn, revision_id, payload.approver_user_id, actor)
+        return file_svc.submit_revision(conn, revision_id, payload.approver_user_id, actor,
+                                        reviewer_user_id=payload.reviewer_user_id, password=payload.password)
+    except LookupError as e:
+        raise errors.not_found(str(e))
+    except ValueError as e:
+        raise errors.bad_request(str(e))
+
+
+@router.post("/revisions/{revision_id}/review")
+def review_revision(revision_id: str, payload: SignRequest, conn: Conn,
+                    actor: dict = Depends(require(Perm.SIGN))):
+    """审核人签署"审核"(第一级)。"""
+    try:
+        return file_svc.review_revision(conn, revision_id, payload.comments, payload.password, actor)
     except LookupError as e:
         raise errors.not_found(str(e))
     except ValueError as e:
@@ -109,12 +222,11 @@ def submit_revision(revision_id: str, payload: SubmitRequest, conn: Conn,
 
 
 @router.post("/revisions/{revision_id}/release")
-def release_revision(revision_id: str, conn: Conn,
-                     comments: str = Query("同意发布", max_length=500),
-                     actor: dict = Depends(require(Perm.APPROVE))):
-    """发布版次。按 INV-014，本操作不改变任何 P/N 的当前技术状态。"""
+def release_revision(revision_id: str, payload: SignRequest, conn: Conn,
+                     actor: dict = Depends(require(Perm.SIGN))):
+    """批准人签署"批准"并发布版次。按 INV-014，本操作不改变任何 P/N 的当前技术状态。"""
     try:
-        return file_svc.release_revision(conn, revision_id, comments, actor)
+        return file_svc.release_revision(conn, revision_id, payload.comments, actor, password=payload.password)
     except LookupError as e:
         raise errors.not_found(str(e))
     except ValueError as e:
@@ -159,20 +271,61 @@ async def upload_attachment(revision_id: str, conn: Conn,
         raise errors.conflict(str(e), rule="INV-007")
 
 
-@router.get("/attachments/{attachment_id}/download")
-def download_attachment(attachment_id: str, conn: Conn, user: CurrentUser):
+def _allowed_attachment(conn, attachment_id: str, user: dict) -> dict:
+    """取附件并按角色校验访问范围。无权与不存在同样返回 404, 不泄露资料是否存在。"""
     from ..db import fetch_one
     row = fetch_one(conn, """
-        SELECT filename, storage_key, mime_type FROM revision_attachment WHERE id=%s
+        SELECT ra.filename, ra.storage_key, ra.mime_type, ra.attachment_role, fr.status AS revision_status
+          FROM revision_attachment ra JOIN file_revision fr ON fr.id = ra.file_revision_id
+         WHERE ra.id=%s
     """, (attachment_id,))
-    if row is None:
+    if row is None or not file_svc.attachment_allowed(row["attachment_role"], row["revision_status"],
+                                                      file_svc.access_for(user)):
         raise errors.not_found("附件不存在")
+    return row
+
+
+@router.get("/attachments/{attachment_id}/download")
+def download_attachment(attachment_id: str, conn: Conn, user: CurrentUser):
+    row = _allowed_attachment(conn, attachment_id, user)
     if not storage.exists(row["storage_key"]):
         raise errors.not_found("附件物理文件缺失, 请运行完整性巡检")
     return Response(content=storage.read(row["storage_key"]),
                     media_type=row["mime_type"],
                     headers={"Content-Disposition":
                              "attachment; filename*=UTF-8''" + quote(row["filename"], safe='')})
+
+
+@router.get("/revisions/{revision_id}/download-all")
+def download_revision_zip(revision_id: str, conn: Conn, user: CurrentUser):
+    """把一个版次(按角色可见的)全部附件打成 ZIP, 附 SHA256SUMS.txt 便于核对。"""
+    import io
+    import zipfile
+    access = file_svc.access_for(user)
+    rev = file_svc.get_revision(conn, revision_id)
+    if rev is None or (not access["unreleased"] and rev["status"] not in file_svc.PUBLISHED_STATUSES):
+        raise errors.not_found("版次不存在")
+    atts = file_svc.attachments(conn, revision_id, access)
+    if not atts:
+        raise errors.not_found("该版次没有可下载的附件")
+    missing = [a["filename"] for a in atts if not storage.exists(a["storage_key"])]
+    if missing:
+        raise errors.not_found("附件物理文件缺失, 请运行完整性巡检: " + "、".join(missing))
+    buf = io.BytesIO()
+    used: set[str] = set()
+    sums = []
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        for a in atts:
+            name = a["filename"].replace("/", "_").replace("\\", "_")
+            if name in used:                       # 不同用途下的同名文件, 加用途前缀避免覆盖
+                name = f"{a['attachment_role']}_{name}"
+            used.add(name)
+            z.writestr(name, storage.read(a["storage_key"]))
+            sums.append(f"{a['sha256']}  {name}\n")
+        z.writestr("SHA256SUMS.txt", "".join(sums))
+    zip_name = f"{rev['file_number']}-Rev.{rev['revision_number']}.zip"
+    return Response(content=buf.getvalue(), media_type="application/zip",
+                    headers={"Content-Disposition": "attachment; filename*=UTF-8''" + quote(zip_name, safe='')})
 
 
 @router.delete("/attachments/{attachment_id}")
@@ -211,6 +364,21 @@ def link_definition(payload: DefinitionLinkRequest, conn: Conn,
             payload.relation_type, payload.applicability_note, actor)
     except LookupError as e:
         raise errors.not_found(str(e))
+    except ValueError as e:
+        raise errors.conflict(str(e))
+
+
+@router.delete("/definitions/{link_id}")
+def unlink_definition(link_id: str, conn: Conn,
+                      reason: str = Query(..., min_length=1, max_length=256),
+                      actor: dict = Depends(require(Perm.DRAFT_WRITE))):
+    try:
+        file_svc.unlink_definition(conn, link_id, reason, actor)
+    except LookupError as e:
+        raise errors.not_found(str(e))
+    except ValueError as e:
+        raise errors.bad_request(str(e), rule="INV-022" if "INV-022" in str(e) else None)
+    return {"message": "关联已解除"}
 
 
 @router.get("/definitions/{object_code}")

@@ -64,8 +64,8 @@ def _document(conn, key, title, kind, content, extension, mime, author, approver
     keys.append(storage_key)
     attachment = files.upload_attachment(conn, str(rev['id']), role='PRIMARY_NATIVE', filename=filename,
         mime_type=mime, content=content, actor=author)
-    _mark_request(conn, files.submit_revision(conn, str(rev['id']), approver['user_id'], author))
-    files.release_revision(conn, str(rev['id']), NOTICE, approver)
+    # 三级签署: 模拟身份没有口令, 走 simulate_release; 签署记录标为 SIMULATION, 与真人电子签名可区分
+    _mark_request(conn, files.simulate_release(conn, str(rev['id']), author, approver['reviewer'], approver, NOTICE))
     doc = {'file_number':number, 'revision_id':str(rev['id']),
            'target':number+' Rev.'+rev['revision_number'], 'attachment_id':str(attachment['id']),
            'filename':filename, 'sha256':attachment['sha256']}
@@ -109,7 +109,8 @@ def _populate(conn, admin, keys, dataset, progress=None):
     batch = uuid4().hex[:12]
     author = _actor(conn, '编制人', 'ENGINEER', admin, batch)
     approver = _actor(conn, '批准人', 'CONFIGURATION_MANAGER', admin, batch)
-    actors = [author['user_id'], approver['user_id']]
+    approver['reviewer'] = _actor(conn, '审核人', 'ENGINEER', admin, batch)      # 审核级模拟身份, 随 approver 传给 _document
+    actors = [author['user_id'], approver['reviewer']['user_id'], approver['user_id']]
     docs, parts, external, sw, snapshots, baselines_map = [], {}, {}, {}, {}, {}
     execute(conn, "INSERT INTO namespace(code,name_cn,name_en,kind) VALUES(%s,%s,%s,'OTHER')",
             (CODE, MARK+'IMA虚构供应来源', 'SIMULATED IMA'))

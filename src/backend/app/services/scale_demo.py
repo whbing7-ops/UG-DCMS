@@ -80,6 +80,7 @@ def _populate(conn,admin,keys,data,progress=None):
     batch=uuid4().hex[:12]
     author=ima_demo._actor(conn,'编制人','ENGINEER',admin,batch,prefix='sim_scale',label='规模测试')
     approver=ima_demo._actor(conn,'批准人','CONFIGURATION_MANAGER',admin,batch,prefix='sim_scale',label='规模测试')
+    approver['reviewer']=ima_demo._actor(conn,'审核人','ENGINEER',admin,batch,prefix='sim_scale',label='规模测试')
     execute(conn,"INSERT INTO namespace(code,name_cn,name_en,kind) VALUES(%s,%s,%s,'OTHER')",(CODE,MARK+'规模测试虚构供应来源','SIMULATED SCALE'))
     parts,ext,software,projects={},{},{},{}
     docs=[];by_family=defaultdict(list)
@@ -176,7 +177,7 @@ def _populate(conn,admin,keys,data,progress=None):
         baselines.release(conn,bid,NOTICE,approver);p['baseline_id']=bid
         emit('审批及发布设计基线',index,len(parts),60,39)
         if index%1000==0:log.warning('%s released baselines %s/10000',CODE,index)
-    actors=[author['user_id'],approver['user_id']]
+    actors=[author['user_id'],approver['reviewer']['user_id'],approver['user_id']]
     execute(conn,'UPDATE app_user SET is_active=false WHERE id=ANY(%s::uuid[])',(actors,))
     counts={**COUNTS,'bom_lines':len(data['bom_lines']),'documents':len(docs),'baselines':len(parts),
         'project_controls':sum(len(e['projects']) for e in ext.values()),'hardware_links':sum(len(s['hardware']) for s in software.values())}

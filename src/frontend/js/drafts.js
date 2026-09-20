@@ -1,6 +1,7 @@
 import {api} from './api.js';
 import {el,link,panel,table,tablePanel,input,select,field,toast,toastError,askReason,statusText,fmtDate,empty} from './ui.js';
 import {approvalSubmitButton} from './extras.js';
+import {revisionSubmitButton} from './signoff.js';
 
 export async function workflowState(kind,id){return api.get(`/drafts/${kind}/${id}`);}
 export async function removeDraft(kind,id){
@@ -62,10 +63,15 @@ export async function draftEditor(ctx,params,kind,id){
       await api.patch(`/drafts/${kind}/${id}`,{json:{values:Object.fromEntries(Object.entries(controls).map(([k,c])=>[k,c.value||null]))}});
       toast('草稿修改已保存');feedback.textContent='已保存，可以提交审批。';
     }catch(e){feedback.textContent=e.message;toastError(e);}finally{save.disabled=false;}}},body,save,feedback);
-    actions.append(approvalSubmitButton('保存并提交审批',`/drafts/${kind}/${id}/submit`,()=>{location.hash=w.object_url;window.dispatchEvent(new HashChangeEvent('hashchange'));},kind==='DESIGN_BASELINE'?'CONFIGURATION_MANAGER':'APPROVER',async()=>{
+    const afterSubmit=()=>{location.hash=w.object_url;window.dispatchEvent(new HashChangeEvent('hashchange'));};
+    const saveFirst=async()=>{
       if(!form.reportValidity())throw Error('请填写完整的申请内容');
       await api.patch(`/drafts/${kind}/${id}`,{json:{values:Object.fromEntries(Object.entries(controls).map(([k,c])=>[k,c.value||null]))}});
-    }));
+    };
+    /* 设计文件版次走三级签署(选审核人+批准人+口令), 其余对象仍是单级审批 */
+    actions.append(kind==='FILE_REVISION'
+      ?revisionSubmitButton('保存并提交审核（编制签署）',id,`/drafts/${kind}/${id}/submit`,afterSubmit,saveFirst)
+      :approvalSubmitButton('保存并提交审批',`/drafts/${kind}/${id}/submit`,afterSubmit,kind==='DESIGN_BASELINE'?'CONFIGURATION_MANAGER':'APPROVER',saveFirst));
     w.form=form;
     actions.append(el('button',{class:'btn danger',onclick:()=>removeDraft(kind,id)},'删除草稿'));
   }

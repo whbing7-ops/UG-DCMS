@@ -22,6 +22,9 @@ from ..db import execute, fetch_all, fetch_one
 from ..db import scalar
 from ..rbac import Perm, ROLE_PERMISSIONS
 
+# 审批等待超过这个天数即视为"超期": 首页置顶提醒, 列表标红
+OVERDUE_DAYS = 3
+
 REQUEST_TYPE_CN = {
     "BASIC_DRAWING_NUMBER": "新建设计族",
     "DASH_NUMBER": "申请 Dash 号",
@@ -144,7 +147,7 @@ def require_assignee(conn: psycopg.Connection, request_id: str, actor_id: str) -
 
 
 def _base_query() -> str:
-    return """
+    return f"""
         SELECT ar.id, ar.request_number, ar.request_type, ar.object_type, ar.object_id,
                ar.object_code, ar.title, ar.status, ar.requested_at, ar.closed_at,
                ar.submission_round, ar.closure_action, ar.closure_reason,
@@ -154,14 +157,18 @@ def _base_query() -> str:
                s.id AS step_id, s.step_order, s.step_name, s.required_role_code,
                s.assignee_user_id,
                s.is_final, s.decision, s.comments, s.acted_at,
-               du.username AS decided_by_username
+               du.username AS decided_by_username,
+               au.full_name AS assignee_name,
+               CASE WHEN ar.status = 'PENDING'
+                    THEN floor(extract(epoch FROM (now() - ar.requested_at)) / 86400)::int END AS waiting_days,
+               (ar.status = 'PENDING' AND ar.requested_at < now() - make_interval(days => {OVERDUE_DAYS})) AS is_overdue
           FROM approval_request ar
           JOIN app_user u ON u.id = ar.requester_id
           LEFT JOIN software_version sv ON ar.object_type='SOFTWARE_VERSION' AND sv.id=ar.object_id
           LEFT JOIN software_object so ON so.id=sv.software_object_id
-          LEFT JOIN current_approval_step s ON s.approval_request_id = ar.id
-                                   AND s.decision = 'PENDING'
+          LEFT JOIN current_pending_step s ON s.approval_request_id = ar.id
           LEFT JOIN app_user du ON du.id = s.decided_by
+          LEFT JOIN app_user au ON au.id = s.assignee_user_id
     """
 
 
@@ -330,12 +337,23 @@ def summary(conn: psycopg.Connection, user: dict) -> dict:
     return fetch_one(conn, """
         SELECT
           (SELECT count(*) FROM approval_request ar
-             JOIN current_approval_step s ON s.approval_request_id = ar.id AND s.decision='PENDING'
+             JOIN current_pending_step s ON s.approval_request_id = ar.id
             WHERE ar.status='PENDING' AND ar.requester_id <> %s
               AND ((s.assignee_user_id IS NOT NULL AND s.assignee_user_id=%s)
                    OR (s.assignee_user_id IS NULL AND s.required_role_code=ANY(%s)))) AS inbox,
+          (SELECT count(*) FROM approval_request ar
+             JOIN current_pending_step s ON s.approval_request_id = ar.id
+            WHERE ar.status='PENDING' AND ar.requester_id <> %s
+              AND ar.requested_at < now() - make_interval(days => %s)
+              AND ((s.assignee_user_id IS NOT NULL AND s.assignee_user_id=%s)
+                   OR (s.assignee_user_id IS NULL AND s.required_role_code=ANY(%s)))) AS inbox_overdue,
           (SELECT count(*) FROM approval_request
             WHERE requester_id = %s AND status='PENDING') AS my_pending,
           (SELECT count(*) FROM approval_request
+            WHERE requester_id = %s AND status='PENDING'
+              AND requested_at < now() - make_interval(days => %s)) AS my_overdue,
+          (SELECT count(*) FROM approval_request
             WHERE requester_id = %s AND status='RETURNED') AS my_returned
-    """, (user["user_id"], user["user_id"], roles, user["user_id"], user["user_id"]))
+    """, (user["user_id"], user["user_id"], roles,
+          user["user_id"], OVERDUE_DAYS, user["user_id"], roles,
+          user["user_id"], user["user_id"], OVERDUE_DAYS, user["user_id"]))

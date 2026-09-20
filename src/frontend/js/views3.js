@@ -3,6 +3,8 @@ import {workflowState, applicantActions} from './drafts.js';
 import { api } from "./api.js";
 import { editLine, rulePanel, snapshotTools, createApplicability } from "./bom-tools.js";
 import { reasonAction, approvalSubmitButton } from "./extras.js";
+import { zipButton } from "./file-mgmt.js";
+import { revisionSubmitButton, signButton, signoffPanel } from "./signoff.js";
 import {
   el, table, tablePanel, panel, empty, status, statusText, codeText, field, input, select,
   toast, toastError, fmtDate, link, askReason, pageControls,
@@ -238,82 +240,6 @@ export async function whereUsed(ctx, params, code) {
 }
 
 /* ==================== 设计文件 ==================== */
-export async function files(ctx, params) {
-  const page = Number(params.get("page") || 1), q = params.get("q") || "";
-  const result = await api.get("/files", { query: { page, page_size: 100, q } });
-  const rows = result.items;
-  const searchIn = input({ value: q, placeholder: "搜索文件号或名称" });
-  const numIn = input({ class: "mono", placeholder: "UG-A10001M001" });
-  const typeSel = select((await api.get("/dictionary/file-type"))
-    .map(t => ({ value: t.code, label: `${t.code} ${t.name_cn}` })));
-  const titleIn = input({ placeholder: "文件名称" });
-
-  return el("div", {},
-    el("h1", {}, "设计文件"),
-    el("p", { class: "sub" }, "文件身份与版次分离。图号不变、内容改了，是新版次而不是新文件。"),
-    panel("查询", el("div", { class: "inline-form" }, field("关键词", searchIn),
-      el("button", { class: "btn", onclick: () => { location.hash = "#/files?" + new URLSearchParams({ q: searchIn.value.trim(), page: 1 }); } }, "查询"))),
-    ctx.can("draft_write") ? panel("新建文件", el("div", { class: "inline-form" },
-      field("文件号", numIn), field("文件类型", typeSel), field("名称", titleIn),
-      el("div", { style: "flex:0 0 auto" }, el("button", { class: "btn primary", onclick: async () => {
-        try { const created = await api.post("/files", { json: { file_number: numIn.value,
-                file_type_code: typeSel.value, title_cn: titleIn.value } });
-              toast("文件已建立"); location.hash = "#/file/" + encodeURIComponent(created.file_number); }
-        catch (e) { toastError(e); } } }, "建立"))))
-      : el("div", { class: "note warn" }, "当前账户可查看设计文件；新建文件、版次和附件维护需要“设计工程师”或“构型管理员”角色。"),
-    rows.length ? tablePanel("全部文件",
-      table([{ label: "文件号", mono: 1 }, { label: "名称" }, { label: "类型" },
-             { label: "当前发布版次" }, { label: "版次数" }],
-        rows, f => [
-          el("td", { class: "mono" }, link(f.file_number, "#/file/" + encodeURIComponent(f.file_number))),
-          el("td", {}, f.title_cn),
-          el("td", { class: "muted" }, codeText(f.file_type_code)),
-          el("td", { class: "mono" }, f.current_released_revision || "—"),
-          el("td", { class: "num" }, f.revision_count)]), pageControls(result, "/files", { q }))
-      : empty("还没有设计文件"));
-}
-
-export async function fileDetail(ctx, params, num) {
-  const f = await api.get("/files/" + encodeURIComponent(num));
-  const open = f.revisions.find(r => ["WORKING", "IN_REVIEW"].includes(r.status));
-
-  const acts = el("div", { class: "actions" });
-  if (!open && ctx.can("draft_write"))
-    acts.append(el("button", { class: "btn primary", onclick: async () => {
-      const s = await askReason("新建版次", "本次修改内容是什么");
-      if (!s) return;
-      try { await api.post(`/files/${encodeURIComponent(num)}/revisions`,
-              { json: { change_summary: s } }); toast("版次已建立"); reload(); }
-      catch (e) { toastError(e); } } }, "新建版次"));
-
-  const cell = (l, v, mono) => el("div", { class: "tb-cell" },
-    el("b", {}, l), el("span", { class: mono ? "mono" : null }, v ?? "—"));
-
-  return el("div", {},
-    el("div", { class: "titleblock" },
-      el("div", { class: "tb-head" },
-        el("span", { class: "tb-code" }, f.file_number),
-        el("span", { class: "tb-name" }, f.title_cn)),
-      el("div", { class: "tb-grid" },
-        cell("文件类型", codeText(f.file_type_code)),
-        cell("状态", statusText(f.status)),
-        cell("当前发布版次", f.current_released_revision, true),
-        cell("建立时间", fmtDate(f.created_at)))),
-    acts,
-    el("div", { class: "note" },
-      "已发布的版次内容冻结：不能替换附件，也不能改变更说明。内容要变就出新版次。"),
-    tablePanel("版次",
-      table([{ label: "版次", mono: 1 }, { label: "状态" }, { label: "变更说明" },
-             { label: "附件数" }, { label: "发布时间" }, { label: "" }],
-        f.revisions, r => [
-          el("td", { class: "mono" }, "Rev." + r.revision_number),
-          el("td", {}, status(r.status)),
-          el("td", {}, r.change_summary || "—"),
-          el("td", { class: "num" }, r.attachment_count),
-          el("td", { class: "muted nowrap" }, fmtDate(r.released_at)),
-          el("td", { class: "right" }, link("打开", "#/revision/" + r.id, "btn small"))])));
-}
-
 export async function revisionDetail(ctx, params, id) {
   const workflow=await workflowState('FILE_REVISION',id);
   const r = await api.get("/revisions/" + id);
@@ -330,13 +256,14 @@ export async function revisionDetail(ctx, params, id) {
   const acts = el("div", { class: "actions" });
   acts.append(applicantActions(ctx,workflow));
   if (workflow.can_edit && ctx.can("submit"))
-    acts.append(approvalSubmitButton("提交审核", `/revisions/${id}/submit`, reload));
-  if (r.status === "IN_REVIEW" && ctx.can("approve") && String(r.approval_assignee_user_id||'')===String(ctx.user.id))
-    acts.append(el("button", { class: "btn primary", onclick: async () => {
-      try { await api.post(`/revisions/${id}/release`, { query: { comments: "同意发布" } });
-            toast("已发布，内容自此冻结"); reload(); }
-      catch (e) { toastError(e); } } }, "批准发布"));
+    acts.append(revisionSubmitButton("提交审核（编制签署）", id, `/revisions/${id}/submit`, reload));
+  /* 轮到我签署: 第 1 级"审核", 第 2 级(最终)"批准发布"; 每一级都要重新输入口令 */
+  if (r.status === "IN_REVIEW" && ctx.can("sign") && String(r.approval_assignee_user_id||'')===String(ctx.user.id))
+    acts.append(r.approval_step_final
+      ? signButton("批准发布（签署）", "批准", `/revisions/${id}/release`, reload)
+      : signButton("审核通过（签署）", "审核", `/revisions/${id}/review`, reload));
   if (editable && ctx.can("draft_write")) acts.append(reasonAction("取消版次", `/revisions/${id}/cancel`, reload));
+  if (r.attachments.length) acts.append(zipButton(id, r.revision_number, r.file_number));
   if (ctx.can("read_audit"))
     acts.append(el("button", { class: "btn", onclick: async () => {
       try { const c = await api.post("/integrity/check", { query: { revision_id: id } });
@@ -350,6 +277,7 @@ export async function revisionDetail(ctx, params, id) {
     el("p", { class: "sub" }, r.title_cn, " · ", status(r.status)),
     el("p", {}, r.change_summary || ""),
     acts,
+    signoffPanel(r.signoff),
     editable && ctx.can("draft_write") ? panel("上传附件", el("div", {},
       el("div", { class: "inline-form" },
         field("用途", roleSel), field("文件", fileIn),

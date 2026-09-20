@@ -23,7 +23,7 @@ MAX_RESULTS = 100
 
 
 def search(conn: psycopg.Connection, q: str, *, kinds: list[str] | None = None,
-           limit: int = 50) -> dict:
+           limit: int = 50, access: dict | None = None) -> dict:
     """跨对象类型统一检索。
 
     kinds 可选值: PART_NUMBER / EXTERNAL_PART / SOFTWARE / FAMILY / FILE / ATTACHMENT。
@@ -50,7 +50,7 @@ def search(conn: psycopg.Connection, q: str, *, kinds: list[str] | None = None,
     if "FILE" in kinds:
         results += _search_files(conn, q, limit)
     if "ATTACHMENT" in kinds:
-        results += _search_attachments(conn, q, limit)
+        results += _search_attachments(conn, q, limit, access)
 
     order = {"EXACT": 0, "NORMALIZED": 1, "CROSS_REFERENCE": 2, "FUZZY": 3}
     results.sort(key=lambda r: (order.get(r["match_type"], 9), -r["score"],
@@ -169,7 +169,7 @@ def _search_files(conn: psycopg.Connection, q: str, limit: int) -> list[dict]:
     """, {"q": q, "like": f"%{q}%", "thr": SIMILARITY_THRESHOLD, "limit": limit})
 
 
-def _search_attachments(conn: psycopg.Connection, q: str, limit: int) -> list[dict]:
+def _search_attachments(conn: psycopg.Connection, q: str, limit: int, access: dict | None = None) -> list[dict]:
     return fetch_all(conn, """
         SELECT ra.id::text, df.file_number AS object_code,
                ra.filename AS display_name, 'REVISION_ATTACHMENT' AS object_type,
@@ -184,11 +184,15 @@ def _search_attachments(conn: psycopg.Connection, q: str, limit: int) -> list[di
           FROM revision_attachment ra
           JOIN file_revision fr ON fr.id=ra.file_revision_id
           JOIN design_file df ON df.id=fr.design_file_id
-         WHERE ra.filename ILIKE %(like)s
+         WHERE (ra.filename ILIKE %(like)s
             OR COALESCE(ra.search_text,'') ILIKE %(like)s
-            OR similarity(ra.filename,%(q)s)>%(thr)s
+            OR similarity(ra.filename,%(q)s)>%(thr)s)
+           AND (NOT %(hide_native)s OR ra.attachment_role <> 'PRIMARY_NATIVE')
+           AND (NOT %(published_only)s OR fr.status IN ('RELEASED','SUPERSEDED'))
          ORDER BY score DESC LIMIT %(limit)s
-    """, {"q": q, "like": f"%{q}%", "thr": SIMILARITY_THRESHOLD, "limit": limit})
+    """, {"q": q, "like": f"%{q}%", "thr": SIMILARITY_THRESHOLD, "limit": limit,
+          "hide_native": access is not None and not access["native"],
+          "published_only": access is not None and not access["unreleased"]})
 
 
 # ---------------------------------------------------------------------

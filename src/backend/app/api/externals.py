@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 
 from .. import errors
 from ..txroute import TransactionalRoute
-from ..deps import Conn, CurrentUser, require
+from ..deps import require_any, Conn, CurrentUser, require
 from ..rbac import Perm
 from ..services import approvals as ap_svc, externals as ext_svc
 from .. import storage
@@ -382,7 +382,7 @@ def get_request(request_id: str, conn: Conn, user: CurrentUser):
 @router.post("/approvals/{request_id}/reject")
 def reject(request_id: str, conn: Conn,
            reason: str = Query(..., min_length=1, max_length=500),
-           actor: dict = Depends(require(Perm.APPROVE))):
+           actor: dict = Depends(require_any(Perm.APPROVE, Perm.SIGN))):
     """驳回本轮，申请人可修改后再次提交。"""
     try:
         return ap_svc.reject(conn, request_id, reason, actor)
@@ -395,7 +395,7 @@ def reject(request_id: str, conn: Conn,
 @router.post("/approvals/{request_id}/return")
 def send_back(request_id: str, conn: Conn,
               reason: str = Query(..., min_length=1, max_length=500),
-              actor: dict = Depends(require(Perm.APPROVE))):
+              actor: dict = Depends(require_any(Perm.APPROVE, Perm.SIGN))):
     """退回补充。与拒绝的区别：方向没问题但材料不足，改完再提交即可。"""
     try:
         return ap_svc.send_back(conn, request_id, reason, actor)

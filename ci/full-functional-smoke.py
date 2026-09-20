@@ -273,10 +273,15 @@ def main() -> None:
     engineer.upload(f"/revisions/{rev['id']}/attachments","CI检索证明.txt","唯一附件检索词UGATTACHMENT".encode("utf-8"))
     attachment_search=engineer.get(q("/search",q="UGATTACHMENT",kinds="ATTACHMENT"))
     check(any(x["kind"]=="ATTACHMENT" for x in attachment_search["results"]),"attachment content search failed")
-    target=next(x for x in engineer.get("/approvals/candidates") if x["username"]==usernames["approver"])
-    engineer.post(f"/revisions/{rev['id']}/submit",{"approver_user_id":target["id"]})
-    approver.post(q(f"/revisions/{rev['id']}/release",comments="CI file release"))
-    results.append("file/attachment-content-search-submit-release")
+    # rc2.45 三级签署: 编制(工程师) -> 审核(构型管理员账号) -> 批准(审批员账号), 均须在有权签署人清单内并重新输入口令
+    reviewer_id=cm.get("/auth/me")["id"]; approver_id=approver.get("/auth/me")["id"]
+    admin.post("/signers",{"user_id":reviewer_id,"level":"REVIEW","note":"CI"})
+    admin.post("/signers",{"user_id":approver_id,"level":"APPROVE","note":"CI"})
+    engineer.post(f"/revisions/{rev['id']}/submit",{"reviewer_user_id":reviewer_id,"approver_user_id":approver_id,
+        "password":PASSWORDS["engineer"][1]})
+    cm.post(f"/revisions/{rev['id']}/review",{"password":PASSWORDS["cm"][1],"comments":"CI file review"})
+    approver.post(f"/revisions/{rev['id']}/release",{"password":PASSWORDS["approver"][1],"comments":"CI file release"})
+    results.append("file/attachment-content-search-three-level-signoff-release")
 
     sw_num = "UG-SW-CI-" + STAMP
     software = engineer.post("/software", {"software_number": sw_num, "name_cn": "CI测试软件", "software_type": "SOFTWARE"})
