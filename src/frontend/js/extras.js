@@ -1,5 +1,6 @@
 import { api } from './api.js';
-import { el, field, input, select, panel, table, tablePanel, toast, empty, fmtDate, codeText } from './ui.js';
+import { importProgress } from './import-progress.js';
+import { el, link, field, input, select, panel, table, tablePanel, toast, empty, fmtDate, codeText } from './ui.js';
 import { editor } from './manage.js';
 import { recordView } from './bom-tools.js';
 
@@ -14,16 +15,19 @@ export function reasonAction(label, path, after, method = 'post') {
   } }, label);
 }
 
-export function approvalSubmitButton(label, path, after, requiredRole = 'APPROVER') {
+export function approvalSubmitButton(label, path, after, requiredRole = 'APPROVER', beforeSubmit = null) {
   return el('button', { class: 'btn', onclick: async () => {
     try {
       const candidates = await api.get('/approvals/candidates', { query: { required_role: requiredRole } });
-      if (!candidates.length) throw Error('当前没有可用审批人，请管理员启用审批员账户');
+      if (!candidates.length) throw Error(requiredRole === 'APPROVER'
+        ? '没有可选审批人：需要另一名已启用且具有审批员或构型管理员角色的账户，申请人不能审批自己'
+        : '没有符合本流程角色要求的其他启用账户，请联系管理员检查审批人员配置');
       const approver = select(candidates.map(x => ({ value: x.id,
         label: `${x.full_name}（${x.username}${x.employee_no ? ' · '+x.employee_no : ''}）` })));
       editor(label, el('div', {}, field('审批人', approver),
         el('p', { class: 'muted' }, '仅显示启用、具备审批权限且不是发起人本人的账户。')),
       async () => {
+        if(beforeSubmit) await beforeSubmit();
         await api.post(path, { json: { approver_user_id: approver.value } });
         toast('已提交给所选审批人'); await after();
       }, { submit: '确认提交' });
@@ -109,7 +113,37 @@ export async function backupPage(ctx) {
     const weekday=select(['周一','周二','周三','周四','周五','周六','周日'].map((label,i)=>({value:i,label,selected:i===s.weekday})));
     const retention=input({type:'number',min:1,max:365,value:s.retention});
     const restoreFile=input({type:'file',accept:'.zip'}); const confirm=input({placeholder:'输入：恢复UG-DCMS'});
-    root.replaceChildren(el('h1',{},'系统备份与恢复'),
+    const dataFile=input({type:'file',accept:'.zip','aria-label':'数据备份包'});
+    const dataConfirm=input({placeholder:'输入：导入模拟数据','aria-label':'数据导入确认文字'});
+    let tracker;
+    const importButton=el('button',{class:'btn primary',onclick:async()=>{
+      if(!dataFile.files[0]) return toast('请选择数据备份包','error');
+      await tracker.submit(dataFile.files[0],dataConfirm.value);
+    }},'校验并导入数据');
+    tracker=importProgress(data.import_job,draw,busy=>{importButton.disabled=busy;dataFile.disabled=busy;dataConfirm.disabled=busy;});
+    const receipt=data.data_import?.receipt, m=receipt?.manifest;
+    const scaleReceipt=data.scale_import?.receipt, scale=scaleReceipt?.manifest;
+    const dataPanel=panel('导入数据备份包',[
+      el('p',{},'选择配套 IMA 或十项目规模数据备份 ZIP，仅新增模拟业务记录，保留现有数据和附件。重复导入不会重复创建，无需重启服务。'),
+      el('p',{class:'muted'},'十项目规模包：1000个设计族、10000个内部件号、500个软件、5000个外部件号；原IMA包仍可单独导入。'),
+      el('div',{class:'inline-form'},field('数据备份包',dataFile),field('确认文字',dataConfirm),importButton),tracker.host,
+      m?el('div',{class:'note ok'},
+        el('p',{role:'status'},'数据导入已完成 · '+fmtDate(receipt.imported_at)+' · '+m.top_part_number),
+        el('div',{class:'actions'},
+          link('打开共用 BOM','#/bom/'+encodeURIComponent(m.top_part_number),'btn'),
+          link('查看顶层设计基线','#/baseline/'+m.baselines.IMA.id,'btn'),
+          link('查看模拟设计资料','#/design-materials?q=SIM-IMA-V1','btn'))):null,
+      scale?el('div',{'data-scale-import':'true',class:'note ok'},
+        el('p',{role:'status'},'十项目规模数据导入已完成 · '+fmtDate(scaleReceipt.imported_at)),
+        el('p',{},`${scale.counts.families}个设计族 · ${scale.counts.parts}个内部件号 · ${scale.counts.software}个软件 · ${scale.counts.externals}个外部件号 · ${scale.counts.projects}个项目`),
+        el('div',{class:'table-scroll'},table([{label:'模拟项目'},{label:'根件号'},{label:'业务入口'}],scale.projects,p=>[
+          el('td',{},p.name,el('div',{class:'mono'},p.code)),el('td',{class:'mono'},p.root_part_number),
+          el('td',{},el('div',{class:'row-actions'},link('查看 BOM','#/bom/'+encodeURIComponent(p.root_part_number),'btn'),
+            link('查看基线','#/baseline/'+p.baseline_id,'btn')))])),
+        link('查看规模模拟资料','#/design-materials?q=SIM-SCALE-V1','btn')):null
+    ]);
+
+    root.replaceChildren(...[el('h1',{},'系统备份与恢复'),
       el('p',{class:'sub'},'备份集同时包含PostgreSQL数据库和全部附件；恢复前自动生成恢复前备份。'),
       data.restore_status?.state==='COMPLETED' ? el('div',{class:'note ok'},
         el('b',{},'恢复完成（100%）'),el('div',{},data.restore_status.message),
@@ -122,6 +156,7 @@ export async function backupPage(ctx) {
       tablePanel('备份清单',table([{label:'文件'},{label:'时间'},{label:'原因'},{label:'附件数'},{label:'大小'},{label:''}],data.backups,b=>[
         el('td',{class:'mono'},b.filename),el('td',{},fmtDate(b.created_at)),el('td',{},codeText(b.reason)),el('td',{class:'num'},b.file_count??'—'),el('td',{class:'num'},((b.size_bytes||0)/1048576).toFixed(1)+' MB'),
         el('td',{},el('button',{class:'btn small',onclick:()=>api.download('/system/backups/'+encodeURIComponent(b.filename)+'/download',b.filename)},'下载'))])||empty('暂无备份')),
+      dataPanel,
       panel('恢复系统',el('div',{},
         el('p',{class:'note warn'},'恢复将替换当前数据库和附件；执行前系统会自动备份当前状态。'),
         el('h4',{},'第1步：上传并校验备份包'),
@@ -132,7 +167,7 @@ export async function backupPage(ctx) {
           el('div',{class:'actions'},
             el('button',{class:'btn danger',onclick:async()=>{if(!window.confirm('确认立即重启UG-DCMS并恢复数据库和全部附件？'))return;try{const r=await api.post('/system/restore/apply');await monitorRestore({message:r.message});}catch(e){toast(e.message,'error')}}},'立即重启并执行恢复'),
             el('button',{class:'btn',onclick:async()=>{try{const r=await api.del('/system/restore');toast(r.message);await draw();}catch(e){toast(e.message,'error')}}},'取消待恢复任务'))) :
-          el('p',{class:'muted'},'备份包校验通过后，此处将出现“立即重启并执行恢复”按钮。'))));
+          el('p',{class:'muted'},'备份包校验通过后，此处将出现“立即重启并执行恢复”按钮。')))].filter(Boolean));
   }; await draw(); return root;
 }
 

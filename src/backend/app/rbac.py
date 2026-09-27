@@ -20,12 +20,17 @@ class Role(StrEnum):
     ENGINEER = "ENGINEER"
     APPROVER = "APPROVER"
     VIEWER = "VIEWER"
+    PRODUCTION = "PRODUCTION"      # 生产: 只读, 只看已发布资料
+    PROCUREMENT = "PROCUREMENT"    # 采购: 只读, 只看已发布资料, 不含原生设计文件
 
 
 class Perm(StrEnum):
     # 读
     READ = "read"
     READ_AUDIT = "read_audit"
+    # 资料访问范围。现有角色全部保留这两项(行为不变); 生产/采购不具备。
+    READ_UNRELEASED = "read_unreleased"      # 查看/下载草稿、审核中、已取消版次的内容
+    DOWNLOAD_NATIVE = "download_native"      # 下载原生设计文件(PRIMARY_NATIVE)
     # 设计数据
     DRAFT_WRITE = "draft_write"              # 新建/编辑草稿对象、BOM、文件
     SUBMIT = "submit"                        # 提交审核
@@ -35,31 +40,40 @@ class Perm(StrEnum):
     # 构型管理
     NUMBER_ALLOCATE = "number_allocate"
     BASELINE_RELEASE = "baseline_release"
+    # 三级签署: 审核/批准时的电子签名(能否签署由"有权签署人清单"决定, 本权限只是入口)
+    SIGN = "sign"
+    SIGNER_MANAGE = "signer_manage"          # 维护有权签署人清单
     # 系统管理
     USER_MANAGE = "user_manage"
     SESSION_MANAGE = "session_manage"
     SYSTEM_SETTING = "system_setting"
 
 
+_ACCESS = frozenset({Perm.READ_UNRELEASED, Perm.DOWNLOAD_NATIVE})
+
 ROLE_PERMISSIONS: dict[Role, frozenset[Perm]] = {
-    Role.VIEWER: frozenset({Perm.READ}),
+    Role.VIEWER: frozenset({Perm.READ}) | _ACCESS,
     Role.ENGINEER: frozenset({
-        Perm.READ, Perm.DRAFT_WRITE, Perm.SUBMIT,
-    }),
+        Perm.READ, Perm.DRAFT_WRITE, Perm.SUBMIT, Perm.SIGN,
+    }) | _ACCESS,
     Role.APPROVER: frozenset({
-        Perm.READ, Perm.APPROVE,
-    }),
+        Perm.READ, Perm.APPROVE, Perm.SIGN,
+    }) | _ACCESS,
     Role.CONFIGURATION_MANAGER: frozenset({
-        Perm.READ, Perm.DRAFT_WRITE, Perm.SUBMIT, Perm.APPROVE,
+        Perm.READ, Perm.DRAFT_WRITE, Perm.SUBMIT, Perm.APPROVE, Perm.SIGN, Perm.SIGNER_MANAGE,
         Perm.NUMBER_ALLOCATE, Perm.BASELINE_RELEASE, Perm.READ_AUDIT,
-    }),
+    }) | _ACCESS,
     Role.DATA_ADMIN: frozenset({
         Perm.READ, Perm.DICTIONARY_WRITE, Perm.READ_AUDIT,
-    }),
+    }) | _ACCESS,
     Role.SYSTEM_ADMIN: frozenset({
         Perm.READ, Perm.READ_AUDIT,
         Perm.USER_MANAGE, Perm.SESSION_MANAGE, Perm.SYSTEM_SETTING,
-    }),
+    }) | _ACCESS,
+    # 生产、采购按最小权限: 只读、只见已发布内容、不含原生设计文件。
+    # 若生产需要原生文件, 在此加上 Perm.DOWNLOAD_NATIVE 即可。
+    Role.PRODUCTION: frozenset({Perm.READ}),
+    Role.PROCUREMENT: frozenset({Perm.READ}),
 }
 
 

@@ -128,17 +128,18 @@ input.mono, textarea.mono { font-family: var(--mono); }
 textarea { min-height: 68px; resize: vertical; }
 input:disabled, select:disabled { background: #f2f4f6; color: var(--ink-3); }
 .btn {
-  display: inline-block; padding: 6px 14px; font: 13px var(--sans); cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  vertical-align: middle; text-align: center; font: 13px/20px var(--sans); cursor: pointer;
   border: 1px solid var(--ink); background: var(--surface); color: var(--ink);
 }
 .btn:hover { background: var(--ink); color: var(--surface); }
 .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 .btn.primary:hover { background: #17395a; }
-.btn.small { padding: 3px 9px; font-size: 12px; }
 .btn.danger { border-color: var(--st-obsolete); color: var(--st-obsolete); }
 .btn.danger:hover { background: var(--st-obsolete); color: #fff; }
 .btn:disabled { opacity: .45; cursor: not-allowed; }
-.actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
+.actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
+.actions .actions { margin-top: 0; }
 .inline-form { display: flex; gap: 8px; align-items: flex-end; flex-wrap: wrap; }
 .inline-form > div { flex: 1 1 130px; }
 .inline-form label { margin-top: 0; }
@@ -244,10 +245,15 @@ tbody tr:hover { background:#f1f6fd; }
 .badge { display:inline-block; background:#eff4fb; color:#38577e; }
 .badges,.row-actions { display:flex; gap:6px; flex-wrap:wrap; }
 .row-actions { min-width:190px; }
-.btn { border-color:#cad6e5; border-radius:6px; padding:9px 16px; font-weight:500; min-height:36px; white-space:nowrap; }
+.btn { border-color:#cad6e5; border-radius:6px; padding:8px 14px; font-weight:500; min-height:38px; white-space:nowrap; flex-shrink:0; }
 .btn:hover { background:#eaf2ff; color:var(--accent); border-color:#93b4df; text-decoration:none; }
 .btn.primary { color:white; }
-.btn.small { min-height:30px; padding:4px 10px; }
+/* Size follows placement: page/form actions 38px, dense rows 32px.
+   Legacy .small on shared helpers must not shrink page-level actions. */
+td .btn,.row-actions .btn,.condition-row .btn,.whoami .btn {
+  min-height:32px; padding:5px 10px; font-size:12px;
+}
+.row-actions { align-items:center; }
 input,select,textarea { border-radius:6px; padding:9px 11px; min-height:38px; }
 input:focus,select:focus,textarea:focus { border-color:var(--accent); }
 input[type=checkbox],input[type=radio] { width:17px; min-height:17px; accent-color:var(--accent); }
@@ -280,7 +286,9 @@ label { font-size:13px; margin-bottom:6px; }
 .condition-row select { flex:0 1 110px; width:110px; }
 details > summary { cursor:pointer; color:var(--accent); }
 .part-picker { position:relative; min-width:300px; }
-.part-picker-results { position:absolute; z-index:30; left:0; right:0; top:42px; max-height:280px; overflow:auto; background:#fff; border:1px solid #b9cbe0; border-radius:8px; box-shadow:0 12px 28px #10243d2e; }
+.panel.bom-add-panel { overflow:visible; }
+.class-notes { font-size:12px; margin-top:8px; }
+.part-picker-results { position:absolute; z-index:30; left:0; width:max(100%, 440px); max-width:calc(100vw - 48px); top:42px; max-height:min(440px, 60vh); overflow:auto; background:#fff; border:1px solid #b9cbe0; border-radius:8px; box-shadow:0 12px 28px #10243d2e; }
 .part-picker-results:empty { display:none; }
 .part-picker-option { width:100%; display:grid; grid-template-columns:minmax(120px,.8fr) minmax(130px,1fr); gap:4px 12px; padding:10px 12px; text-align:left; border:0; border-bottom:1px solid #e5ebf3; background:#fff; color:var(--ink); cursor:pointer; }
 .part-picker-option:hover { background:#edf5ff; }
@@ -300,3 +308,61 @@ details > summary { cursor:pointer; color:var(--accent); }
   .grid2 { grid-template-columns:minmax(0,1fr); }
 }
 @media (max-width:560px) { .editor .grid2,.role-grid { grid-template-columns:minmax(0,1fr); } .page-heading { align-items:flex-start; } }
+
+/* Durable additive-import progress, also on narrow client screens. */
+[data-import-progress] progress{display:block;width:100%;height:18px;margin:12px 0;accent-color:var(--primary,#2563b8)}
+[data-import-progress] p{overflow-wrap:anywhere}
+[data-import-progress][hidden]{display:none}
+
+/* ---- rc2.45: 文件管理与发布资料库 ---- */
+.page-head { display:flex; justify-content:space-between; align-items:flex-start; gap:12px; flex-wrap:wrap; }
+.page-head-actions { display:flex; gap:8px; padding-top:4px; }
+.filter-bar { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px 12px; align-items:end;
+  background:var(--surface); border:1px solid var(--rule-light); border-radius:10px; padding:12px 16px; margin:0 0 16px; }
+.filter-bar label { margin-top:0; }
+.filter-actions { display:flex; gap:8px; }
+.panel.fold > summary { padding:12px 18px; font-weight:600; }
+.panel.fold[open] > summary { border-bottom:1px solid var(--rule-light); }
+.file-chips { display:flex; flex-wrap:wrap; gap:10px; margin:8px 0 12px; }
+.file-chip { display:grid; gap:2px; text-align:left; min-width:190px; max-width:320px; padding:10px 14px; cursor:pointer;
+  background:var(--accent-bg); border:1px solid #c4d5e6; border-radius:8px; color:var(--ink); font:inherit; }
+.file-chip:hover { border-color:var(--accent); background:#dfeaf5; }
+.file-chip b { font-size:12px; color:var(--accent); }
+.file-chip span { overflow-wrap:anywhere; }
+.file-chip small { color:var(--ink-3); }
+.diff { display:inline-block; padding:1px 8px; border-radius:10px; font-size:12px; border:1px solid var(--rule-light); }
+.diff-SAME { color:var(--ink-3); background:#f1f3f6; }
+.diff-CHANGED { color:var(--st-warn); background:#fdf6e8; border-color:#efd9a6; }
+.diff-ADDED { color:var(--st-released); background:#edf8f1; border-color:#c5e5d2; }
+.diff-REMOVED { color:var(--st-obsolete); background:#fbeceb; border-color:#efc5c2; }
+div.muted.small { font-size:12px; }
+
+/* ---- rc2.45: 基线发布前检查 ---- */
+.ready-summary { display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap;
+  padding:12px 16px; border-radius:8px; margin-bottom:14px; border:1px solid var(--rule-light); }
+.ready-summary.is-block { background:#fbeceb; border-color:#efc5c2; color:var(--st-obsolete); }
+.ready-summary.is-warn { background:#fdf6e8; border-color:#efd9a6; color:var(--st-warn); }
+.ready-summary.is-pass { background:#edf8f1; border-color:#c5e5d2; color:var(--st-released); }
+.ready-summary span { font-size:12px; color:var(--ink-2); }
+.ready-group { margin:0 0 12px; }
+.ready-group h4 { margin:0 0 6px; font-size:12px; color:var(--ink-3); font-weight:600; }
+.ready-row { display:flex; align-items:flex-start; gap:10px; padding:8px 10px; border-bottom:1px solid var(--rule-light); }
+.ready-row .ready-text { flex:1 1 auto; min-width:0; overflow-wrap:anywhere; }
+.ready-row .ready-text small { display:block; }
+.ready-ico { flex:0 0 22px; height:22px; border-radius:50%; display:grid; place-items:center; font-size:12px; font-weight:700; color:#fff; }
+.lv-BLOCK .ready-ico { background:var(--st-error); }
+.lv-WARN .ready-ico { background:var(--st-warn); }
+.lv-PASS .ready-ico { background:var(--st-released); }
+
+/* ---- rc2.45: 变更影响分析 ---- */
+.impact-stats { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px; margin-bottom:12px; }
+.impact-stat { border:1px solid var(--rule-light); border-radius:8px; padding:10px 14px; background:var(--paper); }
+.impact-stat b { display:block; font-size:22px; font-family:var(--mono); }
+.impact-stat span { font-size:12px; color:var(--ink-3); }
+.impact-stat.is-warn { border-color:#efd9a6; background:#fdf6e8; }
+.impact-stat.is-warn b { color:var(--st-warn); }
+.chip { display:inline-block; margin:1px 4px 1px 0; padding:1px 8px; border-radius:10px; background:var(--accent-bg); font-size:12px; }
+
+/* ---- rc2.45: 审批等待时长 ---- */
+.wait { display:inline-block; padding:1px 8px; border-radius:10px; font-size:12px; background:#f1f3f6; color:var(--ink-2); border:1px solid var(--rule-light); }
+.wait.is-overdue { background:#fbeceb; color:var(--st-error); border-color:#efc5c2; font-weight:600; }

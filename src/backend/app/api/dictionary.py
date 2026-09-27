@@ -73,6 +73,8 @@ def read_dictionary(name: str, conn: Conn, user: CurrentUser,
     spec = _spec(name)
     sql = f"SELECT {spec['cols']} FROM {spec['table']} WHERE (NOT %s OR status = 'ACTIVE')"
     params: list = [active_only]
+    if name == 'object-level' and active_only:
+        sql += " AND code IN ('PART','ASSEMBLY')"
     if q:
         sql += " AND (name_cn ILIKE %s OR code::text ILIKE %s)"
         params += [f"%{q}%", f"%{q}%"]
@@ -113,6 +115,8 @@ def deprecate_entry(name: str, key: str, conn: Conn,
 def reactivate_entry(name: str, key: str, conn: Conn,
                      reason: str = Query(..., min_length=1, max_length=256),
                      actor: dict = Depends(require(Perm.DICTIONARY_WRITE))):
+    if name == 'object-level' and key not in ('PART','ASSEMBLY'):
+        raise errors.bad_request('对象层级仅使用零件、组件，其他历史层级不再启用')
     spec = _spec(name)
     before = fetch_one(conn,
                        f"SELECT {spec['cols']} FROM {spec['table']} WHERE {spec['key']}::text = %s",

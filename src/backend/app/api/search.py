@@ -31,7 +31,8 @@ def search(conn: Conn, user: CurrentUser,
         if bad:
             raise errors.bad_request(f"未知类型: {', '.join(bad)}; "
                                      f"可用: {', '.join(sorted(KINDS))}")
-    return search_svc.search(conn, q, kinds=kl, limit=limit)
+    from ..services import files as file_svc
+    return search_svc.search(conn, q, kinds=kl, limit=limit, access=file_svc.access_for(user))
 
 
 @router.get("/objects/{object_code}")
