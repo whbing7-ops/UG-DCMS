@@ -131,9 +131,12 @@ def revoke(conn: psycopg.Connection, auth_id: str, reason: str, actor: dict) -> 
 # 范围匹配: 授权上该维度为空 = 不限; 资料上该维度为空 = 未标注, 无从比对则不拦截。
 # 后一条是给升级留的路: 0028 之前建的文件没有专业, 不能让它们的在途审批突然签不下去。
 # 补标专业由 UG-DAP-01 的四性核查推动, 不靠在这里卡人。
+#
+# 参数必须显式 ::text: 裸写 "%s IS NULL" 时 Postgres 无从推断参数类型,
+# 会以 "could not determine data type of parameter" 拒绝整条语句。
 _SCOPE_SQL = """
-             AND (sa.file_type_code IS NULL OR sa.file_type_code = %s)
-             AND (sa.discipline_code IS NULL OR %s IS NULL OR sa.discipline_code = %s)
+             AND (sa.file_type_code IS NULL OR sa.file_type_code = %s::text)
+             AND (sa.discipline_code IS NULL OR %s::text IS NULL OR sa.discipline_code = %s::text)
 """
 
 
