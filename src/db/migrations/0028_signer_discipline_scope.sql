@@ -60,11 +60,11 @@ CREATE INDEX IF NOT EXISTS idx_design_file_discipline ON design_file (discipline
 
 -- ---------------------------------------------------------------------
 -- 3. 授权范围: 专业、具体产品、备份人; level 增加 CVE
---    product_scope 为自由文本(型号/件号/项目号的书面范围), 因为本系统目前没有
---    项目实体。NULL = 不限。写成文本而不是引用, 是为了不假装有一套并不存在的主数据。
+--    产品范围这一维暂不实现: 系统尚无项目实体, "产品"没有可引用的标识,
+--    写成自由文本只能显示、无法比对, 等于把手册要求强制执行的控制做成装饰。
+--    待项目实体落地后用项目引用一次做对, 见 docs/das-operation-design-input.md 第九之二节。
 -- ---------------------------------------------------------------------
 ALTER TABLE signer_authorization ADD COLUMN IF NOT EXISTS discipline_code text;
-ALTER TABLE signer_authorization ADD COLUMN IF NOT EXISTS product_scope   text;
 ALTER TABLE signer_authorization ADD COLUMN IF NOT EXISTS backup_user_id  uuid;
 
 DO $$
@@ -132,10 +132,10 @@ BEGIN
         RAISE EXCEPTION 'DCMS-AUDIT: 已撤销的签署授权不得再改写' USING ERRCODE = '23514';
     END IF;
     IF (NEW.user_id, NEW.level, NEW.file_type_code, NEW.valid_from, NEW.valid_to, NEW.note,
-        NEW.granted_by, NEW.granted_at, NEW.discipline_code, NEW.product_scope, NEW.backup_user_id)
+        NEW.granted_by, NEW.granted_at, NEW.discipline_code, NEW.backup_user_id)
        IS DISTINCT FROM
        (OLD.user_id, OLD.level, OLD.file_type_code, OLD.valid_from, OLD.valid_to, OLD.note,
-        OLD.granted_by, OLD.granted_at, OLD.discipline_code, OLD.product_scope, OLD.backup_user_id) THEN
+        OLD.granted_by, OLD.granted_at, OLD.discipline_code, OLD.backup_user_id) THEN
         RAISE EXCEPTION 'DCMS-AUDIT: 签署授权除撤销外不得修改' USING ERRCODE = '23514';
     END IF;
     RETURN NEW;
@@ -159,7 +159,6 @@ SELECT sa.id,
        ft.name_cn                              AS file_type_name,
        sa.discipline_code,
        d.name_cn                               AS discipline_name,
-       sa.product_scope,
        sa.backup_user_id,
        bu.full_name                            AS backup_full_name,
        sa.valid_from,
