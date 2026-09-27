@@ -1,8 +1,10 @@
+import {startNotifications,stopNotifications} from './notifications.js';
 /* 应用入口: 会话、导航、哈希路由。
    不引入前端框架, 也不用打包工具 —— 部署环境是内网工作站, 很可能不通外网,
    任何 CDN 依赖都会让页面在现场打不开。原生 ES 模块由浏览器直接加载。 */
 import { api, setToken, token } from "./api.js";
 import { el, clear, toast, toastError } from "./ui.js";
+import { icon } from "./icons.js";
 import * as V1 from "./views.js";
 import * as V2 from "./views2.js";
 import * as V3 from "./views3.js";
@@ -11,17 +13,28 @@ import * as V5 from "./views5.js";
 import { accounts, bomHub, roles } from "./manage.js";
 import { diagnostics, auditPage, backupPage } from "./extras.js";
 
+import { draftEditor } from './drafts.js';
+import { designMaterials } from './design-materials.js';
+import { files, fileDetail, releasedLibrary } from './file-mgmt.js';
+import { partPackage } from './part-package.js';
+import { signersPage } from './signoff.js';
+
 const root = document.getElementById("root");
 let ctx = null;
 let renderVersion = 0;
 
 /* 路由表。顺序即匹配顺序, 静态路径在前。 */
 const ROUTES = [
+  ["/draft/:kind/:id", draftEditor],
   ["/",                    V1.home],
   ["/search",              V1.search],
   ["/families",            V2.families],
   ["/family-new",          V2.familyNew],
-  ["/files",               V3.files],
+  ["/design-materials", designMaterials],
+  ["/files",               files],
+  ["/library",             releasedLibrary],
+  ["/part/:pn",            partPackage],
+  ["/signers",             signersPage],
   ["/quality",             V4.quality],
   ["/reports",             V4.reports],
   ["/approvals",           V5.approvals],
@@ -38,7 +51,7 @@ const ROUTES = [
   ["/dash-new/:id",        V2.dashNew],
   ["/bom/:code",           V3.bom],
   ["/where-used/:code",    V3.whereUsed],
-  ["/file/:num",           V3.fileDetail],
+  ["/file/:num",           fileDetail],
   ["/revision/:id",        V3.revisionDetail],
   ["/baselines/:pn",       V4.baselines],
   ["/baseline/:id",        V4.baselineDetail],
@@ -50,17 +63,20 @@ const ROUTES = [
 
 const NAV = [
   { group: "设计数据", items: [
-    ["#/", "概览", "⌂"], ["#/search", "查找", "⌕"], ["#/bom", "BOM 管理", "≡"], ["#/families", "设计族", "◫"], ["#/files", "设计文件", "▤"],
-    ["#/external-parts", "外部件", "◇"], ["#/software", "软件对象", "⬡"],
+    ["#/", "概览", "home"], ["#/search", "查找", "search"], ["#/library", "发布资料库", "library"],
+    ["#/bom", "BOM 管理", "bom", "read_unreleased"], ["#/families", "设计族", "families", "read_unreleased"], ["#/files", "设计文件", "file"],
+    ["#/design-materials", "设计资料清单", "materials", "read_unreleased"],
+    ["#/external-parts", "外部件", "external"], ["#/software", "软件对象", "software"],
   ]},
   { group: "流程", items: [
-    ["#/approvals", "审批", "✓"],
+    ["#/approvals", "审批", "approvals", "read_unreleased"], ["#/signers", "有权签署人", "badge", "read_unreleased"],
   ]},
   { group: "质量与统计", items: [
-    ["#/quality", "数据质量", "◉"], ["#/reports", "统计", "▥"],
+    ["#/quality", "数据质量", "quality", "read_unreleased"], ["#/reports", "统计", "reports", "read_unreleased"],
   ]},
   { group: "系统", items: [
-    ["#/system-check", "系统自检", "⌁"], ["#/dictionary", "受控字典", "▦"], ["#/audit", "审计记录", "◷"], ["#/backup", "备份恢复", "↻"], ["#/admin", "系统管理", "⚙"],
+    ["#/system-check", "系统自检", "syscheck", "read_unreleased"], ["#/dictionary", "受控字典", "dictionary", "read_unreleased"], ["#/audit", "审计记录", "audit", "read_audit"],
+    ["#/backup", "备份恢复", "backup", "system_setting"], ["#/admin", "系统管理", "admin", "user_manage"],
   ]},
 ];
 
@@ -81,6 +97,8 @@ function match(path) {
 
 /* ---------------- 登录 ---------------- */
 function loginView(msg) {
+  const desired=sessionStorage.getItem('dcms.afterLogin')||location.hash;
+  const afterLogin=/^#\/approval\/[0-9a-f-]{36}$/i.test(desired)?desired:'#/';
   const u = el("input", { autofocus: true, autocomplete: "username", "aria-label": "账户" });
   const p = el("input", { type: "password", autocomplete: "current-password", "aria-label": "当前口令" });
   const err = el("div", {});
@@ -91,7 +109,7 @@ function loginView(msg) {
       setToken(r.access_token);
       if (!(await boot())) return;
       if (r.user.must_change_password) { location.hash = "#/change-password"; }
-      else { location.hash = "#/"; }
+      else { sessionStorage.removeItem('dcms.afterLogin'); location.hash = afterLogin; }
       await render();
     } catch (e) {
       err.replaceChildren(el("div", { class: "note error" }, e.message,
@@ -155,23 +173,38 @@ function changePasswordView() {
 function shell(content) {
   const path = (location.hash.slice(1).split("?")[0]) || "/";
   const rail = el("aside", { class: "rail" },
-    el("div", { class: "brand" }, "UG-DCMS", el("small", {}, "设计构型管理 · rc2.32")),
-    el("nav", { class: "nav" }, NAV.map(g => [
+    el("div", { class: "brand" },
+      el("span", { class: "brand-logo", "aria-hidden": "true" }, "UG"),
+      el("span", { class: "brand-text" }, "UG-DCMS", el("small", {}, "设计构型管理 · rc2.45"))),
+    /* 入口按权限显示: 没有权限的入口点进去只会得到"无操作权限", 不如不出现 */
+    el("nav", { class: "nav" }, NAV.map(g => ({ ...g, items: g.items.filter(i => !i[3] || ctx.can(i[3])) })).filter(g => g.items.length).map(g => [
       el("h4", {}, g.group),
-      g.items.map(([href, label, icon]) =>
+      g.items.map(([href, label, ico]) =>
         el("a", { href, class: (href.slice(1) === path || (href === "#/bom" && path.startsWith("/bom/"))) ? "on" : null },
-          el("span",{class:"nav-icon","aria-hidden":"true"},icon),el("span",{},label))),
+          el("span", { class: "nav-icon", "aria-hidden": "true", html: icon(ico) }), el("span", {}, label))),
     ])),
     el("div", { class: "whoami" },
-      el("div", {}, ctx.user.full_name),
+      el("a",{href:"#/", "data-notification-badge":"true"},"待办与消息"),
+      el("div", { class: "who-name" }, ctx.user.full_name),
       el("div", { class: "muted" }, (ctx.user.roles || []).map(r => roles[r] || r).join("、")),
       el("a", { href: "#/change-password" }, "修改密码"),
       el("a", { href: "#", onclick: async e => {
         e.preventDefault();
         try { await api.logout(); } catch {}
-        setToken(null); ctx = null; location.hash = "#/login"; loginView("已退出登录。");
+        sessionStorage.removeItem('dcms.afterLogin'); stopNotifications(); setToken(null); ctx = null; location.hash = "#/login"; loginView("已退出登录。");
       } }, "退出登录")));
-  clear(root).append(el("div", { class: "shell" }, rail, el("main", { class: "main" }, content)));
+  clear(root).append(el("div", { class: "shell" }, rail, el("main", { class: "main" }, topbar(), content)));
+}
+
+/* 顶栏: 全局快速查找。回车后进入"查找"页, 由该页完成检索与展示。 */
+function topbar() {
+  const box = el("input", { type: "search", placeholder: "搜索件号、图号、文件号、附件名…", "aria-label": "顶部搜索框", autocomplete: "off" });
+  box.addEventListener("keydown", e => {
+    if (e.key === "Enter" && box.value.trim()) location.hash = "#/search?q=" + encodeURIComponent(box.value.trim());
+  });
+  return el("header", { class: "topbar" },
+    el("div", { class: "topbar-search" }, el("span", { "aria-hidden": "true", html: icon("search") }), box),
+    el("span", { class: "topbar-hint" }, new Date().toLocaleDateString("zh-CN", { year: "numeric", month: "long", day: "numeric", weekday: "long" })));
 }
 
 async function render() {
@@ -215,8 +248,10 @@ async function boot() {
       perms: new Set(me.permissions || []),
       can(p) { return this.perms.has(p); },
     };
+    startNotifications(me);
     return true;
   } catch {
+    stopNotifications();
     setToken(null);
     loginView();
     return false;

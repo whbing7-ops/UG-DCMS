@@ -1,0 +1,82 @@
+name: Publish rc2.41 notification assistant ZIP
+on:
+  workflow_dispatch:
+  push:
+    branches: ['fix/restore-cross-version-rc2.33']
+    paths: ['.github/workflows/publish-notify-rc241-zip.yml']
+permissions:
+  contents: write
+concurrency:
+  group: publish-notify-rc241-zip
+  cancel-in-progress: false
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download and verify existing released assistant
+        run: |
+          curl --fail --silent --show-error --location --retry 5 --retry-all-errors --max-time 120 \
+            https://github.com/whbing7-ops/UG-DCMS/releases/download/rc2.41/UG-DCMS-Notify-rc2.41.exe \
+            --output UG-DCMS-Notify-rc2.41.exe
+          echo '8bdab9794efb311edbdc8389b82e1b0970b42c64fc15fc5140f0d8e918419b7d  UG-DCMS-Notify-rc2.41.exe' | sha256sum --check
+      - name: Package verified EXE with Chinese instructions
+        run: |
+          python - <<'PY'
+          import hashlib, zipfile
+          from pathlib import Path
+          exe = Path('UG-DCMS-Notify-rc2.41.exe')
+          digest = hashlib.sha256(exe.read_bytes()).hexdigest()
+          instructions = """UG-DCMS Windows 通知助手 rc2.41
+
+          1. 完整解压 ZIP，双击 UG-DCMS-Notify-rc2.41.exe。
+          2. 在浏览器登录 rc2.41 系统，首页“Windows 系统通知”中点击“生成绑定信息”。
+          3. 将完整绑定信息粘贴到助手，点击“连接通知”。绑定信息一次有效，5 分钟内使用。
+          4. 保持助手在系统托盘运行；关闭窗口会隐藏到托盘，右键托盘可测试通知或退出。
+
+          接收通知的电脑需运行助手，无需安装 Python 或数据库。
+          绑定的网页登录会话退出或过期后，需要重新登录并绑定。
+          Windows 通知设置及“勿扰”可能隐藏弹窗，审批消息仍保留在系统首页。
+          本包仅包含通知助手，不包含服务器安装程序。
+          """
+          name = 'UG-DCMS-Notify-rc2.41.zip'
+          with zipfile.ZipFile(name, 'w', zipfile.ZIP_DEFLATED) as z:
+              for filename, payload in [
+                  (exe.name, exe.read_bytes()),
+                  ('使用说明.txt', instructions.replace('\n', '\r\n').encode('utf-8-sig')),
+                  ('SHA256SUMS.txt', (digest + '  ' + exe.name + '\n').encode()),
+              ]:
+                  info = zipfile.ZipInfo(filename, date_time=(2026, 9, 17, 0, 0, 0))
+                  info.compress_type = zipfile.ZIP_DEFLATED
+                  z.writestr(info, payload)
+          with zipfile.ZipFile(name) as z:
+              assert z.testzip() is None
+              assert hashlib.sha256(z.read(exe.name)).hexdigest() == digest
+          Path(name + '.sha256').write_text(hashlib.sha256(Path(name).read_bytes()).hexdigest() + '  ' + name + '\n')
+          PY
+      - name: Add ZIP to existing release without replacing other assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          gh release view rc2.41 --json assets > assets.json
+          for name in UG-DCMS-Notify-rc2.41.zip UG-DCMS-Notify-rc2.41.zip.sha256; do
+            if python -c 'import json,sys; sys.exit(0 if any(a["name"] == sys.argv[1] for a in json.load(open("assets.json"))["assets"]) else 1)' "$name"; then
+              mkdir -p existing
+              gh release download rc2.41 --pattern "$name" --dir existing
+              cmp "$name" "existing/$name"
+            else
+              gh release upload rc2.41 "$name"
+            fi
+          done
+      - name: Verify anonymous ZIP download and checksum
+        run: |
+          set -euo pipefail
+          mkdir public-download
+          cd public-download
+          for name in UG-DCMS-Notify-rc2.41.zip UG-DCMS-Notify-rc2.41.zip.sha256; do
+            curl --fail --silent --show-error --location --retry 5 --retry-all-errors --max-time 120 \
+              "https://github.com/whbing7-ops/UG-DCMS/releases/download/rc2.41/$name" --output "$name"
+          done
+          sha256sum --check UG-DCMS-Notify-rc2.41.zip.sha256
+          cmp UG-DCMS-Notify-rc2.41.zip ../UG-DCMS-Notify-rc2.41.zip

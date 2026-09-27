@@ -1,0 +1,47 @@
+name: Publish verified rc2.37 installer
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/publish-rc237.yml'
+permissions:
+  contents: write
+  actions: read
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: svgUG-DCMS-20260914-rc2.37
+          run-id: 34814658863
+          github-token: ${{ github.token }}
+          path: verified
+      - name: Verify exact tested installer and prepare download
+        run: |
+          python - <<'PY'
+          import hashlib, zipfile
+          from pathlib import Path
+          source=Path('verified/svgUG-DCMS-20260914-rc2.37.zip')
+          with zipfile.ZipFile(source) as z:
+              assert z.testzip() is None
+              assert z.namelist()==['UG-DCMS-Setup-1.0.0-rc2.37.exe'], z.namelist()
+              exe=z.read(z.namelist()[0])
+              assert exe[:2]==b'MZ'
+              assert hashlib.sha256(exe).hexdigest()=='f0d07096965ef98c80817748d144548390eec50a787f300d69658d17ed001c1e'
+          Path('UG-DCMS-Setup-rc2.37.zip').write_bytes(source.read_bytes())
+          Path('SHA256SUMS.txt').write_text(hashlib.sha256(source.read_bytes()).hexdigest()+'  UG-DCMS-Setup-rc2.37.zip\n')
+          PY
+      - name: Publish downloadable prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          cat > release-notes.md <<'EOF'
+          新增设计资料清单模块，按附件逐行汇总图纸、图纸手册等设计文件。支持附件名称、文件编号、文件名称搜索，按类型和版次状态筛选，以及仅当前发布版次筛选；提供附件下载和版次跳转。
+
+          直接读取已有设计资料附件，无需重新上传。已通过实际浏览器搜索、分页、权限、筛选、下载、跳转及删除更新回归；数据库恢复和升级测试通过。包含 rc2.36 数据库迁移修复。
+
+          安装包来自已通过验证的构建 34814658863，源代码版本 d3962f67d8a4686dfbf263d0d19310dbc317a709。解压 ZIP 后运行 EXE。
+          EOF
+          gh release create rc2.37 UG-DCMS-Setup-rc2.37.zip SHA256SUMS.txt --target d3962f67d8a4686dfbf263d0d19310dbc317a709 --title 'UG-DCMS rc2.37' --prerelease --notes-file release-notes.md

@@ -1,0 +1,76 @@
+name: Publish verified rc2.38 installer
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/publish-rc238.yml'
+permissions:
+  contents: write
+  actions: read
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify exact source and completed validation runs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          for run in 34822074620 34822074717 34822074688; do
+            gh api "repos/$GH_REPO/actions/runs/$run" > run.json
+            python - <<'PY'
+          import json
+          r=json.load(open('run.json'))
+          assert r['head_sha']=='5fb6a8146b65c93615376059438a0903e37b3d5b'
+          assert r['status']=='completed' and r['conclusion']=='success'
+          PY
+          done
+      - uses: actions/download-artifact@v4
+        with:
+          name: svgUG-DCMS-20260914-rc2.38
+          run-id: 34822074620
+          github-token: ${{ github.token }}
+          path: verified
+      - name: Verify installer digest and prepare public assets
+        run: |
+          python - <<'PY'
+          import hashlib, zipfile
+          from pathlib import Path
+          source=Path('verified/svgUG-DCMS-20260914-rc2.38.zip')
+          name='UG-DCMS-Setup-1.0.0-rc2.38.exe'
+          with zipfile.ZipFile(source) as z:
+              assert z.testzip() is None
+              assert z.namelist()==[name],z.namelist()
+              exe=z.read(name)
+              assert exe[:2]==b'MZ'
+              assert hashlib.sha256(exe).hexdigest()=='9753b2126135e9feef421a71015f8801c15170b45aa545958fb1e51226188349'
+          Path(name).write_bytes(exe)
+          Path('UG-DCMS-Setup-rc2.38.zip').write_bytes(source.read_bytes())
+          assets=[name,'UG-DCMS-Setup-rc2.38.zip']
+          Path('SHA256SUMS.txt').write_text(''.join(hashlib.sha256(Path(p).read_bytes()).hexdigest()+'  '+p+'\n' for p in assets))
+          PY
+      - name: Publish public prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          cat > release-notes.md <<'EOF'
+          新增“IMA 模拟数据”入口。管理员点击“建立 IMA 模拟数据”后，在当前连接的系统中新增一套完整模拟业务数据。升级安装不会自动导入；保留已有真实数据，重复执行返回原批次。
+
+          包含 19 个内部件、9 个外部件、45 条多层 BOM 行、A/B 两种构型、3 套软件及软硬件适装关系、23 份模拟设计附件、82 个模拟审批和 19 条已发布设计基线。两种构型共用顶层 P/N，通过适用性选择计算板及扩展接口。顶层基线锁定构型冻结清单、软件、外部技术状态和下级基线追溯资料。
+
+          所有模拟数据和附件明确标识。模拟审批通过独立编制/批准身份执行，完成后这两个身份立即停用。附件仅为演示，不可用于制造、符合性试验或装机；软件 ZIP 不含可运行固件。
+
+          使用：下载 ZIP，解压并运行 EXE 完成升级；登录后进入“系统 → IMA 模拟数据”。也可直接下载 EXE。
+
+          已通过 PostgreSQL 非超级用户集成测试、真实浏览器导入/两种构型解析/基线跳转/附件下载、故障回滚、编号冲突、并发、原记录与附件保留和重复导入测试；现有完整界面回归、Windows 源代码检查及 EXE 构建通过。
+
+          测试来源：5fb6a8146b65c93615376059438a0903e37b3d5b。
+          集成与 Windows 构建：https://github.com/whbing7-ops/UG-DCMS/actions/runs/34822074620
+          现有界面回归：https://github.com/whbing7-ops/UG-DCMS/actions/runs/34822074717
+          Windows 检查：https://github.com/whbing7-ops/UG-DCMS/actions/runs/34822074688
+
+          上述为自动化测试和 Windows 构建结果。未连接用户目标系统，未在用户电脑执行安装或导入，不代表用户电脑安装成功。工作分支仍为 fix/restore-cross-version-rc2.33，PR #2 未合并。
+          EOF
+          gh release create rc2.38 UG-DCMS-Setup-rc2.38.zip UG-DCMS-Setup-1.0.0-rc2.38.exe SHA256SUMS.txt --target 5fb6a8146b65c93615376059438a0903e37b3d5b --title 'UG-DCMS rc2.38 — IMA模拟业务数据' --prerelease --notes-file release-notes.md

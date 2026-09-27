@@ -1,0 +1,124 @@
+name: Publish verified rc2.40 installer
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/publish-rc240.yml'
+permissions:
+  contents: write
+  actions: read
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify exact source and completed validation runs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          for run in 34957721154 34957721093 34957721106; do
+            gh api "repos/$GH_REPO/actions/runs/$run" > run.json
+            python - <<'PY'
+          import json
+          r=json.load(open('run.json'))
+          assert r['head_sha']=='6f97acb0cfcec17e9e6beca8e20ff9c72bdf9a52'
+          assert r['status']=='completed' and r['conclusion']=='success'
+          PY
+          done
+      - uses: actions/download-artifact@v4
+        with:
+          name: svgUG-DCMS-20260914-rc2.40
+          run-id: 34957721154
+          github-token: ${{ github.token }}
+          path: verified
+      - uses: actions/download-artifact@v4
+        with:
+          name: ima-evidence-rc240
+          run-id: 34957721154
+          github-token: ${{ github.token }}
+          path: evidence
+      - name: Verify installer digest and prepare public assets
+        run: |
+          python - <<'PY'
+          import hashlib, zipfile, json
+          from pathlib import Path
+          source=Path('verified/svgUG-DCMS-20260914-rc2.40.zip')
+          name='UG-DCMS-Setup-1.0.0-rc2.40.exe'
+          with zipfile.ZipFile(source) as z:
+              assert z.testzip() is None
+              assert z.namelist()==[name],z.namelist()
+              exe=z.read(name)
+              assert exe[:2]==b'MZ'
+              assert hashlib.sha256(exe).hexdigest()=='c5609a050931a483acdfa27fc350a347f1cd11f594ca0b0dc9cfe5b9c0a14a9f'
+          Path(name).write_bytes(exe)
+          Path('UG-DCMS-Setup-rc2.40.zip').write_bytes(source.read_bytes())
+          package='UG-DCMS-IMA-Data-Backup-v1.zip'
+          payload=Path('evidence/ima-evidence',package).read_bytes()
+          result=json.loads(Path('evidence/ima-evidence/result.json').read_text())
+          assert result['passed'] is True
+          assert result['counts']==dict(parts=19,externals=9,bom_lines=45,software=3,documents=23,baselines=19,configurations=2)
+          assert hashlib.sha256(payload).hexdigest()==result['package_sha256']
+          Path(package).write_bytes(payload)
+          with zipfile.ZipFile(package) as z:
+              assert z.testzip() is None
+              m=json.loads(z.read('manifest.json'))
+              assert m['format']=='UG-DCMS-DATA-BACKUP' and m['dataset_code']=='SIM-IMA-V1'
+              assert hashlib.sha256(z.read('dataset.json')).hexdigest()==m['payload_sha256']
+          print('VERIFIED_DATA_PACKAGE_SHA256',result['package_sha256'])
+          applicant=json.loads(Path('evidence/applicant-evidence/result.json').read_text())
+          assert applicant['passed'] is True
+          assert set(applicant['types'])=={'BASIC_DRAWING_FAMILY','FILE_REVISION','DESIGN_BASELINE','EXTERNAL_TECHNICAL_STATE','EXTERNAL_PROJECT_CONTROL','SOFTWARE_VERSION'}
+          assets=[name,'UG-DCMS-Setup-rc2.40.zip',package]
+          Path('SHA256SUMS.txt').write_text(''.join(hashlib.sha256(Path(p).read_bytes()).hexdigest()+'  '+p+'\n' for p in assets))
+          PY
+      - name: Publish public prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          cat > release-notes.md <<'EOF'
+          申请人审批操作补齐，覆盖设计族、文件版次、设计基线、外部件技术状态、外部件项目准入及软件版本六类对象。
+          
+          - 提交前：申请人可以打开、编辑、删除自己的草稿；软件版本可修改版本号、构建号、说明及替换交付包。
+          - 提交后、最终批准前：可“撤回修改”或“取消申请”；审核中禁止直接修改或删除。
+          - 驳回、退回、撤回或取消后：可修改原对象，再次提交仍使用原申请编号，轮次递增。
+          - 审批中心显示“我的待提交草稿”和“我发起的申请”；申请详情保留每轮状态、意见及时间。已提交后再删除的草稿保留审批记录。
+          - 旧版本已驳回但仍锁住的申请，升级后恢复编辑能力并记录审计；已批准、发布的业务对象保持冻结。
+          
+          安装：下载 UG-DCMS-Setup-rc2.40.zip，解压后运行 EXE；也可直接下载 EXE。升级保留已有数据库、账户及附件。PR #2 保持未合并。
+          
+          IMA 模拟数据仍为单独备份包，不恢复独立菜单，也不在安装时自动写入。需要时由管理员进入“系统 → 备份恢复 → 导入数据备份包”，选择 UG-DCMS-IMA-Data-Backup-v1.zip，输入“导入模拟数据”后导入。该功能增量添加明确标注的模拟记录；不要使用整库替换的“恢复系统”导入它。
+          
+          验证：使用独立 PostgreSQL 数据库和真实 Chromium 浏览器，逐类执行草稿编辑/删除、越权拒绝、保存后提交、撤回、驳回、退回、同号重提、历史保留和最终批准；验证软件包替换、原始审批步骤不可删除、撤回与批准并发互斥、旧版拒绝状态升级。既有业务、备份恢复和 IMA 数据包导入回归通过，Windows EXE 构建通过。
+          
+          未连接用户目标系统，未在用户电脑执行安装或数据导入。自动化测试通过和 EXE 构建成功不代表用户电脑实际安装成功。
+          
+          测试源代码：6f97acb0cfcec17e9e6beca8e20ff9c72bdf9a52。
+          集成与构建：https://github.com/whbing7-ops/UG-DCMS/actions/runs/34957721154
+          界面回归：https://github.com/whbing7-ops/UG-DCMS/actions/runs/34957721093
+          Windows 源码检查：https://github.com/whbing7-ops/UG-DCMS/actions/runs/34957721106
+          EOF
+          gh release create rc2.40 UG-DCMS-Setup-rc2.40.zip UG-DCMS-Setup-1.0.0-rc2.40.exe UG-DCMS-IMA-Data-Backup-v1.zip SHA256SUMS.txt --target 6f97acb0cfcec17e9e6beca8e20ff9c72bdf9a52 --title 'UG-DCMS rc2.40 — 申请人审批编辑、撤回与重提' --prerelease --notes-file release-notes.md
+      - name: Verify anonymous public downloads
+        run: |
+          set -euo pipefail
+          mkdir public-downloads
+          cd public-downloads
+          for name in UG-DCMS-Setup-rc2.40.zip UG-DCMS-IMA-Data-Backup-v1.zip SHA256SUMS.txt; do
+            curl --fail --silent --show-error --location --retry 5 --retry-all-errors --retry-delay 2 "https://github.com/${{ github.repository }}/releases/download/rc2.40/$name" --output "$name"
+          done
+          python - <<'PY'
+          import zipfile
+          from pathlib import Path
+          with zipfile.ZipFile('UG-DCMS-Setup-rc2.40.zip') as z:
+              assert z.testzip() is None
+              name='UG-DCMS-Setup-1.0.0-rc2.40.exe'
+              assert z.namelist()==[name]
+              exe=z.read(name)
+              assert exe[:2]==b'MZ'
+              Path(name).write_bytes(exe)
+          with zipfile.ZipFile('UG-DCMS-IMA-Data-Backup-v1.zip') as z:
+              assert z.testzip() is None
+          PY
+          sha256sum --check SHA256SUMS.txt

@@ -31,6 +31,7 @@ def _env() -> dict:
     s = get_settings(); e = os.environ.copy()
     if s.pg_password: e["PGPASSWORD"] = s.pg_password
     e["PGCONNECT_TIMEOUT"] = "15"
+    e["PGCLIENTENCODING"] = "UTF8"
     return e
 
 
@@ -123,7 +124,7 @@ def restore_status() -> dict:
 
 def create_backup(reason: str = "MANUAL") -> dict:
     s=get_settings(); stamp=datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    final=_root()/f"UG-DCMS-BACKUP-{stamp}.zip"
+    final=_root()/f"UG-DCMS-BACKUP-{stamp}-{uuid.uuid4().hex[:8]}.zip"
     with tempfile.TemporaryDirectory(dir=_root()) as td:
         tmp=Path(td); dump=tmp/"database.dump"
         cmd=[_pg("pg_dump"),"-Fc","-h",s.pg_host,"-p",str(s.pg_port),"-U",s.pg_user,
@@ -177,6 +178,97 @@ def queue_restore(content: bytes, filename: str, confirmation: str) -> dict:
     return info
 
 
+def _migration_files() -> list[Path]:
+    directory = Path(__file__).resolve().parents[3] / "db" / "migrations"
+    files = sorted(directory.glob("*.sql"))
+    if not files:
+        raise RuntimeError("安装目录缺少数据库迁移文件，恢复已停止")
+    return files
+
+
+def _restore_database(dump: Path) -> None:
+    """清理、恢复和补齐结构在一个事务中执行；失败保留恢复前数据库。"""
+    s = get_settings()
+    script = dump.with_suffix(".sql")
+    # --clean 只知道备份里的对象，无法清除备份后新增的外键。
+    # 先导出完整 SQL，再由同一 psql 事务清理应用 schema 并恢复。
+    _run_pg([_pg("pg_restore"), "--clean", "--if-exists", "--no-owner",
+             "--no-privileges", "-f", str(script), str(dump)], "解析数据库备份")
+    prepare = dump.with_name("prepare.sql")
+    prepare.write_text("""SET lock_timeout = '60s';
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM pg_namespace WHERE nspname NOT IN ('public', 'information_schema')
+             AND nspname !~ '^pg_') THEN
+    RAISE EXCEPTION '数据库包含非应用 schema，已停止自动恢复';
+  END IF;
+END $$;
+DROP SCHEMA IF EXISTS public CASCADE;
+CREATE SCHEMA public;
+""", encoding="utf-8")
+    upgrade = dump.with_name("upgrade.sql")
+    parts = ["SET search_path TO public;\n", """DO $$ BEGIN
+  IF to_regclass('public.app_user') IS NULL OR to_regclass('public.schema_migration') IS NULL THEN
+    RAISE EXCEPTION '备份缺少应用账户表或迁移记录，已回滚';
+  END IF;
+END $$;
+"""]
+    for migration in _migration_files():
+        version = migration.stem
+        # 文件来自安装包，但仍按 SQL 字面量转义。
+        literal = lambda value: "'" + value.replace("'", "''") + "'"
+        parts.append(f"SELECT NOT EXISTS (SELECT 1 FROM schema_migration WHERE version={literal(version)}) AS apply_migration \\gset\n\\if :apply_migration\n")
+        if version != "0017_purge_business_data_keep_accounts":
+            parts.append(migration.read_text(encoding="utf-8-sig") + "\n")
+        else:
+            # 这是之前明确要求的一次性清理，不是结构迁移。恢复备份绝不能重放清库。
+            parts.append("-- 恢复模式跳过一次性业务清理，仅登记此历史迁移。\n")
+        parts.append("INSERT INTO schema_migration(version,filename,sha256) VALUES ("
+                     + ",".join(map(literal, [version, migration.name, _sha(migration)]))
+                     + ");\n\\endif\n")
+    upgrade.write_text("".join(parts), encoding="utf-8")
+    _run_pg([_pg("psql"), "-X", "--single-transaction", "-v", "ON_ERROR_STOP=1",
+             "-h", s.pg_host, "-p", str(s.pg_port), "-U", s.pg_user, "-d", s.pg_database,
+             "-f", str(prepare), "-f", str(script), "-f", str(upgrade)], "数据库恢复及结构升级")
+
+
+def _restore_payload(tmp: Path) -> None:
+    """先准备附件；数据库事务失败时把附件也切回原版本。"""
+    live = Path(get_settings().storage_root)
+    token = uuid.uuid4().hex
+    staged = live.with_name(live.name + ".restore-" + token)
+    old = live.with_name(live.name + ".pre-restore-" + token)
+    had_live = live.exists()
+    committed = False
+    try:
+        if (tmp / "files").exists():
+            shutil.copytree(tmp / "files", staged)
+        else:
+            staged.mkdir(parents=True)
+        if had_live:
+            os.replace(live, old)
+        try:
+            os.replace(staged, live)
+        except Exception:
+            if had_live:
+                os.replace(old, live)
+            raise
+        try:
+            _restore_database(tmp / "database.dump")
+            committed = True
+        except Exception:
+            # 把未成功恢复的附件移开后，原子恢复旧附件目录。
+            os.replace(live, staged)
+            if had_live:
+                os.replace(old, live)
+            raise
+    finally:
+        if staged.exists():
+            shutil.rmtree(staged, ignore_errors=True)
+        # 成功后旧附件仍由 PRE_RESTORE 全量备份保存。
+        if committed and old.exists():
+            shutil.rmtree(old, ignore_errors=True)
+
+
 def apply_pending_restore() -> None:
     root=_root(); pending=root/"pending-restore.zip"; marker=root/"pending-restore.json"
     if not pending.exists() or not marker.exists(): return
@@ -188,26 +280,14 @@ def apply_pending_restore() -> None:
         _restore_status("RUNNING",5,"正在校验备份包",**meta)
         validate_backup(pending)
         _restore_status("RUNNING",15,"正在创建恢复前安全备份",**meta)
-        create_backup("PRE_RESTORE")
-        s=get_settings()
+        safety = create_backup("PRE_RESTORE")
+        meta["safety_backup"] = safety["filename"]
         with tempfile.TemporaryDirectory(dir=root) as td:
             tmp=Path(td); _restore_status("RUNNING",30,"正在解压数据库和附件",**meta)
             with zipfile.ZipFile(pending) as z: z.extractall(tmp)
-            _restore_status("RUNNING",45,"正在恢复数据库",**meta)
-            cmd=[_pg("pg_restore"),"--clean","--if-exists","--no-owner","--single-transaction",
-                 "-h",s.pg_host,"-p",str(s.pg_port),"-U",s.pg_user,"-d",s.pg_database,str(tmp/"database.dump")]
-            _run_pg(cmd, "数据库恢复")
-            _restore_status("RUNNING",80,"数据库恢复完成，正在恢复附件",**meta)
-            staged=tmp/"files"; live=Path(s.storage_root); old=live.with_name(live.name+".pre-restore")
-            if old.exists(): shutil.rmtree(old)
-            if live.exists(): os.replace(live,old)
-            try:
-                if staged.exists(): shutil.copytree(staged,live)
-                else: live.mkdir(parents=True,exist_ok=True)
-            except Exception:
-                if live.exists(): shutil.rmtree(live)
-                if old.exists(): os.replace(old,live)
-                raise
+            _restore_status("RUNNING",45,"正在恢复数据库、附件并升级表结构",**meta)
+            _restore_payload(tmp)
+            _restore_status("RUNNING",80,"数据库和附件恢复完成，正在归档恢复记录",**meta)
         # Windows 的 Path.rename 在目标存在时会报 WinError 183。每次恢复使用
         # 排队时间生成唯一归档名，并以 os.replace 完成原子移动；重复执行同一任务
         # 也不会因为上一次留下的固定文件名而失败。

@@ -56,6 +56,7 @@ async function request(method, path, { json, form, query, raw } = {}) {
   const res = await fetch(url, { method, headers, body });
 
   if (res.status === 401 && path !== "/auth/login") {
+    if(/^#\/approval\/[0-9a-f-]{36}$/i.test(location.hash))sessionStorage.setItem('dcms.afterLogin',location.hash);
     setToken(null);
     location.hash = "#/login";
     throw new ApiError(401, { error: { message: "会话已失效, 请重新登录" } });

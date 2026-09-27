@@ -36,10 +36,11 @@ export function toastError(e) {
 }
 
 const STATUS_CN = Object.freeze({
+  SIMULATION_DATASET_IMPORT:'导入模拟业务数据', SIMULATION_DATASET:'模拟数据批次',
   SOFTWARE_PACKAGE_UPLOAD:'上传软件交付包', SOFTWARE_HARDWARE_ADD:'添加适装硬件', SOFTWARE_HARDWARE_DELETE:'移除适装硬件',
   ACTIVE:'有效', INACTIVE:'停用', DEPRECATED:'已废止', HISTORICAL:'历史',
   DRAFT:'草稿', WORKING:'编制中', PENDING:'待处理', IN_REVIEW:'审核中',
-  APPROVED:'已批准', REJECTED:'已拒绝', RELEASED:'已发布',
+  APPROVED:'已批准', REJECTED:'已驳回', RETURNED:'已退回', RELEASED:'已发布',
   SUPERSEDED:'已被取代', OBSOLETE:'已作废', CANCELLED:'已取消', SUSPENDED:'已暂停',
   RESERVED:'已预留', ALLOCATED:'已分配', ACCEPTED:'已接受',
   OPEN:'待处置', CLOSED:'已关闭', WAIVED:'已豁免',
@@ -82,6 +83,8 @@ const STATUS_CN = Object.freeze({
   EXTERNAL_PART_CREATE:'登记外部件', EXTERNAL_STATE_ADD:'登记外部件技术状态',
   EXTERNAL_STATE_ACCEPT:'接受外部件技术状态', EXTERNAL_STATE_REJECT:'拒绝外部件技术状态',
   SOFTWARE_CREATE:'登记软件对象', SOFTWARE_VERSION_ADD:'登记软件版本', SOFTWARE_VERSION_RELEASE:'发布软件版本',
+  APPLICANT_WORKFLOW_UPGRADE:'恢复历史申请编辑',
+  DRAFT_EDIT:'编辑申请草稿', DRAFT_DELETE:'删除申请草稿', DRAFT_PACKAGE_REPLACE:'替换草稿软件包', APPROVAL_CANCEL:'取消审批申请',
   APPROVAL_WITHDRAW:'撤回审批', QUALITY_SCAN:'数据质量扫描', QUALITY_RESOLVE:'关闭质量问题',
   QUALITY_WAIVE:'豁免质量问题', IMPORT_PREVIEW:'预览导入', IMPORT_COMMIT:'提交导入', IMPORT_ABORT:'取消导入',
   DICTIONARY_DEPRECATE:'废止字典项', DICTIONARY_REACTIVATE:'启用字典项',
@@ -145,7 +148,7 @@ export function input(attrs = {}) { return el("input", attrs); }
 
 export function select(options, attrs = {}) {
   return el("select", attrs, options.map(o =>
-    el("option", { value: o.value, selected: o.selected }, o.label)));
+    el("option", { value: o.value, selected: o.selected, disabled: o.disabled, title: o.title }, o.label)));
 }
 
 export function fmtDate(s) {
