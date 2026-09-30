@@ -22,6 +22,7 @@ on:
       - 'ci/test-approval-overdue.py'
       - 'ci/test-consumer-roles.py'
       - 'ci/test-signoff.py'
+      - 'ci/test-das-checklist.py'
       - '.github/workflows/windows-installer-ci-v5.yml'
 
 concurrency:
@@ -118,8 +119,9 @@ jobs:
           PYTHONPATH=src/backend python ci/test-import-progress.py /tmp/ima-credentials.json
           PYTHONPATH=src/backend python -u ci/test-scale-demo.py /tmp/ima-credentials.json
           # rc2.45: 文档管理、基线检查、影响分析、件号资料包、审批超期、生产/采购角色、三级签署
+          # DOA 运行模块: 符合性检查单主数据(反例用例为主, 见 ci/test-das-checklist.py)
           export DCMS_BASE_URL=http://127.0.0.1:8080
-          for t in test-file-lifecycle test-baseline-readiness test-file-impact test-part-package test-approval-overdue test-consumer-roles test-signoff; do
+          for t in test-file-lifecycle test-baseline-readiness test-file-impact test-part-package test-approval-overdue test-consumer-roles test-signoff test-das-checklist; do
             echo "== $t"
             PYTHONPATH=src/backend python ci/$t.py /tmp/ima-credentials.json
           done
