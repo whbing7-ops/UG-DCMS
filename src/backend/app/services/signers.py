@@ -76,6 +76,14 @@ def grant(conn: psycopg.Connection, *, user_id: str, level: str, file_type_code:
         """, (backup_user_id, _signing_roles()))
         if backup is None:
             raise ValueError("备份人已停用, 或没有可签署的角色, 不能作为备份")
+    # UG-DAW-006 第 1、3 章: 首次授权前须完成初始培训并考核合格; 补考仍不合格的不得授权。
+    # 放在这里而不是任命处: 手册要求的是"授权前", 任命与授权是两回事——
+    # 一个人可以先被任命到岗位上接受培训, 但不能在培训未达标时取得签署权。
+    from . import das_training
+    why = das_training.training_gate(conn, str(user_id))
+    if why:
+        raise ValueError(why)
+
     start = valid_from or dt.date.today()
     if valid_to is not None and valid_to < start:
         raise ValueError("有效期截止日不得早于起始日")
