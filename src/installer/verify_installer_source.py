@@ -11,7 +11,9 @@ def ok(cond: bool, msg: str):
 
 # UTF-8 readability and migration order
 migs = sorted((ROOT / 'db' / 'migrations').glob('*.sql'))
-ok(len(migs) == 28, f'expected 28 migrations, found {len(migs)}')
+# 数量不写死: 下面逐个校验 0001_ 起的序号连续, 有缺口即报错,
+# 所以迁移总数由文件本身决定, 新增迁移不必再改这里。
+ok(len(migs) > 0, 'no migrations found')
 for i, f in enumerate(migs, 1):
     ok(f.name.startswith(f'{i:04d}_'), f'migration order broken: {f.name}')
     try:
