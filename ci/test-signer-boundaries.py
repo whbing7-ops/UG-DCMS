@@ -133,7 +133,10 @@ print('ok   CV1 依赖解除后可正常撤销')
 st = admin.call('GET', '/signers/backup-status', expect=200)
 check(isinstance(st, list), 'CV2 备份完整性可查')
 no_backup = [x for x in st if x['gap'] == '未指定备份人']
-check(any(x['username'] == bk.username for x in no_backup) or True, 'CV2 未指定备份人的条目被标出')
+# 不能写 `or True`: 那让这条断言恒真, 等于没断言。bk 的 REVIEW 级授权未指定备份人
+# 且未撤销, 按 backup_status 的 WHERE 必然在列, 所以这里本来就该硬断言。
+check(any(x['username'] == bk.username for x in no_backup),
+      'CV2 未指定备份人的条目被标出')
 print('ok   CV2 备份完整性一眼可见（共 %d 项, 其中无备份 %d 项）' % (len(st), len(no_backup)))
 
 print()

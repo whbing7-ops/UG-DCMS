@@ -67,19 +67,30 @@ admin.call('POST', '/das/qualifications',
             'reviewed_by': rv.id, 'approved_by': ap.id}, expect=400)
 print('ok   步骤4 同意授权而独立性两项未全勾被拒')
 
+# 以下三条的规则在数据库触发器里(0034), 违规经全局处理器归为 409 RULE_VIOLATION,
+# 不是 400 —— 400 只给服务层的 ValueError。断言到具体规则号, 否则三条互相顶替也全绿。
+
+
+def violates(rule, body, note):
+    r = admin.call('POST', '/das/qualifications', body, expect=409)
+    got = ((r or {}).get('error') or {}).get('rule')
+    check(got == rule, '%s %s（实际报出 %s）' % (rule, note, got))
+    return r
+
+
 # ---------------- 判据 A1: 签署人须有工号 ----------------
-admin.call('POST', '/das/qualifications',
-           {**BASE, 'reviewed_by': noemp.id, 'approved_by': ap.id}, expect=400)
-print('ok   A1 未填工号者不得担任评估表签署人')
+violates('DCMS-INV-035', {**BASE, 'reviewed_by': noemp.id, 'approved_by': ap.id},
+         '未填工号者不得担任评估表签署人')
+print('ok   A1/035 未填工号者不得担任评估表签署人')
 
 # ---------------- 判据 I3: 三签须三个不同自然人 ----------------
-admin.call('POST', '/das/qualifications',
-           {**BASE, 'reviewed_by': rv.id, 'approved_by': rv.id}, expect=400)
-print('ok   I3 审核与批准为同一人被拒')
+violates('DCMS-INV-036', {**BASE, 'reviewed_by': rv.id, 'approved_by': rv.id},
+         '审核与批准为同一人不成立三签')
+print('ok   I3/036 审核与批准为同一人被拒')
 
-admin.call('POST', '/das/qualifications',
-           {**BASE, 'reviewed_by': subject.id, 'approved_by': ap.id}, expect=400)
-print('ok   被评估人不得担任本人评估表的签署人')
+violates('DCMS-INV-037', {**BASE, 'reviewed_by': subject.id, 'approved_by': ap.id},
+         '被评估人不得签本人的评估表')
+print('ok   037 被评估人不得担任本人评估表的签署人')
 
 # 同一自然人两个账号：工号相同 → 仍应被判为同一人
 alt = mk('qx', 'APPROVER', emp=False)
@@ -126,18 +137,35 @@ print('ok   N13 有差异却不写差异内容与纠正动作被拒——只记�
 
 rec = admin.call('POST', '/das/register/reconciliation',
                  {'roster_ref': 'UG-DAM-01-附2 版次 00', 'differences': 0}, expect=201)
-check(rec['system_count'] == snap['count'] or rec['system_count'] >= 1, 'N13 核对记录带系统侧条数')
+# 不写成 `== snap['count'] or >= 1`: 加了那个 or 之后条数对不上也照样通过,
+# 而"核对记录里的条数必须等于当时的系统侧条数"正是这条记录唯一的实质内容。
+check(rec['system_count'] == snap['count'],
+      'N13 核对记录的条数等于快照条数（快照 %s, 记录 %s）' % (snap['count'], rec['system_count']))
 print('ok   N13 本月核对记录登记成功')
 
 admin.call('POST', '/das/register/reconciliation',
            {'roster_ref': 'UG-DAM-01-附2 版次 00', 'differences': 0}, expect=400)
 print('ok   N13 同月重复核对被拒')
 
+# 只核对当月时, das_reconciliation_due 的月份区间从最早一条记录起算, 区间就只有
+# 当月一个月, done 恒为真 —— 此时断言"漏做的月份可见"是空的(原来写成
+# `or len(due) == 1`, 永远走后一半)。要真验它, 得先造出一段有空档的历史:
+# 补一条三个月前的核对, 区间随之拉长, 中间两个月就是真实的漏做。
+back = (today.replace(day=1) - dt.timedelta(days=75)).replace(day=1)
+admin.call('POST', '/das/register/reconciliation',
+           {'period_month': str(back), 'roster_ref': 'UG-DAM-01-附2 版次 00',
+            'differences': 0}, expect=201)
+
 due = admin.call('GET', '/das/register/reconciliation', expect=200)
 cur_m = [d for d in due if d['period_month'] == str(today.replace(day=1))]
 check(cur_m and cur_m[0]['done'], 'N13 本月显示已核对')
-check(any(not d['done'] for d in due) or len(due) == 1, 'N13 漏做的月份可见')
-print('ok   N13 到期视图可见哪些月份漏做（共 %d 个月）' % len(due))
+check(len(due) >= 3, 'N13 月份区间已从最早一条记录拉长（实际 %d 个月）' % len(due))
+missing = [d['period_month'] for d in due if not d['done']]
+check(missing, 'N13 中间未核对的月份被列为漏做')
+check(str(back) not in missing and str(today.replace(day=1)) not in missing,
+      'N13 已核对的两个月不在漏做之列')
+print('ok   N13 到期视图区间 %d 个月，其中 %d 个月漏做：%s'
+      % (len(due), len(missing), '、'.join(missing)))
 
 # ---------------- 判据 N12: 第二人复核 ----------------
 check(rejected("UPDATE das_register_reconciliation SET reviewed_by=%s WHERE id=%s",

@@ -97,7 +97,11 @@ check(rejected("""INSERT INTO das_training_record
 print('ok   第 3 章 补考只允许一次，第二次补考被数据库拒绝')
 
 r2 = admin.call('POST', '/signers', {'user_id': v.id, 'level': 'REVIEW'}, expect=400)
-check('C01' in str(r2) or '法规' in str(r2), '补考仍不合格者不得授权')
+# 'C01' 永远不会出现在消息里——闸门报的是课程中文名, 不是课程号; 原来那条靠
+# 后半截 '法规' 撑着, 而它只是 C01 课程名里恰好有的两个字, 改个课程名就空了。
+# 这里要验的是"补考仍不合格"被识别为 FAILED, 没和"从未参加"混为一谈。
+check('最近一次考核不合格' in str(r2), '补考仍不合格被识别为 FAILED')
+check('UG-DAW-006' in str(r2), '拒绝理由指到依据')
 print('ok   第 3 章 补考仍不合格的不得授权')
 
 # ---------------- 第 3 章: 复训过期 → 应暂停签署权 ----------------

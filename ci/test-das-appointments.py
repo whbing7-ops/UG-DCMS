@@ -58,28 +58,54 @@ check(any(p['code'] == 'ISM' and p['is_exclusive'] for p in pos), '独立监督�
 print('ok   岗位字典 %d 个，专任岗位已标注' % len(pos))
 
 # ---------------- 判据 A2/A3: 互斥在任命时拦截 ----------------
-admin.call('POST', '/das/appointments',
-           {'user_id': a.id, 'position_code': 'ISM', 'kind': 'FORMAL'}, expect=201)
-print('ok   独立监督负责人任命成功')
+# 互斥规则在触发器里, 违规经全局处理器归为 409 RULE_VIOLATION(见 app/errors.py:
+# "不变量违规是用户请求违反了受控规则"), 不是 400 —— 400 是服务层 ValueError。
+#
+# 而且必须断言到**哪一条**规则: 三条互斥规则都返回 409, 只断言状态码时, 一条规则
+# 失效被另一条顶替, 测试照样全绿。每条用例都选一个只落在该规则上的岗位组合。
 
-# 规则一：专任岗位不得兼任
-admin.call('POST', '/das/appointments',
-           {'user_id': a.id, 'position_code': 'DE', 'kind': 'FORMAL'}, expect=400)
-print('ok   DCMS-INV-031 专任岗位不得兼任其他岗位')
 
-# 规则二：独立监督不得承担被监督的运行活动（反向：先运行岗后独立监督）
-admin.call('POST', '/das/appointments',
-           {'user_id': b.id, 'position_code': 'PM', 'kind': 'FORMAL'}, expect=201)
-admin.call('POST', '/das/appointments',
-           {'user_id': b.id, 'position_code': 'ISM', 'kind': 'FORMAL'}, expect=400)
-print('ok   DCMS-INV-032 已任运行岗者不得再任独立监督负责人')
+def violates(rule, user, position):
+    r = admin.call('POST', '/das/appointments',
+                   {'user_id': user, 'position_code': position, 'kind': 'FORMAL'}, expect=409)
+    got = ((r or {}).get('error') or {}).get('rule')
+    check(got == rule, '%s 拦下该组合（实际报出 %s）' % (rule, got))
+    return r
 
-# 规则三：显式互斥对——适航管理负责人与独立监督负责人
+
+# 规则一（最具体）：手册明文列出的互斥对。AWM 与 ISM 在 das_position_exclusion 里,
+# 挑这一对才落在 033 上——它同时也是专任岗, 若顺序反了就会被 031 顶替。
 admin.call('POST', '/das/appointments',
            {'user_id': c.id, 'position_code': 'AWM', 'kind': 'FORMAL'}, expect=201)
+r = violates('DCMS-INV-033', c.id, 'ISM')
+check('手册 3.1' in str(r), '033 的理由带手册出处, 不是一句"专任岗位"')
+print('ok   DCMS-INV-033 适航管理负责人与独立监督负责人不得由同一人担任（理由带手册出处）')
+
+# 规则二：独立监督不得承担被监督的运行活动。PM 不在显式互斥表里, 故只落在 032 上。
 admin.call('POST', '/das/appointments',
-           {'user_id': c.id, 'position_code': 'ISM', 'kind': 'FORMAL'}, expect=400)
-print('ok   适航管理负责人不得兼任独立监督负责人')
+           {'user_id': b.id, 'position_code': 'PM', 'kind': 'FORMAL'}, expect=201)
+violates('DCMS-INV-032', b.id, 'ISM')
+print('ok   DCMS-INV-032 已任被监督运行岗者不得再任独立监督负责人')
+
+# 反方向也要判: 先任 ISM 再任运行岗, 同样是 032。
+admin.call('POST', '/das/appointments',
+           {'user_id': a.id, 'position_code': 'ISM', 'kind': 'FORMAL'}, expect=201)
+violates('DCMS-INV-032', a.id, 'DE')
+print('ok   DCMS-INV-032 两个方向都判: 先任独立监督再兼运行岗也被拒')
+
+# 规则三（兜底）：泛化的专任规则。要隔离它, 组合里不能有 ISM, 也不能在显式互斥表里
+# ——质量与供应商管理负责人(专任)配设计工程师, 只剩 031 能拦。
+f = mk('ap7')
+admin.call('POST', '/das/appointments',
+           {'user_id': f.id, 'position_code': 'QSM', 'kind': 'FORMAL'}, expect=201)
+violates('DCMS-INV-031', f.id, 'DE')
+print('ok   DCMS-INV-031 已任专任岗者不得再兼任（v_other 方向）')
+
+g = mk('ap8')
+admin.call('POST', '/das/appointments',
+           {'user_id': g.id, 'position_code': 'DE', 'kind': 'FORMAL'}, expect=201)
+violates('DCMS-INV-031', g.id, 'QSM')
+print('ok   DCMS-INV-031 反方向: 已有岗位者不得再任专任岗（v_new 方向）')
 
 # 但允许的兼任不能被误拦：构型管理员可由设计工程师兼任（手册 3.1 明确允许）
 d = mk('ap5')

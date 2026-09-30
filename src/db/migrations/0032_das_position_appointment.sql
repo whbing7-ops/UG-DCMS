@@ -163,14 +163,27 @@ BEGIN
            AND a.revoked_at IS NULL AND a.superseded_by IS NULL
            AND (a.valid_to IS NULL OR a.valid_to >= current_date)
     LOOP
-        -- 规则一: 专任/专职/专人岗位不得与任何其他岗位并存(两个方向都要判)
-        IF v_new.is_exclusive THEN
-            RAISE EXCEPTION 'DCMS-INV-031: % 为专任岗位, 不得兼任 %（依据: %）',
-                v_new.name_cn, v_other.name_cn, v_new.basis USING ERRCODE = '23514';
-        END IF;
-        IF v_other.is_exclusive THEN
-            RAISE EXCEPTION 'DCMS-INV-031: 该员已任 %（专任岗位）, 不得再兼任 %（依据: %）',
-                v_other.name_cn, v_new.name_cn, v_other.basis USING ERRCODE = '23514';
+        -- 三条规则由具体到泛化排列, 顺序有意义。
+        --
+        -- 三条都只是拒绝, 谁先响不改变"允许还是不允许", 只改变报出来的**理由**。
+        -- 而理由是给人看的: "适航管理负责人与独立监督负责人不得由同一人担任
+        -- (手册 3.1)"能让人去查手册核对; "独立监督负责人为专任岗位"把依据说丢了。
+        --
+        -- 顺序还决定每条规则能不能被验证。专任规则最泛: ISM 与 AWM 都是专任岗,
+        -- 它若排在最前, 凡涉及这两个岗位的组合一律由它拦下, 规则一二永远不触发 ——
+        -- DCMS-INV-032／033 就成了死代码, 而声称覆盖它们的用例其实在验专任规则,
+        -- 那两条规则哪天失效了测试照样全绿。
+
+        -- 规则一(最具体): 手册明文列出的互斥对
+        IF EXISTS (SELECT 1 FROM das_position_exclusion
+                    WHERE (position_a = NEW.position_code AND position_b = v_other.code)
+                       OR (position_a = v_other.code AND position_b = NEW.position_code)) THEN
+            RAISE EXCEPTION 'DCMS-INV-033: % 与 % 不得由同一人担任（依据: %）',
+                v_new.name_cn, v_other.name_cn,
+                (SELECT basis FROM das_position_exclusion
+                  WHERE (position_a = NEW.position_code AND position_b = v_other.code)
+                     OR (position_a = v_other.code AND position_b = NEW.position_code) LIMIT 1)
+                USING ERRCODE = '23514';
         END IF;
 
         -- 规则二: 独立监督负责人不得兼任运行管理人员, 也不得承担被监督的运行活动
@@ -182,16 +195,14 @@ BEGIN
                 USING ERRCODE = '23514';
         END IF;
 
-        -- 规则三: 显式互斥对
-        IF EXISTS (SELECT 1 FROM das_position_exclusion
-                    WHERE (position_a = NEW.position_code AND position_b = v_other.code)
-                       OR (position_a = v_other.code AND position_b = NEW.position_code)) THEN
-            RAISE EXCEPTION 'DCMS-INV-033: % 与 % 不得由同一人担任（依据: %）',
-                v_new.name_cn, v_other.name_cn,
-                (SELECT basis FROM das_position_exclusion
-                  WHERE (position_a = NEW.position_code AND position_b = v_other.code)
-                     OR (position_a = v_other.code AND position_b = NEW.position_code) LIMIT 1)
-                USING ERRCODE = '23514';
+        -- 规则三(最泛, 兜底): 专任岗位不得与任何其他岗位并存(两个方向都要判)
+        IF v_new.is_exclusive THEN
+            RAISE EXCEPTION 'DCMS-INV-031: % 为专任岗位, 不得兼任 %（依据: %）',
+                v_new.name_cn, v_other.name_cn, v_new.basis USING ERRCODE = '23514';
+        END IF;
+        IF v_other.is_exclusive THEN
+            RAISE EXCEPTION 'DCMS-INV-031: 该员已任 %（专任岗位）, 不得再兼任 %（依据: %）',
+                v_other.name_cn, v_new.name_cn, v_other.basis USING ERRCODE = '23514';
         END IF;
     END LOOP;
     RETURN NEW;
