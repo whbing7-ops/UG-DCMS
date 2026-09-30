@@ -43,6 +43,9 @@ class Perm(StrEnum):
     # 三级签署: 审核/批准时的电子签名(能否签署由"有权签署人清单"决定, 本权限只是入口)
     SIGN = "sign"
     SIGNER_MANAGE = "signer_manage"          # 维护有权签署人清单
+    # 设计保证: DOA 符合性检查单(UG-DAM-01-附3)由适航管理负责人归口,
+    # 与"维护有权签署人清单"是两件事, 故另设权限而不复用 SIGNER_MANAGE。
+    DAS_CHECKLIST_MANAGE = "das_checklist_manage"
     # 系统管理
     USER_MANAGE = "user_manage"
     SESSION_MANAGE = "session_manage"
@@ -62,6 +65,7 @@ ROLE_PERMISSIONS: dict[Role, frozenset[Perm]] = {
     Role.CONFIGURATION_MANAGER: frozenset({
         Perm.READ, Perm.DRAFT_WRITE, Perm.SUBMIT, Perm.APPROVE, Perm.SIGN, Perm.SIGNER_MANAGE,
         Perm.NUMBER_ALLOCATE, Perm.BASELINE_RELEASE, Perm.READ_AUDIT,
+        Perm.DAS_CHECKLIST_MANAGE,
     }) | _ACCESS,
     Role.DATA_ADMIN: frozenset({
         Perm.READ, Perm.DICTIONARY_WRITE, Perm.READ_AUDIT,

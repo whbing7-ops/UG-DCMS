@@ -11,8 +11,9 @@ from fastapi.staticfiles import StaticFiles
 from pathlib import Path
 
 from . import errors
-from .api import (admin, applicability, auth, baselines, bom, dictionary, externals, families,
-                  files, search, signers, system, master_transfer, drafts, notifications)
+from .api import (admin, applicability, auth, baselines, bom, das_checklist, dictionary,
+                  externals, families, files, search, signers, system, master_transfer,
+                  drafts, notifications)
 from .config import get_settings
 from .guards import RequestGuardMiddleware
 from .db import close_pool, init_pool
@@ -73,6 +74,7 @@ def create_app() -> FastAPI:
     app.include_router(baselines.router, prefix=s.api_prefix)
     app.include_router(baselines.package_router, prefix=s.api_prefix)
     app.include_router(signers.router, prefix=s.api_prefix)
+    app.include_router(das_checklist.router, prefix=s.api_prefix)
     app.include_router(search.router, prefix=s.api_prefix)
     app.include_router(externals.router, prefix=s.api_prefix)
     app.include_router(master_transfer.router, prefix=s.api_prefix)
