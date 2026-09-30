@@ -179,8 +179,14 @@ check('独立监督覆盖' not in row and '自评结论' not in row, 'EV4-2 内�
 print('ok   EV4-2/S3 导出只含前 5 列, 带操作人与日期')
 
 # ---------------- S1: 体系级与项目级是不同实体 ----------------
+# 模式必须走参数: psycopg 在传了 params 时会解析 SQL 里的 %, 字面量 '…%' 会被
+# 当成坏占位符而抛 ProgrammingError。而模式要用 %checklist% 而不是 das_checklist%,
+# 否则下一条断言是空的——项目级表会叫 das_project_checklist_item, 压根落不进
+# das_checklist 开头的范围里, 那句检查就永远不可能失败。
 tables = {r['table_name'] for r in db_query(
-    "SELECT table_name FROM information_schema.tables WHERE table_name LIKE 'das_checklist%'")}
+    "SELECT table_name FROM information_schema.tables"
+    " WHERE table_schema='public' AND table_name LIKE %s",
+    ('%checklist%',))}
 check('das_checklist_item' in tables, 'S1 体系级检查单表存在')
 check(not any('project' in t for t in tables),
       'S1 本迁移不建项目级检查单表, 它属 M3 的另一个实体')
