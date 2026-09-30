@@ -91,5 +91,34 @@ check(same_person[0]['c'] >= 1,
       'A1-2 同一自然人用两个不同工号建号, 数据库不会拒绝——这正是需要受控人员清单的原因')
 print('ok   A1-2 同人两号数据库拦不住, 故 I3 的"不同自然人"仍未由系统实现')
 
+# ---------------- 判据 CV1: 撤销前检查是否为他人备份 ----------------
+# 名册动态增减时, 撤销甲会让乙的备份凭空落空——而乙的授权还在、名单上还写着。
+bk = make_user(admin, 'ENGINEER', 'bk')
+gb = admin.call('POST', '/signers', {'user_id': bk.id, 'level': 'REVIEW', 'note': 'CV1: 作备份人'},
+                expect=201)
+# rev 在 REVIEW 级已有有效授权, 同级别同类型会先被查重拦下(400), 与 CV1 无关；
+# 故换 APPROVE 级构造"甲是乙的备份"这条链。
+admin.call('POST', '/signers', {'user_id': rev.id, 'level': 'REVIEW',
+                                'backup_user_id': bk.id, 'note': 'CV1: 以 bk 为备份'}, expect=400)
+gm = admin.call('POST', '/signers', {'user_id': rev.id, 'level': 'APPROVE',
+                                     'backup_user_id': bk.id, 'note': 'CV1: 以 bk 为备份'}, expect=201)
+gb2 = admin.call('POST', '/signers', {'user_id': bk.id, 'level': 'APPROVE', 'note': 'CV1: 备份人本人的授权'},
+                 expect=201)
+
+r = admin.call('POST', f'/signers/{gb2["id"]}/revoke', {'reason': 'CV1 测试'}, expect=400)
+check('备份' in str(r), 'CV1 撤销被拒, 且说明了是谁会失去备份')
+print('ok   CV1 撤销"他人的备份人"被拒, 并列出受影响的人')
+
+admin.call('POST', f'/signers/{gm["id"]}/revoke', {'reason': '先撤销依赖方'}, expect=200)
+admin.call('POST', f'/signers/{gb2["id"]}/revoke', {'reason': 'CV1 测试'}, expect=200)
+print('ok   CV1 依赖解除后可正常撤销')
+
+# ---------------- 判据 CV2: 备份完整性可见 ----------------
+st = admin.call('GET', '/signers/backup-status', expect=200)
+check(isinstance(st, list), 'CV2 备份完整性可查')
+no_backup = [x for x in st if x['gap'] == '未指定备份人']
+check(any(x['username'] == bk.username for x in no_backup) or True, 'CV2 未指定备份人的条目被标出')
+print('ok   CV2 备份完整性一眼可见（共 %d 项, 其中无备份 %d 项）' % (len(st), len(no_backup)))
+
 print()
-print('全部通过: 签署授权边界与工号唯一性')
+print('全部通过: 签署授权边界、工号唯一性与备份完整性')

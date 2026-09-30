@@ -120,6 +120,27 @@ def revoke(conn: psycopg.Connection, auth_id: str, reason: str, actor: dict) -> 
         raise LookupError("授权记录不存在")
     if row["revoked_at"] is not None:
         raise ValueError("该授权已撤销")
+
+    # 判据 CV1: 撤销前先看他是不是别人的备份人。
+    # 名册按需动态增减时, 撤销甲会让乙的备份安排凭空落空 —— 而乙的授权还在、
+    # 名单上还写着, 看起来一切正常, 但 AC-21-48 3.2.4 要的备份已经没有了。
+    # 所以宁可拦在这里, 也不让"有备份"退化成一句名单上的话。
+    orphaned = fetch_all(conn, """
+        SELECT u.full_name, u.username, sa.level, sa.discipline_code
+          FROM signer_authorization sa
+          JOIN app_user u ON u.id = sa.user_id
+         WHERE sa.backup_user_id = (SELECT user_id FROM signer_authorization WHERE id = %s)
+           AND sa.revoked_at IS NULL
+           AND (sa.valid_to IS NULL OR sa.valid_to >= current_date)
+         ORDER BY u.full_name""", (auth_id,))
+    if orphaned:
+        who = "、".join(f'{o["full_name"]}（{LEVELS.get(o["level"], o["level"])}'
+                       + (f'·{o["discipline_code"]}' if o["discipline_code"] else '') + '）'
+                       for o in orphaned)
+        raise ValueError(
+            f"撤销前请先为下列人员指定新的备份人, 否则他们的备份安排会落空: {who}。"
+            "AC-21-48 3.2.4 要求每名 CVE 和授权人员都有备份。")
+
     execute(conn, """UPDATE signer_authorization SET revoked_at = now(), revoked_by = %s, revoke_reason = %s
                       WHERE id = %s""", (actor["user_id"], reason, auth_id))
     audit.write(conn, action="SIGNER_REVOKE", user_id=str(actor["user_id"]), username=actor["username"],
@@ -199,3 +220,36 @@ def candidates(conn: psycopg.Connection, level: str, file_type_code: str | None,
            AND NOT (u.id = ANY(%s::uuid[]))
          ORDER BY u.full_name, u.username
     """, (level, file_type_code, discipline_code, discipline_code, _signing_roles(), exclude_user_ids))
+
+
+def backup_status(conn: psycopg.Connection) -> list[dict]:
+    """判据 CV2: 当前备份完整性。
+
+    返回全部有效授权, gap 为空表示备份安排完整, 非空即说明缺在哪:
+    未指定备份人、备份人账户已停用、备份人在该级别上没有有效授权。
+
+    返回全部而不只返回有缺口的, 是为了让界面能说出"10 项里 2 项有缺口" ——
+    只列缺口看不出分母, 而判据 CV2 要的是"一眼看出完整性"。
+    """
+    return fetch_all(conn, """
+        SELECT sa.id, u.full_name, u.username, sa.level, sa.discipline_code,
+               d.name_cn AS discipline_name, sa.valid_to,
+               b.full_name AS backup_full_name, b.is_active AS backup_active,
+               CASE
+                 WHEN sa.backup_user_id IS NULL THEN '未指定备份人'
+                 WHEN NOT b.is_active           THEN '备份人账户已停用'
+                 WHEN NOT EXISTS (SELECT 1 FROM signer_authorization x
+                                   WHERE x.user_id = sa.backup_user_id AND x.level = sa.level
+                                     AND x.revoked_at IS NULL
+                                     AND (x.valid_to IS NULL OR x.valid_to >= current_date))
+                                                THEN '备份人在该级别上没有有效授权'
+               END AS gap
+          FROM signer_authorization sa
+          JOIN app_user u ON u.id = sa.user_id
+          LEFT JOIN app_user b ON b.id = sa.backup_user_id
+          LEFT JOIN das_discipline d ON d.code = sa.discipline_code
+         WHERE sa.revoked_at IS NULL
+           AND sa.valid_from <= current_date
+           AND (sa.valid_to IS NULL OR sa.valid_to >= current_date)
+         ORDER BY u.full_name, sa.level
+    """)
