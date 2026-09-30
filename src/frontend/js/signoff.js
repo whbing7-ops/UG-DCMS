@@ -79,32 +79,40 @@ export function signoffPanel(signoff) {
 export async function signersPage(ctx, params) {
   const showRevoked = params.get("revoked") === "1";
   const canManage = ctx.can("signer_manage");
-  const [rows, types, eligible] = await Promise.all([
+  const [rows, types, eligible, disciplines] = await Promise.all([
     api.get("/signers", { query: { include_revoked: showRevoked ? "true" : "false" } }),
     api.get("/dictionary/file-type"),
     canManage ? api.get("/signers/eligible-users") : [],
+    api.get("/signers/disciplines"),
   ]);
-  const LEVEL = { REVIEW: "审核", APPROVE: "批准" };
+  const LEVEL = { REVIEW: "审核", APPROVE: "批准", CVE: "符合性核查" };
   const stateOf = r => r.revoked_at ? "OBSOLETE" : r.in_force ? "ACTIVE" : "SUPERSEDED";
   const stateText = r => r.revoked_at ? "已撤销" : r.in_force ? "有效" : "未生效/已过期";
 
   let grant = null;
   if (canManage) {
     const user = select(eligible.map(x => ({ value: x.id, label: who(x) })));
-    const level = select([{ value: "REVIEW", label: "审核（第 1 级）" }, { value: "APPROVE", label: "批准（第 2 级）" }]);
+    const level = select([{ value: "REVIEW", label: "审核（第 1 级）" }, { value: "APPROVE", label: "批准（第 2 级）" },
+                          { value: "CVE", label: "符合性核查（CVE）" }]);
     const type = select([{ value: "", label: "所有文件类型" }, ...types.map(t => ({ value: t.code, label: `${t.code} ${t.name_cn}` }))]);
+    const disc = select([{ value: "", label: "所有专业" }, ...disciplines.map(d => ({ value: d.code, label: `${d.code} ${d.name_cn}` }))]);
+    const backup = select([{ value: "", label: "暂不指定" }, ...eligible.map(x => ({ value: x.id, label: who(x) }))]);
     const from = input({ type: "date" }), to = input({ type: "date" });
     const note = input({ maxlength: 500, placeholder: "授权依据，例如任命文号、资质" });
     grant = panel("授权", el("div", {},
       el("div", { class: "inline-form" }, field("人员", user), field("签署级别", level), field("文件类型", type)),
+      el("div", { class: "inline-form", style: "margin-top:10px" }, field("专业", disc), field("备份人", backup)),
       el("div", { class: "inline-form", style: "margin-top:10px" }, field("起始日（默认今天）", from), field("截止日（空=长期）", to), field("依据/说明", note),
         el("div", { style: "flex:0 0 auto" }, el("button", { class: "btn primary", onclick: async () => {
           try {
             await api.post("/signers", { json: { user_id: user.value, level: level.value, file_type_code: type.value || null,
+              discipline_code: disc.value || null,
+              backup_user_id: backup.value || null,
               valid_from: from.value || null, valid_to: to.value || null, note: note.value.trim() || null } });
             toast("授权已登记"); reload();
           } catch (e) { toastError(e); } } }, "授权"))),
-      el("p", { class: "muted", style: "margin:10px 0 0" }, "不能给自己授权；授权记录只能撤销，不能修改或删除，历史授权永久可查。")));
+      el("p", { class: "muted", style: "margin:10px 0 0" },
+        "签署时系统逐项校验有效期、专业、产品和文件类型，任一不符不得签署；留空表示该项不限。不能给自己授权，备份人不得是本人；授权记录只能撤销，不能修改或删除，历史授权永久可查。")));
   }
 
   return el("div", {},
@@ -114,10 +122,13 @@ export async function signersPage(ctx, params) {
       el("div", { class: "page-head-actions" }, link(showRevoked ? "只看未撤销" : "包含已撤销", showRevoked ? "#/signers" : "#/signers?revoked=1", "btn"))),
     grant,
     rows.length ? tablePanel(`授权清单 · ${rows.length} 条`,
-      table([{ label: "人员" }, { label: "级别" }, { label: "文件类型" }, { label: "有效期" }, { label: "状态" },
+      table([{ label: "人员" }, { label: "级别" }, { label: "文件类型" }, { label: "专业" },
+             { label: "备份人" }, { label: "有效期" }, { label: "状态" },
              { label: "授权人" }, { label: "说明" }, { label: "" }], rows, r => [
-        el("td", {}, `${r.full_name}（${r.username}）`), el("td", {}, LEVEL[r.level]),
+        el("td", {}, `${r.full_name}（${r.username}）`), el("td", {}, LEVEL[r.level] || r.level),
         el("td", {}, r.file_type_code ? `${r.file_type_code} ${r.file_type_name || ""}` : "所有类型"),
+        el("td", {}, r.discipline_code ? `${r.discipline_code} ${r.discipline_name || ""}` : "所有专业"),
+        el("td", { class: "muted" }, r.backup_full_name || "—"),
         el("td", { class: "nowrap" }, `${r.valid_from} ~ ${r.valid_to || "长期"}`),
         el("td", {}, status(stateOf(r)), r.revoked_at ? el("div", { class: "muted small" }, `${fmtDate(r.revoked_at)} · ${r.revoked_by_name || ""}：${r.revoke_reason || ""}`) : null),
         el("td", { class: "muted" }, r.granted_by_name), el("td", { class: "muted" }, r.note || "—"),

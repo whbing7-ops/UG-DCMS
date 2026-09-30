@@ -352,7 +352,7 @@ def create_revision(conn: psycopg.Connection, file_number: str,
 
 def get_revision(conn: psycopg.Connection, revision_id: str) -> dict | None:
     return fetch_one(conn, """
-        SELECT fr.*, df.file_number, df.title_cn, df.file_type_code,
+        SELECT fr.*, df.file_number, df.title_cn, df.file_type_code, df.discipline_code,
                aps.assignee_user_id AS approval_assignee_user_id,
                aps.step_order AS approval_step_order, aps.step_name AS approval_step_name,
                aps.is_final AS approval_step_final
@@ -453,7 +453,8 @@ def signer_candidates(conn: psycopg.Connection, revision_id: str, level: str, ac
     rev = get_revision(conn, revision_id)
     if rev is None:
         raise LookupError("版次不存在")
-    return signers.candidates(conn, level, rev["file_type_code"], [str(actor["user_id"])] + list(exclude or []))
+    return signers.candidates(conn, level, rev["file_type_code"],
+                              [str(actor["user_id"])] + list(exclude or []), rev.get("discipline_code"))
 
 
 def submit_revision(conn: psycopg.Connection, revision_id: str, approver_user_id: str,
@@ -474,8 +475,9 @@ def submit_revision(conn: psycopg.Connection, revision_id: str, approver_user_id
     if len(ids) != 3:
         raise ValueError("编制人、审核人、批准人必须是三个不同的人")
     for uid, level in ((reviewer_user_id, "REVIEW"), (approver_user_id, "APPROVE")):
-        if not signers.is_authorized(conn, str(uid), level, rev["file_type_code"]):
-            raise ValueError(f"所选{signers.LEVELS[level]}人不在有权签署人清单内(或授权已过期/撤销), 请重新选择")
+        why = signers.refusal_reason(conn, str(uid), level, rev["file_type_code"], rev.get("discipline_code"))
+        if why:
+            raise ValueError(f"所选{signers.LEVELS[level]}人不得签署本资料: {why}")
     auth.verify_signature_password(conn, actor, password)
 
     req = approvals.open_request(conn,kind='FILE_REVISION',oid=revision_id,request_type='FILE_REVISION_RELEASE',code=f"{rev['file_number']} Rev.{rev['revision_number']}",title=f"发布 {rev['file_number']} Rev.{rev['revision_number']}",actor=actor)
@@ -522,8 +524,10 @@ def review_revision(conn: psycopg.Connection, revision_id: str, comments: str, p
     step = next((s for s in steps if s["decision"] == "PENDING"), None)
     if step is None or step["is_final"] or len(steps) < 2:
         raise ValueError("当前不是审核步骤")
-    if not signers.is_authorized(conn, str(actor["user_id"]), "REVIEW", rev["file_type_code"]):
-        raise ValueError("您不在该类文件的有权审核人清单内(或授权已过期/撤销), 不能签署")
+    why = signers.refusal_reason(conn, str(actor["user_id"]), "REVIEW", rev["file_type_code"],
+                                 rev.get("discipline_code"))
+    if why:
+        raise ValueError(f"您不得审核本资料: {why}")
     auth.verify_signature_password(conn, actor, password)
 
     req = fetch_one(conn, "SELECT submission_round FROM approval_request WHERE id=%s", (rev["approval_request_id"],))
@@ -598,8 +602,11 @@ def release_revision(conn: psycopg.Connection, revision_id: str, comments: str,
     pending = next((s for s in steps if s["decision"] == "PENDING"), None)
     if pending is None or not pending["is_final"]:
         raise ValueError("审核尚未通过, 不得批准发布" if not legacy else "没有待批准的步骤")
-    if not legacy and not signers.is_authorized(conn, str(actor["user_id"]), "APPROVE", rev["file_type_code"]):
-        raise ValueError("您不在该类文件的有权批准人清单内(或授权已过期/撤销), 不能签署")
+    if not legacy:
+        why = signers.refusal_reason(conn, str(actor["user_id"]), "APPROVE", rev["file_type_code"],
+                                     rev.get("discipline_code"))
+        if why:
+            raise ValueError(f"您不得批准本资料: {why}")
     auth.verify_signature_password(conn, actor, password)
 
     req = fetch_one(conn, "SELECT submission_round FROM approval_request WHERE id=%s", (rev["approval_request_id"],))
