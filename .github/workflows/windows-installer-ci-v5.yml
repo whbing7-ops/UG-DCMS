@@ -30,7 +30,10 @@ on:
       - '.github/workflows/windows-installer-ci-v5.yml'
 
 concurrency:
-  group: ug-dcms-rc245
+  # 并发组必须带 ref: 组名写成常量时全仓库共用一个组, 加上 cancel-in-progress,
+  # 推任一分支都会把别的分支正在跑的 run 掐掉 —— 而被取消的 run 在 PR 上不显示为
+  # 失败, 只是"少一项检查", PR 看上去是绿的。栈式 PR 下这会让整层测试从未真正跑过。
+  group: ug-dcms-rc245-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
