@@ -50,7 +50,23 @@ g2 = admin.call('POST', '/signers', {
 check(in_force(g2['id']) is False, '昨天到期的授权不在有效期内')
 print('ok   valid_to 已过: 授权过期即失效, 不需要人工撤销')
 
-# ---------------- 边界当天 ----------------
+# ---------------- 边界当天（CVE 级：先过资格评估闸门）----------------
+# CVE 级授权要求有结论为"同意授权"的 UG-DAF-06（判据 E1、UG-DAP-03 步骤 3～5）。
+# 三签须为三个不同自然人，故另造两人担任审核与批准。
+qa_rev = make_user(admin, 'APPROVER', 'qr')
+qa_apr = make_user(admin, 'APPROVER', 'qa')
+for u_, t_ in ((qa_rev, 'QR'), (qa_apr, 'QA')):
+    db_execute("UPDATE app_user SET employee_no=%s WHERE id=%s", (t_ + STAMP, u_.id))
+db_execute("UPDATE app_user SET employee_no=%s WHERE id=%s AND employee_no IS NULL",
+           ('AD' + STAMP, admin.id))
+admin.call('POST', '/das/qualifications', {
+    'user_id': rev.id, 'sign_types': ['CVE核查'],
+    'education_experience': '本科结构专业，8 年设计经验',
+    'training_evidence': 'CCAR-21 与 DAS 培训已完成并考核合格',
+    'indep_no_self_check': True, 'indep_no_ism_conflict': True,
+    'conclusion': 'AGREE', 'reviewed_by': qa_rev.id, 'approved_by': qa_apr.id}, expect=201)
+print('ok   CVE 级授权前已完成资格评估（UG-DAF-06）')
+
 g3 = admin.call('POST', '/signers', {
     'user_id': rev.id, 'level': 'CVE',
     'valid_from': str(today), 'valid_to': str(today), 'note': '边界: 今天生效今天到期'}, expect=201)

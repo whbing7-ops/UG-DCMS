@@ -84,6 +84,20 @@ def grant(conn: psycopg.Connection, *, user_id: str, level: str, file_type_code:
     if why:
         raise ValueError(why)
 
+    # 判据 E1 的另一半: UG-DAP-03 步骤 3～5 要求资格评估与独立性核对通过后才签发授权。
+    #
+    # 只对 CVE 级校验, 不对 REVIEW/APPROVE 校验 —— 这不是偷懒, 是范围问题:
+    # UG-DAF-06 是"**授权人员**评估表", 它的"授权文件类型"栏是 4 类**适航签署事项**
+    # (更改分类/符合性声明/小改批准/CVE 核查); 而本系统的 level REVIEW/APPROVE 是
+    # **文档签署级别**, 两者不是一回事——待澄清项第 1 条写的就是这件事, 要等 M3／M4。
+    # 对每一个文档审核人都要求一份 UG-DAF-06, 是把适航授权的门槛套到文档流转上。
+    # 等签署事项这一维落地, 本闸门的适用范围随之扩到那几类事项。
+    if level == "CVE":
+        from . import das_qualification
+        why = das_qualification.qualification_gate(conn, str(user_id))
+        if why:
+            raise ValueError(why)
+
     start = valid_from or dt.date.today()
     if valid_to is not None and valid_to < start:
         raise ValueError("有效期截止日不得早于起始日")
