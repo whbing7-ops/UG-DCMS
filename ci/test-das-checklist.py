@@ -148,12 +148,25 @@ detail = admin.call('GET', f'/das/checklist/{ITEM}', expect=200)
 check(len(detail['assessments']) == 2, 'EV9-2 传播不擅自改写自评, 仍是两条')
 print('ok   EV9-2 传播只提示复核, 不代人改自评')
 
-# ---------------- EV5: 不适用项须写理由 ----------------
+# ---------------- EV5: 适用性三值, 不适用项须写理由 ----------------
 check(rejected("""INSERT INTO das_checklist_item
                          (seq, req_code, req_name, req_source, applicable_stc, applicable_pma)
-                  VALUES (9002, 'X', 'Y', 'CCAR-21', false, false)"""),
+                  VALUES (9002, 'X', 'Y', 'CCAR-21', '否', '否')"""),
       'EV5 两个适用性均为否而无理由被拒')
 print('ok   EV5 不适用项必须写理由, 否则分母会被悄悄缩小')
+check(rejected("""INSERT INTO das_checklist_item
+                         (seq, req_code, req_name, req_source, applicable_stc)
+                  VALUES (9003, 'X', 'Y', 'CCAR-21', '待定')"""),
+      'EV5 适用性取值不在 是/否/部分 内被拒')
+print('ok   EV5 适用性只能是 是/否/部分')
+db_execute("""INSERT INTO das_checklist_item
+                     (seq, req_code, req_name, req_source, applicable_stc, applicable_pma)
+              VALUES (9004, 'P', '【测试】部分适用', 'CCAR-21', '部分', '否')
+              ON CONFLICT (seq) DO NOTHING""")
+den = db_query("""SELECT count(*) c FROM das_checklist_item
+                   WHERE seq IN (9001, 9004) AND (applicable_stc <> '否' OR applicable_pma <> '否')""")
+check(den[0]['c'] == 2, 'EV5 "部分"计入覆盖率分母, 不被当作不适用排除')
+print('ok   EV5 "部分适用"仍计入分母——部分适用也要覆盖')
 
 # ---------------- EV4-2 / S3: 提交口径只含前 5 列 ----------------
 sub = admin.call('GET', '/das/checklist/export/submission', expect=200)

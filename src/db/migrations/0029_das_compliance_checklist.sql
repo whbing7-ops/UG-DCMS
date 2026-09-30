@@ -29,17 +29,29 @@ CREATE TABLE IF NOT EXISTS das_checklist_item (
     req_name        text        NOT NULL,               -- 要求名称
     req_text        text,                               -- 要求内容/完整原文定位
     req_source      text        NOT NULL,               -- CCAR-21 / AP-21-18附录D / AC-21-48
-    applicable_stc  boolean     NOT NULL DEFAULT true,  -- 适用性 STC
-    applicable_pma  boolean     NOT NULL DEFAULT true,  -- 适用性 PMA
-    na_reason       text,                               -- 判据 EV5: 不适用须写理由
+    -- 适用性取三值, 不是布尔。附3 实际用的就是 是/否/部分 三种(部分 16 条),
+    -- 布尔存不下"部分": 归为适用则丢失"只适用一部分"这个须向局方说明的事实,
+    -- 归为不适用则覆盖率分母被错误缩小(判据 EV5)。
+    applicable_stc  text        NOT NULL DEFAULT '是',
+    applicable_pma  text        NOT NULL DEFAULT '是',
+    na_reason       text,                               -- 判据 EV5: 两项均为否时须写理由
     note            text,
+    -- 附3 00 草案"设计保证系统文件编号、名称、版本"栏的原文, 逐字保留。
+    -- 该栏在草案里有至少三种写法(编号+条款/编号+名称+版本+章/UG-DAP-13～15 这类范围),
+    -- 无法可靠机器解析。自动解析出来的错引用与对的长得一样, 反而更糟,
+    -- 所以条款级引用(das_checklist_doc_ref)一律由人对照本栏逐条转录。
+    source_doc_ref_raw text,
     created_at      timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT ck_das_applicable_stc CHECK (applicable_stc IN ('是', '否', '部分')),
+    CONSTRAINT ck_das_applicable_pma CHECK (applicable_pma IN ('是', '否', '部分')),
     CONSTRAINT ck_das_checklist_na_reason
-        CHECK (applicable_stc OR applicable_pma OR na_reason IS NOT NULL)
+        CHECK (applicable_stc <> '否' OR applicable_pma <> '否' OR na_reason IS NOT NULL)
 );
 
 COMMENT ON TABLE das_checklist_item IS
     'DOA 符合性检查单条目(体系级, UG-DAM-01-附3)。判据 S1: 与 UG-DAP-07 的项目级符合性检查单是不同实体。';
+COMMENT ON COLUMN das_checklist_item.applicable_stc IS
+    '是/否/部分。"部分"计入覆盖率分母(仍须覆盖), 但须在自评说明中写明适用到什么程度。';
 COMMENT ON COLUMN das_checklist_item.na_reason IS
     '判据 EV5: 两个适用性均为否时必须写明理由; 不适用项不计入覆盖率分母, 但理由须可复核。';
 
@@ -231,7 +243,9 @@ SELECT r.doc_code, r.doc_version, r.clause,
 -- 7.3 判据 EV4、EV5: 覆盖率统计。分母只含适用项。
 CREATE OR REPLACE VIEW das_checklist_coverage_stat AS
 SELECT c.cycle_start,
-       count(*) FILTER (WHERE i.applicable_stc OR i.applicable_pma)          AS "适用项数",
+       -- 分母含"是"和"部分": 部分适用仍须覆盖, 只有两项都是"否"才排除。
+       count(*) FILTER (WHERE i.applicable_stc <> '否' OR i.applicable_pma <> '否')
+                                                                             AS "适用项数",
        count(DISTINCT c.item_id)                                            AS "已覆盖项数",
        count(*) FILTER (WHERE c.result = '不符合项')                        AS "不符合项数"
   FROM das_checklist_item i
@@ -250,6 +264,6 @@ SELECT i.seq, i.req_code, i.req_name,
   FROM das_checklist_item i
   LEFT JOIN das_checklist_coverage c    ON c.item_id = i.id
   LEFT JOIN das_checklist_review_flag f ON f.item_id = i.id
- WHERE i.applicable_stc OR i.applicable_pma
+ WHERE i.applicable_stc <> '否' OR i.applicable_pma <> '否'
  GROUP BY i.id, i.seq, i.req_code, i.req_name
  ORDER BY i.seq;
