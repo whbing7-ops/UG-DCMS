@@ -28,7 +28,7 @@ def list_authorizations(conn: psycopg.Connection, include_revoked: bool = False)
     return fetch_all(conn, """
         SELECT sa.id, sa.level, sa.file_type_code, ft.name_cn AS file_type_name, sa.valid_from, sa.valid_to,
                sa.note, sa.granted_at, sa.revoked_at, sa.revoke_reason,
-               sa.discipline_code, d.name_cn AS discipline_name, sa.product_scope,
+               sa.discipline_code, d.name_cn AS discipline_name,
                sa.backup_user_id, b.full_name AS backup_full_name,
                u.id AS user_id, u.username, u.full_name, u.is_active,
                g.full_name AS granted_by_name, r.full_name AS revoked_by_name,
@@ -48,7 +48,7 @@ def list_authorizations(conn: psycopg.Connection, include_revoked: bool = False)
 
 def grant(conn: psycopg.Connection, *, user_id: str, level: str, file_type_code: str | None,
           valid_from: dt.date | None, valid_to: dt.date | None, note: str | None, actor: dict,
-          discipline_code: str | None = None, product_scope: str | None = None,
+          discipline_code: str | None = None,
           backup_user_id: str | None = None) -> dict:
     if level not in LEVELS:
         raise ValueError("签署级别须为 审核、批准 或 符合性核查")
@@ -89,15 +89,15 @@ def grant(conn: psycopg.Connection, *, user_id: str, level: str, file_type_code:
         raise ValueError("该账户已有同级别、同文件类型、同专业的有效授权")
     row = fetch_one(conn, """
         INSERT INTO signer_authorization (user_id, level, file_type_code, valid_from, valid_to, note,
-                                          granted_by, discipline_code, product_scope, backup_user_id)
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-        RETURNING id, level, file_type_code, valid_from, valid_to, discipline_code, product_scope
+                                          granted_by, discipline_code, backup_user_id)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
+        RETURNING id, level, file_type_code, valid_from, valid_to, discipline_code
     """, (user_id, level, file_type_code, start, valid_to, note, actor["user_id"],
-          discipline_code, product_scope, backup_user_id))
+          discipline_code, backup_user_id))
     audit.write(conn, action="SIGNER_GRANT", user_id=str(actor["user_id"]), username=actor["username"],
                 object_type="SIGNER_AUTHORIZATION", object_id=str(row["id"]), object_code=user["username"],
                 new_value={"level": level, "file_type_code": file_type_code,
-                           "discipline_code": discipline_code, "product_scope": product_scope,
+                           "discipline_code": discipline_code,
                            "backup_user_id": str(backup_user_id) if backup_user_id else None,
                            "valid_from": str(start), "valid_to": str(valid_to) if valid_to else None},
                 reason=note, session_id=str(actor.get("session_id")), client_ip=actor.get("client_ip"))

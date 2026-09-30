@@ -20,7 +20,6 @@ class GrantRequest(BaseModel):
     level: str = Field(pattern="^(REVIEW|APPROVE|CVE)$")
     file_type_code: str | None = Field(default=None, max_length=64)      # 空 = 所有文件类型
     discipline_code: str | None = Field(default=None, max_length=32)     # 空 = 所有专业
-    product_scope: str | None = Field(default=None, max_length=500)      # 空 = 不限产品
     backup_user_id: str | None = Field(default=None, min_length=36, max_length=36)
     valid_from: dt.date | None = None
     valid_to: dt.date | None = None
@@ -43,7 +42,6 @@ def grant_signer(payload: GrantRequest, conn: Conn, actor: dict = Depends(requir
         return signer_svc.grant(conn, user_id=payload.user_id, level=payload.level,
                                 file_type_code=payload.file_type_code or None,
                                 discipline_code=payload.discipline_code or None,
-                                product_scope=payload.product_scope or None,
                                 backup_user_id=payload.backup_user_id or None,
                                 valid_from=payload.valid_from, valid_to=payload.valid_to,
                                 note=payload.note, actor=actor)
