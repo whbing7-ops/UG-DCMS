@@ -101,14 +101,23 @@ def grant(conn: psycopg.Connection, *, user_id: str, level: str, file_type_code:
     start = valid_from or dt.date.today()
     if valid_to is not None and valid_to < start:
         raise ValueError("有效期截止日不得早于起始日")
-    dup = scalar(conn, """
-        SELECT count(*) FROM signer_authorization
+    # 这里拦的不止"当前有效"的: 生效日期还没到的也算, 因为它到期自然会与新授权重叠。
+    # 但理由必须指到具体哪一条 —— 原来只说"已有有效授权", 而一条生效日在未来的授权
+    # 并不出现在有效清单里, 操作员照这句话去找会找不到, 卡在这儿不知道该撤哪个。
+    dup = fetch_one(conn, """
+        SELECT id, valid_from, valid_to FROM signer_authorization
          WHERE user_id=%s AND level=%s AND file_type_code IS NOT DISTINCT FROM %s
            AND discipline_code IS NOT DISTINCT FROM %s AND revoked_at IS NULL
-           AND (valid_to IS NULL OR valid_to >= current_date)""",
-                  (user_id, level, file_type_code, discipline_code))
+           AND (valid_to IS NULL OR valid_to >= current_date)
+         ORDER BY valid_from LIMIT 1""",
+                    (user_id, level, file_type_code, discipline_code))
     if dup:
-        raise ValueError("该账户已有同级别、同文件类型、同专业的有效授权")
+        span = f'{dup["valid_from"]} 起'
+        span += f'至 {dup["valid_to"]} 止' if dup["valid_to"] else ", 未设截止日"
+        state = "尚未生效" if dup["valid_from"] > dt.date.today() else "当前有效"
+        raise ValueError(
+            f"该账户已有同级别、同文件类型、同专业的未撤销授权（第 {dup['id']} 号, "
+            f"{span}, {state}）, 不得重复授权。如需改有效期, 请先撤销该条。")
     row = fetch_one(conn, """
         INSERT INTO signer_authorization (user_id, level, file_type_code, valid_from, valid_to, note,
                                           granted_by, discipline_code, backup_user_id)

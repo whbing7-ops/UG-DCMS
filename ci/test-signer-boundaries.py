@@ -80,12 +80,29 @@ admin.call('POST', '/signers', {
 print('ok   截止日早于起始日被拒(400)')
 
 # ---------------- 过期后重新授权 ----------------
+# 另造一人, 不复用 rev: rev 的 REVIEW 级上挂着一条"一周后生效"的授权, 那条没撤销、
+# 没过期, 查重会把它算进去 —— 于是"过期后能重新授权"这条用例会被一个与过期无关的
+# 原因拦下, 测的就不是它标题写的那件事了。边界用例要各自独立。
+exp = make_user(admin, 'ENGINEER', 'ex')
+old_g = admin.call('POST', '/signers', {
+    'user_id': exp.id, 'level': 'REVIEW',
+    'valid_from': str(today - dt.timedelta(days=30)),
+    'valid_to': str(today - dt.timedelta(days=1)), 'note': '边界: 昨天到期'}, expect=201)
+check(in_force(old_g['id']) is False, '前一条授权确已过期')
 g4 = admin.call('POST', '/signers', {
-    'user_id': rev.id, 'level': 'REVIEW',
+    'user_id': exp.id, 'level': 'REVIEW',
     'valid_from': str(today), 'note': '过期后重新授权'}, expect=201)
 check(in_force(g4['id']) is True, '重新授权后恢复有效')
-check(in_force(g['id']) is False, '原未生效授权不受影响, 各自独立计算')
-print('ok   重新授权不影响既有授权, 有效期各算各的')
+check(in_force(old_g['id']) is False, '原过期授权不受影响, 各自独立计算')
+print('ok   过期的授权不阻挡重新授权, 有效期各算各的')
+
+# 反例: 未撤销且未过期的会阻挡 —— 包括生效日期还没到的那种。
+# 这条和上面一条合起来才说明查重的边界在哪: 分界是"已过期", 不是"已生效"。
+r = admin.call('POST', '/signers', {
+    'user_id': rev.id, 'level': 'REVIEW', 'note': '应被查重拦下'}, expect=400)
+check('尚未生效' in str(r) and str(today + dt.timedelta(days=7)) in str(r),
+      '拒绝理由点明是哪一条在阻挡、以及它尚未生效')
+print('ok   生效日期未到的授权同样阻挡重复授权, 且理由指到那一条')
 
 # ---------------- 判据 A1 必要条件: 工号唯一 ----------------
 emp = 'E' + STAMP
@@ -112,10 +129,9 @@ print('ok   A1-2 同人两号数据库拦不住, 故 I3 的"不同自然人"仍�
 bk = make_user(admin, 'ENGINEER', 'bk')
 gb = admin.call('POST', '/signers', {'user_id': bk.id, 'level': 'REVIEW', 'note': 'CV1: 作备份人'},
                 expect=201)
-# rev 在 REVIEW 级已有有效授权, 同级别同类型会先被查重拦下(400), 与 CV1 无关；
-# 故换 APPROVE 级构造"甲是乙的备份"这条链。
-admin.call('POST', '/signers', {'user_id': rev.id, 'level': 'REVIEW',
-                                'backup_user_id': bk.id, 'note': 'CV1: 以 bk 为备份'}, expect=400)
+# 用 APPROVE 级构造"甲是乙的备份"这条链, 不用 REVIEW: rev 的 REVIEW 级上挂着那条
+# 尚未生效的授权, 会先被查重拦下(上面已单独验过), 那样拦下的与 CV1 无关。
+# rev 的 APPROVE 级只有一条昨天到期的, 查重不算它, 所以这里能发得出来。
 gm = admin.call('POST', '/signers', {'user_id': rev.id, 'level': 'APPROVE',
                                      'backup_user_id': bk.id, 'note': 'CV1: 以 bk 为备份'}, expect=201)
 gb2 = admin.call('POST', '/signers', {'user_id': bk.id, 'level': 'APPROVE', 'note': 'CV1: 备份人本人的授权'},
