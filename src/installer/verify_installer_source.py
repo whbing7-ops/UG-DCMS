@@ -40,8 +40,12 @@ views3 = (ROOT/'frontend'/'js'/'views3.js').read_text(encoding='utf-8-sig')
 views5 = (ROOT/'frontend'/'js'/'views5.js').read_text(encoding='utf-8-sig')
 
 checks = {
-    'builder migration count': 'Count -ne 28' in build and '28/28' in build,
-    'CMD output version': 'rc2.45.exe' in (ROOT/'installer'/'BUILD-SETUP.cmd').read_text(),
+    # 反过来要求"不得写死": 写死的数字会悄悄落后于实际迁移数, 而落后的那一刻
+    # 安装程序就装不上, 构建也卡住。所以这里查的是推导逻辑在不在, 不是数字对不对。
+    'builder derives migration count': 'Count -lt 1' in build
+        and 'Migration sequence broken' in build and 'Count -ne 28' not in build,
+    'CMD output version': 'rc2.45.exe' in (ROOT/'installer'/'BUILD-SETUP.cmd').read_text(
+        encoding='utf-8-sig'),
     'versioned runtime pointer': 'CURRENT-RUNTIME.txt' in ps and 'CURRENT-RUNTIME.txt' in start,
     'versioned release pointer': 'CURRENT-RELEASE.txt' in ps and 'CURRENT-RELEASE.txt' in start,
     'versioned runtime name': 'venv-1.0.0-rc2.45-' in ps,
@@ -55,7 +59,8 @@ checks = {
     'frontend root points at new release': 'DCMS_FRONTEND_ROOT=$newRelease\\frontend' in ps,
     'UTF8 psql client': "PGCLIENTENCODING='UTF8'" in ps and "PGCLIENTENCODING='UTF8'" in migrate,
     'migration stops on error': 'ON_ERROR_STOP=1' in migrate,
-    'migration count gate': '数据库迁移完整性检查通过：28/28' in ps,
+    'migration count gate': ('数据库迁移完整性检查通过：' in ps
+                             and 'shippedMigrations' in ps and '28/28' not in ps),
     'strict HTTP health': 'HTTP 健康检查通过' in ps,
     'health route matches backend': '/api/v1/health' in ps and '/api/v1/system/health' not in ps,
     'upgrade-safe env permissions': "'*S-1-5-32-544:(F)'" in ps and 'attrib.exe -R' in ps,
@@ -100,7 +105,8 @@ for name, cond in checks.items(): ok(cond, name)
 
 # Ordering invariants
 try:
-    mig_done = ps.index("Write-Step '数据库迁移完整性检查通过：28/28（申请人审批操作已就绪，升级保留已有业务数据）'")
+    # 锚点取不含数字的那一截: 数字是算出来的, 写进锚点就又把它钉死了。
+    mig_done = ps.index('数据库迁移完整性检查通过：')
     switch_runtime = ps.index('Move-Item -Path $tmpRuntimeFile')
     switch_release = ps.index('Move-Item -Path $tmpReleaseFile')
     service = ps.index("Write-Step '注册 UG-DCMS 应用 Windows 服务...'")
@@ -118,12 +124,15 @@ if errors:
     sys.exit(1)
 print('INSTALLER SOURCE AUDIT: PASS')
 for name in checks: print(' [PASS]', name)
-print(f' [PASS] migrations UTF-8/order: {len(migs)}/28')
+print(f' [PASS] migrations UTF-8/order: {len(migs)} 个, 0001 起序号连续')
 
 # Data import is opt-in from backups; installation never writes the dataset.
 assert not (ROOT/'windows'/'install-ima-data.py').exists()
-assert 'simulation-ima' not in (ROOT/'frontend'/'js'/'app.js').read_text()
+# read_text() 不给 encoding 时在 Windows 上按 cp1252 解码, 文件里一出现中文就抛
+# UnicodeDecodeError。本文件其余各处都写了 utf-8-sig, 这三处漏了。
+assert 'simulation-ima' not in (ROOT/'frontend'/'js'/'app.js').read_text(encoding='utf-8-sig')
 assert 'simulation.router' not in main_api
-assert '/system/data-backups/import' in (ROOT/'frontend'/'js'/'import-progress.js').read_text()
+assert '/system/data-backups/import' in (
+    ROOT/'frontend'/'js'/'import-progress.js').read_text(encoding='utf-8-sig')
 assert (ROOT/'backend'/'app'/'data'/'ima-v1.json').is_file()
 print(' [PASS] separate data backup import; no simulation menu or installer seeding')
