@@ -1,33 +1,15 @@
 name: UG-DCMS rc2.45 source integration and installer
 
+# 触发条件: PR 不带 paths 过滤, 是为了让每个检查都**必然上报**。
+# 带 paths 过滤时, 一个没碰到这些路径的 PR 不会触发本流程, 于是必需检查一条也不
+# 上报 —— 分支保护会把该 PR 永久挂在"等待状态上报", 永远合不进去; 若不设为必需,
+# 它又显示为"没有检查"而看上去可以合。两头都不对, 所以过滤直接去掉。
+# 本仓库是公开仓库, Actions 分钟数免费, 多跑几分钟换"绿就是真绿"是值的。
 on:
   workflow_dispatch:
+  pull_request:
   push:
-    paths:
-      - 'src/**'
-      - 'ci/full-functional-smoke.py'
-      - 'ci/test-backup-restore.py'
-      - 'ci/test-approval-permissions.py'
-      - 'ci/test-ima-demo.py'
-      - 'ci/test-applicant-workflow.py'
-      - 'ci/test-notifications.py'
-      - 'ci/test-scale-demo.py'
-      - 'ci/test-import-progress.py'
-      - 'ci/test-notify-desktop.py'
-      - 'ci/dcms_http.py'
-      - 'ci/test-file-lifecycle.py'
-      - 'ci/test-baseline-readiness.py'
-      - 'ci/test-file-impact.py'
-      - 'ci/test-part-package.py'
-      - 'ci/test-approval-overdue.py'
-      - 'ci/test-consumer-roles.py'
-      - 'ci/test-signoff.py'
-      - 'ci/test-das-checklist.py'
-      - 'ci/test-signer-boundaries.py'
-      - 'ci/test-das-appointments.py'
-      - 'ci/test-das-training.py'
-      - 'ci/test-das-qualification.py'
-      - '.github/workflows/windows-installer-ci-v5.yml'
+    branches: [main]
 
 concurrency:
   # 并发组必须带 ref: 组名写成常量时全仓库共用一个组, 加上 cancel-in-progress,
