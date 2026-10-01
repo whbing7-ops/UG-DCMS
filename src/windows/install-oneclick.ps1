@@ -391,8 +391,14 @@ if($migrateExit -ne 0){ Fail "数据库迁移失败（退出码 $migrateExit）�
 $env:PGPASSWORD=$appDbPassword
 $migrationCount = (& $psql -X -h 127.0.0.1 -p $PgPort -U dcms -d dcms -qtAX -v ON_ERROR_STOP=1 -c 'SELECT count(*) FROM schema_migration;').Trim()
 if($LASTEXITCODE -ne 0){ Fail '无法验证数据库迁移状态' }
-if([int]$migrationCount -ne 28){ Fail "数据库迁移数量异常：期望 28，实际 $migrationCount" }
-Write-Step '数据库迁移完整性检查通过：28/28（申请人审批操作已就绪，升级保留已有业务数据）'
+# 期望值取安装包内实际携带的迁移脚本数, 不写死。写死的代价是每加一个迁移都要
+# 同步改这里, 漏改就在用户机器上报"迁移数量异常"装不上 —— 而且数字一旦落后于
+# 实际, 下面那句"完整性检查通过"印出来的分母就是一句假话。
+# 这里数的是 migrate-native.ps1 实际遍历的同一批文件($InstallDir\db\migrations)。
+$shippedMigrations = @(Get-ChildItem (Join-Path $newRelease 'db\migrations\*.sql') -File).Count
+if($shippedMigrations -lt 1){ Fail '安装包内未找到数据库迁移脚本' }
+if([int]$migrationCount -ne $shippedMigrations){ Fail "数据库迁移数量异常：期望 $shippedMigrations，实际 $migrationCount" }
+Write-Step "数据库迁移完整性检查通过：$migrationCount/$shippedMigrations（申请人审批操作已就绪，升级保留已有业务数据）"
 
 # 应用配置。密码只允许 SYSTEM/Administrators 读取。
 $envText=@"

@@ -39,7 +39,8 @@ function Validate-InstallerSource {
   if($provisionText -notmatch 'verify-runtime\.py' -or $provisionText -notmatch 'RUNTIME-VERIFIED\.txt'){
     throw 'New runtime import self-check is missing.'
   }
-  if($provisionText -notmatch '数据库迁移完整性检查通过：28/28'){ throw 'Database migration completeness check is missing.' }
+  if($provisionText -notmatch '数据库迁移完整性检查通过：'){ throw 'Database migration completeness check is missing.' }
+  if($provisionText -notmatch 'shippedMigrations'){ throw 'Migration count must be derived from the shipped files, not hardcoded.' }
   if($provisionText -match '兼容 health 路径差异'){ throw 'Weak TCP-only health fallback must not be present.' }
   if($provisionText -notmatch 'HTTP 健康检查通过'){ throw 'Strict HTTP health check is missing.' }
   if($provisionText -notmatch '/api/v1/health' -or $provisionText -match '/api/v1/system/health'){
@@ -49,7 +50,9 @@ function Validate-InstallerSource {
     throw 'Upgrade-safe .env ACL repair is missing.'
   }
   $migrations = @(Get-ChildItem (Join-Path $root 'db\migrations\*.sql') -File | Sort-Object Name)
-  if($migrations.Count -ne 28){ throw "Expected 28 DB migrations, found $($migrations.Count)." }
+  # 不校验总数: 写死的话每加一个迁移都要改这里, 漏改就卡构建。真正要防的是漏号
+  # 和重号, 那由下面逐个核对 0001_ 起序号连续来覆盖, 总数由文件本身决定。
+  if($migrations.Count -lt 1){ throw 'No DB migrations found.' }
   for($i=1; $i -le $migrations.Count; $i++){
     $prefix = ('{0:D4}_' -f $i)
     if(-not $migrations[$i-1].Name.StartsWith($prefix)){ throw "Migration sequence broken at $prefix" }
