@@ -12,8 +12,9 @@ from pathlib import Path
 
 from . import errors
 from .api import (admin, applicability, auth, baselines, bom, das_appointments,
-                  das_checklist, das_qualification, das_training, dictionary,
-                  externals, families, files, search, signers, system, master_transfer,
+                  das_checklist, das_occurrences, das_qualification, das_training,
+                  dictionary, externals, families, files, search, signers, system,
+                  master_transfer,
                   drafts, notifications)
 from .config import get_settings
 from .guards import RequestGuardMiddleware
@@ -79,6 +80,7 @@ def create_app() -> FastAPI:
     app.include_router(das_appointments.router, prefix=s.api_prefix)
     app.include_router(das_training.router, prefix=s.api_prefix)
     app.include_router(das_qualification.router, prefix=s.api_prefix)
+    app.include_router(das_occurrences.router, prefix=s.api_prefix)
     app.include_router(search.router, prefix=s.api_prefix)
     app.include_router(externals.router, prefix=s.api_prefix)
     app.include_router(master_transfer.router, prefix=s.api_prefix)
