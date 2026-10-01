@@ -753,6 +753,15 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql STABLE;
 
+-- 【这里有一条不显然的约束: 替换视图时不得改动列集】
+-- 备份恢复的往返流程(ci/test-backup-restore.py)会**恢复一份已含新 schema 的备份,
+-- 然后从 0001 起把全部迁移重新应用一遍**。于是 0039 若给 0035／0038 建的视图追加了
+-- 一列, 重新应用时 0035／0038 会用自己那份较少列的定义去 CREATE OR REPLACE,
+-- PostgreSQL 直接报 cannot drop columns from view —— 而且失败发生在 0039 之前,
+-- 在 0039 里 DROP VIEW 也救不了。
+--
+-- 所以下面每一处替换都**逐列对齐原定义**: 只换取值的来源(改为从引擎取), 不加列、
+-- 不改列序、不改列名。需要额外信息时另建新视图, 不往既有视图上追加。
 -- 9.1 M6：48 小时与 4 小时都从引擎取
 CREATE OR REPLACE VIEW das_occurrence_deadline AS
 SELECT o.id, o.report_no, o.description, o.triage_conclusion,
@@ -786,10 +795,7 @@ COMMENT ON VIEW das_occurrence_deadline IS
 
 CREATE OR REPLACE VIEW das_occurrence_registration_deviation AS
 SELECT o.id, o.report_no, o.received_at, o.received_via, o.registered_at,
-       round(extract(epoch FROM (o.registered_at - o.received_at)) / 3600.0, 2) AS lag_hours,
-       das_deadline_value_active('M6.REGISTER_LAG', o.received_at::date)::text
-           || ' ' || das_deadline_unit_active('M6.REGISTER_LAG', o.received_at::date)
-                                                                                AS threshold
+       round(extract(epoch FROM (o.registered_at - o.received_at)) / 3600.0, 2) AS lag_hours
   FROM das_occurrence o
  WHERE das_deadline_interval('M6.REGISTER_LAG', o.received_at::date) IS NOT NULL
    AND o.registered_at > o.received_at
@@ -876,9 +882,7 @@ SELECT k.kind,
                      + das_deadline_interval(k.param_code, la.last_audit_on))::date
                                                                      THEN 'OVERDUE'
             ELSE 'WITHIN_CYCLE'
-       END                                                                    AS cycle_state,
-       -- 新列只能追加在末尾: CREATE OR REPLACE VIEW 不允许改动已有列的位置和名字。
-       k.param_code
+       END                                                                    AS cycle_state
   FROM (VALUES ('DAS_SUPERVISION','L4.DAS_SUPERVISION_CYCLE'),
                ('QMS_AUDIT','L5.QMS_AUDIT_CYCLE')) k(kind, param_code)
   LEFT JOIN LATERAL (
