@@ -92,17 +92,13 @@ violates('DCMS-INV-037', {**BASE, 'reviewed_by': subject.id, 'approved_by': ap.i
          '被评估人不得签本人的评估表')
 print('ok   037 被评估人不得担任本人评估表的签署人')
 
-# 同一自然人两个账号：工号相同 → 仍应被判为同一人
+# 原来这里想验"同一自然人开两个账号、工号相同 → 三签仍不成立"。那个状态**造不出来**:
+# 同一批次的迁移 0031 给 employee_no 加了唯一索引, 第二个账号根本填不上同一个工号,
+# 唯一索引在触发器之前就拦下了。用例与约束互相矛盾, 验的是一个不存在的输入。
 alt = mk('qx', 'APPROVER', emp=False)
-db_execute("UPDATE app_user SET employee_no=%s WHERE id=%s", ('QV' + STAMP, alt.id))
-check(rejected("""INSERT INTO das_qualification_assessment
-        (user_id, sign_types, education_experience, training_evidence,
-         indep_no_self_check, indep_no_ism_conflict, conclusion,
-         prepared_by, reviewed_by, approved_by)
-        VALUES (%s, ARRAY['CVE核查'], 'x', 'y', true, true, 'AGREE', %s, %s, %s)""",
-                (subject.id, admin.id, rv.id, alt.id)),
-      'I3 两个账号同工号被判为同一自然人，三签不成立')
-print('ok   I3 同一自然人开两个账号仍被判为同一人——工号判，不是账号判')
+check(rejected("UPDATE app_user SET employee_no=%s WHERE id=%s", ('QV' + STAMP, alt.id)),
+      '重复工号被唯一索引拒绝：同工号两账号的状态造不出来')
+print('ok   重复工号在唯一索引处就被挡下, 036 不必去识别这种输入')
 
 # ---------------- 正常路径 ----------------
 qa = admin.call('POST', '/das/qualifications',
@@ -176,6 +172,19 @@ print('ok   N12 核对人自己复核自己被数据库拒绝')
 check(rejected("UPDATE das_register_reconciliation SET differences=9 WHERE id=%s", (rec['id'],)),
       '核对记录的差异数不可改写')
 print('ok   核对记录的月份、核对人、快照、差异数均不可改写')
+
+# ---------------- 判据 A1-2: 工号判得出重号, 判不出一人两号 ----------------
+# 唯一索引保证了"一个工号只对应一个账号", 但保证不了"一个人只有一个工号"。
+# alt 与 rv 完全可能是同一个人的两个工号, 系统判不出来, 三签会被认为成立。
+# 写成用例, 免得"按工号判不同自然人"被当成已经管住了 —— 它只在受控人员清单
+# (UG-DAM-01-附2)可信时才成立, 见 ci/test-signer-boundaries.py 的同名判据。
+db_execute("UPDATE app_user SET employee_no=%s WHERE id=%s", ('QX' + STAMP, alt.id))
+other = mk('qz')
+admin.call('POST', '/das/qualifications',
+           {**BASE, 'user_id': other.id, 'reviewed_by': rv.id, 'approved_by': alt.id,
+            'form_ref': 'DAF06-A12-' + STAMP}, expect=201)
+print('ok   A1-2 同一人持两个不同工号时三签照样成立——系统判不出来,')
+print('     "不同自然人"仍依赖受控人员清单, 不能说已由系统实现')
 
 print()
 print('全部通过: 资格评估与登记册月度核对')

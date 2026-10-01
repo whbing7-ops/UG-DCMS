@@ -104,7 +104,14 @@ check('最近一次考核不合格' in str(r2), '补考仍不合格被识别为 
 check('UG-DAW-006' in str(r2), '拒绝理由指到依据')
 print('ok   第 3 章 补考仍不合格的不得授权')
 
-# ---------------- 第 3 章: 复训过期 → 应暂停签署权 ----------------
+# ---------------- 第 3 章: 复训不合格／过期 → 应暂停签署权 ----------------
+# 这一段原来是靠 UPDATE 把一条培训记录的日期推回两年前来造"过期"状态的,
+# 而本文件末尾恰好在验"培训记录不可改写" —— 那条 UPDATE 必然被自己的守卫拦下。
+# 这个矛盾一直没暴露, 因为 integration 作业在前一个脚本就挂了, 本文件从未跑过。
+# 改成两条各自成立的路径, 都不动既有记录。
+
+# 路径一: 复训考核不合格。UG-DAW-006 第 3 章的原话就是这一条,
+# 新增一条 FAIL 的复训记录即可——只增不改, 最近一次考核即为不合格。
 w = mk('tr3')
 admin.call('POST', '/das/appointments',
            {'user_id': w.id, 'position_code': 'DCM', 'kind': 'FORMAL'}, expect=201)
@@ -114,14 +121,41 @@ for x in need:
                {'user_id': w.id, 'course_code': x['course_code'], 'kind': 'INITIAL',
                 'trained_on': str(today), 'result': 'PASS'}, expect=201)
 admin.call('POST', '/signers', {'user_id': w.id, 'level': 'REVIEW', 'note': '已培训'}, expect=201)
-
-# 把其中一门的培训日期推回两年前：复训周期 12 个月，应变 EXPIRED
-db_execute("""UPDATE das_training_record SET trained_on = current_date - interval '2 years'
-               WHERE user_id=%s AND course_code=%s""", (w.id, need[0]['course_code']))
+admin.call('POST', '/das/training/records',
+           {'user_id': w.id, 'course_code': need[0]['course_code'], 'kind': 'RECURRENT',
+            'trained_on': str(today), 'result': 'FAIL'}, expect=201)
 st3 = admin.call('GET', '/das/training/status?user_id=' + w.id, expect=200)
-check(any(x['status'] == 'EXPIRED' for x in st3), '超过复训周期变为 EXPIRED')
+bad = [x for x in st3 if x['course_code'] == need[0]['course_code']]
+check(bad and bad[0]['status'] == 'FAILED', '复训考核不合格后该课程状态为 FAILED')
 sus = admin.call('GET', '/das/training/suspend-due', expect=200)
 check(any(s['user_id'] == w.id for s in sus),
+      '第 3 章 复训不合格且仍持有效授权者出现在应暂停清单')
+print('ok   第 3 章 复训考核不合格 → 进应暂停清单（新增记录, 不改旧记录）')
+
+# 路径二: 复训过期。过期只能由"记录本身就旧"产生, 不能靠改记录。
+# 这里模拟一个真实会出现的状态: 两年前培训合格并获授权, 此后再没复训。
+# 授权直接落库而不走接口, 是因为培训闸门本来就会拦住"培训已过期的人申请授权",
+# 而要验的恰恰是"当时合格、后来过期"的既有授权如何被发现。
+v2 = mk('tr4')
+admin.call('POST', '/das/appointments',
+           {'user_id': v2.id, 'position_code': 'DCM', 'kind': 'FORMAL'}, expect=201)
+need2 = admin.call('GET', '/das/training/status?user_id=' + v2.id, expect=200)
+for x in need2:
+    admin.call('POST', '/das/training/records',
+               {'user_id': v2.id, 'course_code': x['course_code'], 'kind': 'INITIAL',
+                'trained_on': str(today - dt.timedelta(days=760)), 'result': 'PASS'}, expect=201)
+st4 = admin.call('GET', '/das/training/status?user_id=' + v2.id, expect=200)
+check(st4 and all(x['status'] == 'EXPIRED' for x in st4),
+      '超过 12 个月复训周期的全部变为 EXPIRED')
+r3 = admin.call('POST', '/signers', {'user_id': v2.id, 'level': 'REVIEW'}, expect=400)
+check('已过复训期' in str(r3), '闸门拦住复训已过期者的新授权, 理由写明是过期')
+print('ok   第 3 章 复训过期者不得新授权（理由为"已过复训期", 与"从未参加"区分）')
+
+db_execute('''INSERT INTO signer_authorization (user_id, level, valid_from, granted_by, note)
+              VALUES (%s, 'REVIEW', current_date - 400, %s, '模拟两年前的既有授权')''',
+           (v2.id, admin.id))
+sus2 = admin.call('GET', '/das/training/suspend-due', expect=200)
+check(any(s['user_id'] == v2.id for s in sus2),
       '第 3 章 复训过期且仍持有效授权者出现在应暂停清单')
 print('ok   第 3 章 复训过期且仍持有效授权者被列入应暂停清单')
 
