@@ -1,13 +1,15 @@
 name: UG-DCMS Windows Fast Gate
 
+# 触发条件: PR 不带 paths 过滤, 是为了让每个检查都**必然上报**。
+# 带 paths 过滤时, 一个没碰到这些路径的 PR 不会触发本流程, 于是必需检查一条也不
+# 上报 —— 分支保护会把该 PR 永久挂在"等待状态上报", 永远合不进去; 若不设为必需,
+# 它又显示为"没有检查"而看上去可以合。两头都不对, 所以过滤直接去掉。
+# 本仓库是公开仓库, Actions 分钟数免费, 多跑几分钟换"绿就是真绿"是值的。
 on:
   workflow_dispatch:
+  pull_request:
   push:
-    paths:
-      - 'src/**'
-      - 'ci/test-notify-desktop.py'
-      - 'ci/full-functional-smoke.py'
-      - '.github/workflows/windows-fast-process-gate.yml'
+    branches: [main]
 
 jobs:
   windows-fast-gate:

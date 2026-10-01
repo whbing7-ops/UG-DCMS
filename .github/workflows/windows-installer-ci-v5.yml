@@ -1,31 +1,21 @@
 name: UG-DCMS rc2.45 source integration and installer
 
+# 触发条件: PR 不带 paths 过滤, 是为了让每个检查都**必然上报**。
+# 带 paths 过滤时, 一个没碰到这些路径的 PR 不会触发本流程, 于是必需检查一条也不
+# 上报 —— 分支保护会把该 PR 永久挂在"等待状态上报", 永远合不进去; 若不设为必需,
+# 它又显示为"没有检查"而看上去可以合。两头都不对, 所以过滤直接去掉。
+# 本仓库是公开仓库, Actions 分钟数免费, 多跑几分钟换"绿就是真绿"是值的。
 on:
   workflow_dispatch:
+  pull_request:
   push:
-    paths:
-      - 'src/**'
-      - 'ci/full-functional-smoke.py'
-      - 'ci/test-backup-restore.py'
-      - 'ci/test-approval-permissions.py'
-      - 'ci/test-ima-demo.py'
-      - 'ci/test-applicant-workflow.py'
-      - 'ci/test-notifications.py'
-      - 'ci/test-scale-demo.py'
-      - 'ci/test-import-progress.py'
-      - 'ci/test-notify-desktop.py'
-      - 'ci/dcms_http.py'
-      - 'ci/test-file-lifecycle.py'
-      - 'ci/test-baseline-readiness.py'
-      - 'ci/test-file-impact.py'
-      - 'ci/test-part-package.py'
-      - 'ci/test-approval-overdue.py'
-      - 'ci/test-consumer-roles.py'
-      - 'ci/test-signoff.py'
-      - '.github/workflows/windows-installer-ci-v5.yml'
+    branches: [main]
 
 concurrency:
-  group: ug-dcms-rc245
+  # 并发组必须带 ref: 组名写成常量时全仓库共用一个组, 加上 cancel-in-progress,
+  # 推任一分支都会把别的分支正在跑的 run 掐掉 —— 而被取消的 run 在 PR 上不显示为
+  # 失败, 只是"少一项检查", PR 看上去是绿的。栈式 PR 下这会让整层测试从未真正跑过。
+  group: ug-dcms-rc245-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -74,7 +64,10 @@ jobs:
             sha="$(sha256sum "$f" | cut -d' ' -f1)"
             psql -X -v ON_ERROR_STOP=1 -h 127.0.0.1 -U dcms -d dcms -c "INSERT INTO schema_migration(version,filename,sha256) VALUES ('$v','$(basename "$f")','$sha')"
           done
-          test "$(psql -XAt -h 127.0.0.1 -U dcms -d dcms -c 'select count(*) from schema_migration')" = 28
+          # 迁移数量由目录决定, 不写死: 新增迁移无需改 CI。
+          expected="$(ls src/db/migrations/*.sql | wc -l)"
+          actual="$(psql -XAt -h 127.0.0.1 -U dcms -d dcms -c 'select count(*) from schema_migration')"
+          test "$actual" = "$expected" || { echo "migrations applied $actual, expected $expected"; exit 1; }
           # Model the field failure: 0014 objects exist while its ledger row was
           # not recorded. Reapplying must reconcile without deleting any data.
           psql -X -1 -v ON_ERROR_STOP=1 -h 127.0.0.1 -U dcms -d dcms -f src/db/migrations/0014_operational_workflow.sql
@@ -115,8 +108,9 @@ jobs:
           PYTHONPATH=src/backend python ci/test-import-progress.py /tmp/ima-credentials.json
           PYTHONPATH=src/backend python -u ci/test-scale-demo.py /tmp/ima-credentials.json
           # rc2.45: 文档管理、基线检查、影响分析、件号资料包、审批超期、生产/采购角色、三级签署
+          # DOA 运行模块: 符合性检查单主数据(反例用例为主, 见 ci/test-das-checklist.py)
           export DCMS_BASE_URL=http://127.0.0.1:8080
-          for t in test-file-lifecycle test-baseline-readiness test-file-impact test-part-package test-approval-overdue test-consumer-roles test-signoff; do
+          for t in test-file-lifecycle test-baseline-readiness test-file-impact test-part-package test-approval-overdue test-consumer-roles test-signoff test-das-checklist; do
             echo "== $t"
             PYTHONPATH=src/backend python ci/$t.py /tmp/ima-credentials.json
           done
