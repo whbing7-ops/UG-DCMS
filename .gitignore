@@ -3,3 +3,7 @@ __pycache__/
 *.py[cod]
 src/installer/output/
 src/windows/prerequisites/
+
+# ci/test-ima-demo.py 的运行产物（备份包、result.json）。它从来不该进仓库,
+# 而 git add -A 会把它扫进来 —— 本次就发生过一次。
+ima-evidence/

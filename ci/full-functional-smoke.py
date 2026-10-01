@@ -6,6 +6,7 @@ business contract; no critical operation is silently skipped.
 """
 from __future__ import annotations
 
+import os
 import json
 import io
 import sys
@@ -16,7 +17,11 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
-BASE = "http://127.0.0.1:8080/api/v1"
+# 跟 ci/dcms_http.py 一样认 DCMS_BASE_URL。写死 8080 是有实际危险的: 本脚本
+# 头一件事就是用预置口令登录 admin。在别的端口跑测试时它依旧打到 8080,
+# 而 8080 上跑的可能是别人的实例 —— 登录失败会给那边的账户记上一次
+# 口令错误, 累计到阈值（system_setting.login_max_failures, 默认 5）就锁号。
+BASE = os.environ.get("DCMS_BASE_URL", "http://127.0.0.1:8080").rstrip("/") + "/api/v1"
 STAMP = str(int(time.time()))[-8:]
 PASSWORDS = {
     "admin": ("Admin@12345", "Changed!Root" + STAMP),
