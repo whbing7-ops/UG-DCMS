@@ -76,17 +76,48 @@ def grant(conn: psycopg.Connection, *, user_id: str, level: str, file_type_code:
         """, (backup_user_id, _signing_roles()))
         if backup is None:
             raise ValueError("备份人已停用, 或没有可签署的角色, 不能作为备份")
+    # UG-DAW-006 第 1、3 章: 首次授权前须完成初始培训并考核合格; 补考仍不合格的不得授权。
+    # 放在这里而不是任命处: 手册要求的是"授权前", 任命与授权是两回事——
+    # 一个人可以先被任命到岗位上接受培训, 但不能在培训未达标时取得签署权。
+    from . import das_training
+    why = das_training.training_gate(conn, str(user_id))
+    if why:
+        raise ValueError(why)
+
+    # 判据 E1 的另一半: UG-DAP-03 步骤 3～5 要求资格评估与独立性核对通过后才签发授权。
+    #
+    # 只对 CVE 级校验, 不对 REVIEW/APPROVE 校验 —— 这不是偷懒, 是范围问题:
+    # UG-DAF-06 是"**授权人员**评估表", 它的"授权文件类型"栏是 4 类**适航签署事项**
+    # (更改分类/符合性声明/小改批准/CVE 核查); 而本系统的 level REVIEW/APPROVE 是
+    # **文档签署级别**, 两者不是一回事——待澄清项第 1 条写的就是这件事, 要等 M3／M4。
+    # 对每一个文档审核人都要求一份 UG-DAF-06, 是把适航授权的门槛套到文档流转上。
+    # 等签署事项这一维落地, 本闸门的适用范围随之扩到那几类事项。
+    if level == "CVE":
+        from . import das_qualification
+        why = das_qualification.qualification_gate(conn, str(user_id))
+        if why:
+            raise ValueError(why)
+
     start = valid_from or dt.date.today()
     if valid_to is not None and valid_to < start:
         raise ValueError("有效期截止日不得早于起始日")
-    dup = scalar(conn, """
-        SELECT count(*) FROM signer_authorization
+    # 这里拦的不止"当前有效"的: 生效日期还没到的也算, 因为它到期自然会与新授权重叠。
+    # 但理由必须指到具体哪一条 —— 原来只说"已有有效授权", 而一条生效日在未来的授权
+    # 并不出现在有效清单里, 操作员照这句话去找会找不到, 卡在这儿不知道该撤哪个。
+    dup = fetch_one(conn, """
+        SELECT id, valid_from, valid_to FROM signer_authorization
          WHERE user_id=%s AND level=%s AND file_type_code IS NOT DISTINCT FROM %s
            AND discipline_code IS NOT DISTINCT FROM %s AND revoked_at IS NULL
-           AND (valid_to IS NULL OR valid_to >= current_date)""",
-                  (user_id, level, file_type_code, discipline_code))
+           AND (valid_to IS NULL OR valid_to >= current_date)
+         ORDER BY valid_from LIMIT 1""",
+                    (user_id, level, file_type_code, discipline_code))
     if dup:
-        raise ValueError("该账户已有同级别、同文件类型、同专业的有效授权")
+        span = f'{dup["valid_from"]} 起'
+        span += f'至 {dup["valid_to"]} 止' if dup["valid_to"] else ", 未设截止日"
+        state = "尚未生效" if dup["valid_from"] > dt.date.today() else "当前有效"
+        raise ValueError(
+            f"该账户已有同级别、同文件类型、同专业的未撤销授权（第 {dup['id']} 号, "
+            f"{span}, {state}）, 不得重复授权。如需改有效期, 请先撤销该条。")
     row = fetch_one(conn, """
         INSERT INTO signer_authorization (user_id, level, file_type_code, valid_from, valid_to, note,
                                           granted_by, discipline_code, backup_user_id)
@@ -120,6 +151,27 @@ def revoke(conn: psycopg.Connection, auth_id: str, reason: str, actor: dict) -> 
         raise LookupError("授权记录不存在")
     if row["revoked_at"] is not None:
         raise ValueError("该授权已撤销")
+
+    # 判据 CV1: 撤销前先看他是不是别人的备份人。
+    # 名册按需动态增减时, 撤销甲会让乙的备份安排凭空落空 —— 而乙的授权还在、
+    # 名单上还写着, 看起来一切正常, 但 AC-21-48 3.2.4 要的备份已经没有了。
+    # 所以宁可拦在这里, 也不让"有备份"退化成一句名单上的话。
+    orphaned = fetch_all(conn, """
+        SELECT u.full_name, u.username, sa.level, sa.discipline_code
+          FROM signer_authorization sa
+          JOIN app_user u ON u.id = sa.user_id
+         WHERE sa.backup_user_id = (SELECT user_id FROM signer_authorization WHERE id = %s)
+           AND sa.revoked_at IS NULL
+           AND (sa.valid_to IS NULL OR sa.valid_to >= current_date)
+         ORDER BY u.full_name""", (auth_id,))
+    if orphaned:
+        who = "、".join(f'{o["full_name"]}（{LEVELS.get(o["level"], o["level"])}'
+                       + (f'·{o["discipline_code"]}' if o["discipline_code"] else '') + '）'
+                       for o in orphaned)
+        raise ValueError(
+            f"撤销前请先为下列人员指定新的备份人, 否则他们的备份安排会落空: {who}。"
+            "AC-21-48 3.2.4 要求每名 CVE 和授权人员都有备份。")
+
     execute(conn, """UPDATE signer_authorization SET revoked_at = now(), revoked_by = %s, revoke_reason = %s
                       WHERE id = %s""", (actor["user_id"], reason, auth_id))
     audit.write(conn, action="SIGNER_REVOKE", user_id=str(actor["user_id"]), username=actor["username"],
@@ -199,3 +251,36 @@ def candidates(conn: psycopg.Connection, level: str, file_type_code: str | None,
            AND NOT (u.id = ANY(%s::uuid[]))
          ORDER BY u.full_name, u.username
     """, (level, file_type_code, discipline_code, discipline_code, _signing_roles(), exclude_user_ids))
+
+
+def backup_status(conn: psycopg.Connection) -> list[dict]:
+    """判据 CV2: 当前备份完整性。
+
+    返回全部有效授权, gap 为空表示备份安排完整, 非空即说明缺在哪:
+    未指定备份人、备份人账户已停用、备份人在该级别上没有有效授权。
+
+    返回全部而不只返回有缺口的, 是为了让界面能说出"10 项里 2 项有缺口" ——
+    只列缺口看不出分母, 而判据 CV2 要的是"一眼看出完整性"。
+    """
+    return fetch_all(conn, """
+        SELECT sa.id, u.full_name, u.username, sa.level, sa.discipline_code,
+               d.name_cn AS discipline_name, sa.valid_to,
+               b.full_name AS backup_full_name, b.is_active AS backup_active,
+               CASE
+                 WHEN sa.backup_user_id IS NULL THEN '未指定备份人'
+                 WHEN NOT b.is_active           THEN '备份人账户已停用'
+                 WHEN NOT EXISTS (SELECT 1 FROM signer_authorization x
+                                   WHERE x.user_id = sa.backup_user_id AND x.level = sa.level
+                                     AND x.revoked_at IS NULL
+                                     AND (x.valid_to IS NULL OR x.valid_to >= current_date))
+                                                THEN '备份人在该级别上没有有效授权'
+               END AS gap
+          FROM signer_authorization sa
+          JOIN app_user u ON u.id = sa.user_id
+          LEFT JOIN app_user b ON b.id = sa.backup_user_id
+          LEFT JOIN das_discipline d ON d.code = sa.discipline_code
+         WHERE sa.revoked_at IS NULL
+           AND sa.valid_from <= current_date
+           AND (sa.valid_to IS NULL OR sa.valid_to >= current_date)
+         ORDER BY u.full_name, sa.level
+    """)

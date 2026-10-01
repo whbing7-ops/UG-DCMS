@@ -49,6 +49,16 @@ def grant_signer(payload: GrantRequest, conn: Conn, actor: dict = Depends(requir
         raise errors.bad_request(str(e))
 
 
+@router.get("/signers/backup-status")
+def backup_status(conn: Conn, user: CurrentUser):
+    """判据 CV2: 备份安排的完整性。
+
+    名册按需动态增减, 所以"每人都有备份"不是登记一次就成立的事实, 而是每天都
+    可能被一次撤销破坏的状态。判据 CV1 在撤销时拦截, 本端点让平时就能看见。
+    """
+    return signer_svc.backup_status(conn)
+
+
 @router.get("/signers/disciplines")
 def list_disciplines(conn: Conn, user: CurrentUser):
     """适航专业字典: 授权范围和文件标注都从这里选, 不自由填写。"""

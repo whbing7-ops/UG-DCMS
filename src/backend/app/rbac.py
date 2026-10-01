@@ -46,6 +46,10 @@ class Perm(StrEnum):
     # 设计保证: DOA 符合性检查单(UG-DAM-01-附3)由适航管理负责人归口,
     # 与"维护有权签署人清单"是两件事, 故另设权限而不复用 SIGNER_MANAGE。
     DAS_CHECKLIST_MANAGE = "das_checklist_manage"
+    # 事件报告(UG-DAP-12)归事件报告负责人, 与检查单、与签署人清单都不是一回事。
+    # 注意本权限只管"能不能往台账里写", 不等于能免报:
+    # 免于报告须由在任的适航管理负责人签署, 那一道按岗位任命判, 在服务层(判据 M6-3)。
+    DAS_OCCURRENCE_MANAGE = "das_occurrence_manage"
     # 系统管理
     USER_MANAGE = "user_manage"
     SESSION_MANAGE = "session_manage"
@@ -65,7 +69,7 @@ ROLE_PERMISSIONS: dict[Role, frozenset[Perm]] = {
     Role.CONFIGURATION_MANAGER: frozenset({
         Perm.READ, Perm.DRAFT_WRITE, Perm.SUBMIT, Perm.APPROVE, Perm.SIGN, Perm.SIGNER_MANAGE,
         Perm.NUMBER_ALLOCATE, Perm.BASELINE_RELEASE, Perm.READ_AUDIT,
-        Perm.DAS_CHECKLIST_MANAGE,
+        Perm.DAS_CHECKLIST_MANAGE, Perm.DAS_OCCURRENCE_MANAGE,
     }) | _ACCESS,
     Role.DATA_ADMIN: frozenset({
         Perm.READ, Perm.DICTIONARY_WRITE, Perm.READ_AUDIT,
