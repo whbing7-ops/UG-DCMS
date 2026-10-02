@@ -250,17 +250,27 @@ def release(conn: psycopg.Connection, *, form_no: str, doc_kind: str, doc_ref: s
     conds = {c["condition_code"]: c for c in fetch_all(
         conn, """SELECT condition_code, satisfied FROM das_minor_approval_condition
                   WHERE approval_id=%s""", (a["id"],))}
+    # 两条路，二者之一（同 M4 的分类结论）。
+    offline = scalar(conn, "SELECT das_offline_covered('DAS_MINOR_APPROVAL', %s)",
+                     (form_no,))
     missing = [cn for code, cn in CONDITIONS.items() if code not in conds]
-    if missing:
-        raise ValueError(f"第 1 步的核对条件还差：{'、'.join(missing)}。"
-                         f"三条各自要有核对记录与依据。")
-    bad = [cn for code, cn in CONDITIONS.items() if not conds[code]["satisfied"]]
+    if missing and not offline:
+        raise ValueError(
+            f"拿不出第 1 步的核对依据。两条路选一条："
+            f"① 在系统里逐条登记（还差：{'、'.join(missing)}）；"
+            f"② 走线下审批并把证据上传（object_type=DAS_MINOR_APPROVAL，"
+            f"object_key={form_no}，须已复核且有证据文件）。")
+    # 【这一条两条路都拦】系统里明写着某条不满足却还要发布，不是"管得太细"，是自相矛盾。
+    bad = [cn for code, cn in CONDITIONS.items()
+           if code in conds and not conds[code]["satisfied"]]
     if bad:
         raise ValueError(
-            f"下列条件不满足，不得批准发布：{'、'.join(bad)}。"
+            f"系统里已登记下列条件**不满足**，不得发布：{'、'.join(bad)}。"
             f"UG-DAP-08 第 1 步：任一项不满足，不得批准。"
             f"第 7 章：超出许可范围或批准权限的，提交局方办理或先申请权限变更，"
-            f"**不得仅因无批准权限自动改判大改**——分类结论保持原样。")
+            f"**不得仅因无批准权限自动改判大改**——分类结论保持原样。"
+            + ("（已有线下承接，但线下结论与系统记录相反时同样不得发布："
+               "两者必有一个是错的，按 UG-DAP-14 查清再说。）" if offline else ""))
 
     st = fetch_one(conn, """SELECT template, placeholder FROM das_approval_statement
                              WHERE code='DOA_MINOR_APPROVAL'""")

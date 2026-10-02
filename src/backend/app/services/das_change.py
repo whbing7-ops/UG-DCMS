@@ -299,11 +299,20 @@ def classify(conn: psycopg.Connection, *, change_no: str, state: str,
 
     cov = fetch_one(conn, """SELECT * FROM das_change_criterion_coverage
                               WHERE change_id=%s""", (c["id"],))
-    if cov and cov["missing_items"]:
+    # 【两条路，二者之一】2026-10-02 的决定：系统实现不了的走线下审批，证据资料上传系统。
+    # 所以这里拒的不是"没录进系统"，是"两边都拿不出判定依据"。
+    offline = scalar(conn, "SELECT das_offline_covered('DAS_DESIGN_CHANGE', %s)",
+                     (change_no,))
+    if cov and cov["missing_items"] and not offline:
         raise ValueError(
-            f"下列判据还没有给出结论，不得出分类结论：{cov['missing_items']}。"
-            f"UG-DAW-010 第 3 章：按第 2 章逐条判据打勾并写明依据。"
-            f"漏掉一条判据的分类，在局方复查时等于没有分类依据。")
+            f"拿不出分类的判定依据，不得出分类结论。两条路选一条："
+            f"① 在系统里逐条给出判据结论（还差：{cov['missing_items']}）；"
+            f"② 走线下审批并把证据上传"
+            f"（POST /das/offline/approvals，object_type=DAS_DESIGN_CHANGE，"
+            f"object_key={change_no}）。"
+            f"线下那条要求记录**已复核**且**至少一份证据文件**——判据 N-总：补录数据在"
+            f"完成复核并发布之前不具有权威性；而没有扫描件的记录比没有记录更坏，"
+            f"台账上看起来有。")
     if cov and cov["significant"] and major_minor == "MINOR":
         raise ValueError(
             f"「{cov['significant_items']}」已判为显著影响，不得分类为小改。"
