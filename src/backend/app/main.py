@@ -12,7 +12,7 @@ from pathlib import Path
 
 from . import errors
 from .api import (admin, applicability, auth, baselines, bom, das_appointments, das_audit,
-                  das_checklist, das_deadline, das_independence, das_ncr,
+                  das_change, das_checklist, das_deadline, das_independence, das_ncr,
                   das_occurrences, das_project, das_qualification,
                   das_release, das_retention, das_signer_scope,
                   das_training,
@@ -92,6 +92,7 @@ def create_app() -> FastAPI:
     app.include_router(das_release.router, prefix=s.api_prefix)
     app.include_router(das_project.router, prefix=s.api_prefix)
     app.include_router(das_signer_scope.router, prefix=s.api_prefix)
+    app.include_router(das_change.router, prefix=s.api_prefix)
     app.include_router(search.router, prefix=s.api_prefix)
     app.include_router(externals.router, prefix=s.api_prefix)
     app.include_router(master_transfer.router, prefix=s.api_prefix)
