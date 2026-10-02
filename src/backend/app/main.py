@@ -11,14 +11,13 @@ from fastapi.staticfiles import StaticFiles
 from pathlib import Path
 
 from . import errors
-from .api import (admin, applicability, auth, baselines, bom, das_appointments, das_audit,
-                  das_change, das_checklist, das_deadline, das_independence, das_ncr,
-                  das_occurrences, das_project, das_qualification,
-                  das_release, das_retention, das_signer_scope,
-                  das_training,
-                  dictionary, externals, families, files, search, signers, system,
-                  master_transfer,
-                  drafts, notifications)
+from .api import (admin, applicability, auth, baselines, bom, das_appointments,
+                  das_audit, das_change, das_checklist, das_deadline,
+                  das_independence, das_minor_approval, das_ncr, das_occurrences,
+                  das_project, das_qualification, das_release, das_retention,
+                  das_signer_scope, das_training, dictionary, drafts, externals,
+                  families, files, master_transfer, notifications, search, signers,
+                  system)
 from .config import get_settings
 from .guards import RequestGuardMiddleware
 from .db import close_pool, init_pool
@@ -93,6 +92,7 @@ def create_app() -> FastAPI:
     app.include_router(das_project.router, prefix=s.api_prefix)
     app.include_router(das_signer_scope.router, prefix=s.api_prefix)
     app.include_router(das_change.router, prefix=s.api_prefix)
+    app.include_router(das_minor_approval.router, prefix=s.api_prefix)
     app.include_router(search.router, prefix=s.api_prefix)
     app.include_router(externals.router, prefix=s.api_prefix)
     app.include_router(master_transfer.router, prefix=s.api_prefix)
