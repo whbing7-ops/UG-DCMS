@@ -66,8 +66,18 @@ for c in ('I3', 'I10'):
           '%s 的状态栏为空（状态落在子维度上）' % c)
     kids = [r for r in mx if r['parent_code'] == c]
     check(len(kids) >= 2, '%s 有 %d 个子维度' % (c, len(kids)))
-check(len({r['verdict'] for r in mx if r['parent_code'] == 'I10'}) == 4,
-      'I10 四个子维度的判定互不相同 —— 这正是不得笼统称"已实现"的原因')
+# 【断言的是"不一致", 不是"两两互不相同"】
+# 原先写的是四个判定两两互不相同 —— 那是过拟合到当时的快照。0044 把
+# I10.PRODUCT_SCOPE 从未实现改成部分实现, 它与 I10.DISCIPLINE 就同为 PARTIAL 了,
+# 四维仍然不一致, 判据 I10 仍然成立, 而那条断言会失败。
+# 判据 I10 要的是"四维状态各不相同, 不得笼统称已实现"——**它禁的是笼统**,
+# 不是要求四个值恰好两两不等。所以断言"不止一种状态", 再加下面几条逐维断言。
+i10 = {r['verdict'] for r in mx if r['parent_code'] == 'I10'}
+check(len(i10) >= 2,
+      'I10 四个子维度的判定并不一致（%s）—— 这正是不得笼统称"已实现"的原因'
+      % '、'.join(sorted(i10)))
+check('VERIFIED' not in i10 or len(i10) > 1,
+      '四维不会同时都是 VERIFIED 而被笼统称为已实现')
 print('ok   I10 四维状态各不相同, 父项不带笼统状态:')
 for r in mx:
     if r['parent_code'] == 'I10':
@@ -138,8 +148,20 @@ check(fm['verdict'] == 'SEMANTIC_MISMATCH',
       'I10.FILE_TYPE 判为语义不符: 代码在跑, 但校验的是文档种类而不是适航签署事项')
 check(fm['test_state'] == 'NOT_APPLICABLE',
       '语义不符时用例状态记为不适用 —— 测了也不证明签署事项受控')
-check(by['I10.PRODUCT_SCOPE']['verdict'] == 'NOT_IMPLEMENTED',
-      'I10.PRODUCT_SCOPE 如实记为未实现（完全由纸面授权书把关）')
+# 【这一行的状态由 0044 的用例负责, 这里只断言"没有被笼统升格"】
+# 原先钉死 NOT_IMPLEMENTED。0044 把范围做成结构化条目并在符合性声明处真的校验,
+# 状态如实升到 PARTIAL —— 钉死快照的断言就会失败, 而失败的原因是实现进步了。
+# 登记册的内容本来就会随实现变, 用例该钉的是**不得笼统升格**: 部分实现时必须写明
+# 哪一处在校验、哪几处仍靠纸面。谁把它改成 PRESENT 而不补齐那几条路径, 这里会失败。
+ps = by['I10.PRODUCT_SCOPE']
+check(ps['source_state'] in ('ABSENT', 'PARTIAL'),
+      'I10.PRODUCT_SCOPE 不得记为已实现（现为 %s）—— 多条签署路径仍由纸面把关'
+      % ps['source_state'])
+if ps['source_state'] == 'PARTIAL':
+    check('符合性声明' in (ps['manual_control'] or ''),
+          '部分实现时写明了哪一处在校验')
+    check('纸面' in (ps['manual_control'] or ''),
+          '部分实现时写明了哪几条路径仍靠纸面授权书把关')
 check(by['I8']['verdict'] == 'NO_COUNTER_EXAMPLE',
       'I8 有实现但无反例用例, 单独判一类 —— 判据 I-总: 有实现不等于有用例')
 print('ok   三种"看似已实现"各判各的: 语义不符／未实现／无反例用例')
